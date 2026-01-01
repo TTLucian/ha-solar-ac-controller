@@ -177,3 +177,15 @@ class SolarACCoordinator(DataUpdateCoordinator):
                 "climate", "turn_off", {"entity_id": zone}, blocking=True
             )
             await asyncio.sleep(3)
+            
+async def _log(self, message: str):
+    await self.hass.services.async_call(
+        "logbook",
+        "log",
+        {
+            "name": "Solar AC",
+            "entity_id": "sensor.solar_ac_controller_debug",
+            "message": message,
+        },
+        blocking=False,
+    )
