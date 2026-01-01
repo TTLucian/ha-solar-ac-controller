@@ -87,9 +87,10 @@ It exposes all internal state.
 
 ### Reset one zone or all zones
 
-`solar_ac_controller.force_relearn
-
-zone: climate.living`
+```yaml
+solar_ac_controller.force_relearn
+  zone: climate.living
+```
 
 
 ---
