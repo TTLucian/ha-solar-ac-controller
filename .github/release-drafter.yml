@@ -1,10 +1,29 @@
 name-template: "v$NEXT_PATCH_VERSION"
 tag-template: "v$NEXT_PATCH_VERSION"
+
+template: |
+  ## Changes
+  $CHANGES
+
 categories:
   - title: "🚀 Features"
-    labels: ["feature"]
+    labels:
+      - feature
   - title: "🐛 Fixes"
-    labels: ["bug"]
+    labels:
+      - bug
   - title: "🧹 Maintenance"
-    labels: ["chore"]
+    labels:
+      - chore
+
 change-template: "- $TITLE (#$NUMBER)"
+no-changes-template: "* No changes"
+
+version-resolver:
+  major:
+    labels: []
+  minor:
+    labels: []
+  patch:
+    labels: []
+  default: patch
