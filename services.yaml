@@ -1,3 +1,15 @@
+reset_learning:
+  name: Reset Learning
+  description: Reset all learned power values and sample count.
+
 force_relearn:
   name: Force Relearn
-  description: Reset learning for all zones.
+  description: Reset learned power for one or all zones.
+  fields:
+    zone:
+      name: Zone
+      description: Climate zone to reset (optional)
+      required: false
+      selector:
+        entity:
+          domain: climate
