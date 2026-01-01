@@ -23,6 +23,8 @@ class SolarACCoordinator(DataUpdateCoordinator):
             update_interval=timedelta(seconds=5),
         )
 
+        self.controller = SolarACController(hass, self, store)
+        
         self.hass = hass
         self.config = config
         self.store = store
@@ -121,6 +123,11 @@ class SolarACCoordinator(DataUpdateCoordinator):
 
         # SYSTEM BALANCED
         self.last_action = "balanced"
+        
+        # Learning completion check
+        if self.learning_active:
+            if time.time() - self.learning_start_time >= 360:  # 6 minutes
+                await self.controller.finish_learning()
 
     def _is_short_cycling(self, zone):
         if not zone:
@@ -132,6 +139,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
 
     async def _add_zone(self, zone, ac_power_before):
         """Start learning + turn on zone."""
+        await self.controller.start_learning(zone, ac_power_before)
         self.learning_active = True
         self.learning_start_time = time.time()
         self.ac_power_before = ac_power_before
