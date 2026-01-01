@@ -1,0 +1,3 @@
+force_relearn:
+  name: Force Relearn
+  description: Reset learning for all zones.
