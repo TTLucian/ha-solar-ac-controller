@@ -1,0 +1,11 @@
+{
+  "title": "Solar AC Controller",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Solar AC Controller",
+        "description": "Configure the Solar AC controller integration."
+      }
+    }
+  }
+}
