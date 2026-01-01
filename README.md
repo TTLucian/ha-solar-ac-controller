@@ -1,3 +1,11 @@
+<p align="center">
+  <img src="https://img.shields.io/github/v/release/TTLucian/ha-solar-ac-controller?style=for-the-badge" />
+  <img src="https://img.shields.io/github/license/TTLucian/ha-solar-ac-controller?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/HACS-Custom-orange.svg?style=for-the-badge" />
+  <img src="https://img.shields.io/github/actions/workflow/status/TTLucian/ha-solar-ac-controller/validate.yml?style=for-the-badge" />
+</p>
+
+
 # Solar AC Controller (Home Assistant Integration)
 
 A native Home Assistant integration that controls multi‑zone AC systems
