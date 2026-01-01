@@ -13,6 +13,8 @@ from .const import (
     CONF_AC_POWER_SENSOR,
     CONF_AC_SWITCH,
     CONF_ZONES,
+    CONF_SOLAR_THRESHOLD_ON,
+    CONF_SOLAR_THRESHOLD_OFF,
 )
 
 
@@ -44,6 +46,12 @@ class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 ),
                 vol.Required(CONF_ZONES): selector.selector(
                     {"entity": {"multiple": True, "domain": "climate"}}
+                ),
+                vol.Required(CONF_SOLAR_THRESHOLD_ON, default=1200): selector.selector(
+                    {"number": {"min": 0, "max": 5000, "step": 50}}
+                ),
+                vol.Required(CONF_SOLAR_THRESHOLD_OFF, default=800): selector.selector(
+                    {"number": {"min": 0, "max": 5000, "step": 50}}
                 ),
             }
         )
