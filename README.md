@@ -72,3 +72,28 @@ Select:
 
 A debug sensor is created:
 
+`sensor.solar_ac_controller_debug`
+
+It exposes all internal state.
+
+---
+
+## Services
+
+### Reset all learning
+
+`solar_ac_controller.reset_learning`
+
+
+### Reset one zone or all zones
+
+`solar_ac_controller.force_relearn
+
+zone: climate.living`
+
+
+---
+
+## License
+MIT
+
