@@ -17,6 +17,8 @@ from .const import (
     CONF_ZONES,
     CONF_SOLAR_THRESHOLD_ON,
     CONF_SOLAR_THRESHOLD_OFF,
+    CONF_PANIC_THRESHOLD,
+    CONF_PANIC_DELAY,
 )
 
 _LOGGER = logging.getLogger(__name__)
