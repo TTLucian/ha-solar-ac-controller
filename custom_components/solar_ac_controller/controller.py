@@ -24,9 +24,34 @@ class SolarACController:
     async def finish_learning(self):
         """Finish learning after stabilization delay."""
         c = self.coordinator
-
+    
         if not c.learning_active or not c.learning_zone:
             return
+    
+        zone_entity = c.learning_zone
+        zone_state = self.hass.states.get(zone_entity)
+    
+        # Abort if zone was manually turned off or changed mode
+        if not zone_state or zone_state.state not in ("heat", "on"):
+            await c._log(
+                f"[LEARNING_ABORT_MANUAL_INTERVENTION] zone={zone_entity} "
+                f"state={zone_state.state if zone_state else 'unknown'}"
+            )
+            self._reset_learning_state()
+            return
+    
+        # Abort if zone is locked due to manual override
+        lock_until = c.zone_manual_lock_until.get(zone_entity)
+        if lock_until and time.time() < lock_until:
+            await c._log(
+                f"[LEARNING_ABORT_MANUAL_LOCK] zone={zone_entity} "
+                f"lock_until={int(lock_until)}"
+            )
+            self._reset_learning_state()
+            return
+
+    ac_state = self.hass.states.get(c.config["ac_power_sensor"])
+
 
         ac_state = self.hass.states.get(c.config["ac_power_sensor"])
         if not ac_state:
@@ -47,7 +72,18 @@ class SolarACController:
         # Validate delta
         if 250 < delta < 2500:
             prev = c.learned_power.get(zone_name, 1200)
-            new_value = round(prev * 0.7 + delta * 0.3)
+        
+            # EMA-style update: trust previous value more once we have samples
+            alpha = 0.3 if c.samples < 10 else 0.2
+            new_value = round(prev * (1 - alpha) + delta * alpha)
+        
+            c.learned_power[zone_name] = new_value
+            c.samples += 1
+        
+            await c._log(
+                f"[LEARNING_FINISHED] zone={zone_name} delta={round(delta)} "
+                f"prev={prev} new={new_value} samples={c.samples}"
+            )
 
             c.learned_power[zone_name] = new_value
             c.samples += 1
