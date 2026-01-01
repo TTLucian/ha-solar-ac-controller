@@ -1,15 +1,16 @@
-from .controller import SolarACController
-
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from datetime import timedelta
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from .const import DOMAIN, STORAGE_KEY
+from .controller import SolarACController
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class SolarACCoordinator(DataUpdateCoordinator):
@@ -18,13 +19,11 @@ class SolarACCoordinator(DataUpdateCoordinator):
     def __init__(self, hass: HomeAssistant, config, store, stored):
         super().__init__(
             hass,
-            logger=hass.logger,
+            logger=_LOGGER,
             name="Solar AC Controller",
             update_interval=timedelta(seconds=5),
         )
 
-        self.controller = SolarACController(hass, self, store)
-        
         self.hass = hass
         self.config = config
         self.store = store
@@ -34,24 +33,40 @@ class SolarACCoordinator(DataUpdateCoordinator):
         self.samples = stored.get("samples", 0)
 
         # Internal state
-        self.last_action = None
-        self.learning_active = False
-        self.learning_start_time = None
-        self.ac_power_before = None
+        self.last_action: str | None = None
+        self.learning_active: bool = False
+        self.learning_start_time: float | None = None
+        self.ac_power_before: float | None = None
+        self.learning_zone: str | None = None
 
         # EMA state
-        self.ema_30s = 0
-        self.ema_5m = 0
+        self.ema_30s: float = 0.0
+        self.ema_5m: float = 0.0
 
         # Short cycle memory
-        self.zone_last_changed = {}
+        self.zone_last_changed: dict[str, float] = {}
+
+        # Controller
+        self.controller = SolarACController(hass, self, store)
 
     async def _async_update_data(self):
         """Main loop executed every 5 seconds."""
 
-        grid_raw = float(self.hass.states.get(self.config["grid_sensor"]).state)
-        solar = float(self.hass.states.get(self.config["solar_sensor"]).state)
-        ac_power = float(self.hass.states.get(self.config["ac_power_sensor"]).state)
+        grid_state = self.hass.states.get(self.config["grid_sensor"])
+        solar_state = self.hass.states.get(self.config["solar_sensor"])
+        ac_state = self.hass.states.get(self.config["ac_power_sensor"])
+
+        if not grid_state or not solar_state or not ac_state:
+            _LOGGER.debug("Missing sensor state, skipping cycle")
+            return
+
+        try:
+            grid_raw = float(grid_state.state)
+            # solar = float(solar_state.state)  # unused for now
+            ac_power = float(ac_state.state)
+        except ValueError:
+            _LOGGER.debug("Non-numeric sensor value, skipping cycle")
+            return
 
         # Update EMA 30s
         self.ema_30s = 0.25 * grid_raw + 0.75 * self.ema_30s
@@ -60,10 +75,12 @@ class SolarACCoordinator(DataUpdateCoordinator):
         self.ema_5m = 0.03 * grid_raw + 0.97 * self.ema_5m
 
         # Determine active zones
-        active_zones = []
+        active_zones: list[str] = []
         for zone in self.config["zones"]:
-            state = self.hass.states.get(zone).state
-            if state in ("heat", "on"):
+            state_obj = self.hass.states.get(zone)
+            if not state_obj:
+                continue
+            if state_obj.state in ("heat", "on"):
                 active_zones.append(zone)
 
         on_count = len(active_zones)
@@ -100,6 +117,11 @@ class SolarACCoordinator(DataUpdateCoordinator):
             + (-40 if self._is_short_cycling(last_zone) else 0)
         )
 
+        # Learning completion check
+        if self.learning_active and self.learning_start_time:
+            if time.time() - self.learning_start_time >= 360:  # 6 minutes
+                await self.controller.finish_learning()
+
         # PANIC SHED
         if grid_raw > 2500 and on_count > 1:
             if self.last_action != "panic":
@@ -123,13 +145,8 @@ class SolarACCoordinator(DataUpdateCoordinator):
 
         # SYSTEM BALANCED
         self.last_action = "balanced"
-        
-        # Learning completion check
-        if self.learning_active:
-            if time.time() - self.learning_start_time >= 360:  # 6 minutes
-                await self.controller.finish_learning()
 
-    def _is_short_cycling(self, zone):
+    def _is_short_cycling(self, zone: str | None) -> bool:
         if not zone:
             return False
         last = self.zone_last_changed.get(zone)
@@ -137,29 +154,26 @@ class SolarACCoordinator(DataUpdateCoordinator):
             return False
         return (time.time() - last) < 1200  # 20 minutes
 
-    async def _add_zone(self, zone, ac_power_before):
+    async def _add_zone(self, zone: str, ac_power_before: float):
         """Start learning + turn on zone."""
         await self.controller.start_learning(zone, ac_power_before)
-        self.learning_active = True
-        self.learning_start_time = time.time()
-        self.ac_power_before = ac_power_before
 
         await self.hass.services.async_call(
-            "climate", "turn_on", {"entity_id": zone}
+            "climate", "turn_on", {"entity_id": zone}, blocking=True
         )
 
         self.zone_last_changed[zone] = time.time()
 
-    async def _remove_zone(self, zone):
+    async def _remove_zone(self, zone: str):
         await self.hass.services.async_call(
-            "climate", "turn_off", {"entity_id": zone}
+            "climate", "turn_off", {"entity_id": zone}, blocking=True
         )
         self.zone_last_changed[zone] = time.time()
 
-    async def _panic_shed(self, active_zones):
+    async def _panic_shed(self, active_zones: list[str]):
         """Turn off all but the first zone."""
         for zone in active_zones[1:]:
             await self.hass.services.async_call(
-                "climate", "turn_off", {"entity_id": zone}
+                "climate", "turn_off", {"entity_id": zone}, blocking=True
             )
             await asyncio.sleep(3)
