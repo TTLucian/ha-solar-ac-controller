@@ -30,21 +30,15 @@ class SolarACController:
 
         ac_state = self.hass.states.get(c.config["ac_power_sensor"])
         if not ac_state:
-            # No data → abort learning gracefully
-            c.learning_active = False
-            c.learning_zone = None
-            c.learning_start_time = None
-            c.ac_power_before = None
+            await c._log("[LEARNING_ABORT] ac_power_sensor state missing")
+            self._reset_learning_state()
             return
 
         try:
             ac_power_now = float(ac_state.state)
         except ValueError:
-            # Invalid value → abort learning
-            c.learning_active = False
-            c.learning_zone = None
-            c.learning_start_time = None
-            c.ac_power_before = None
+            await c._log("[LEARNING_ABORT] ac_power_sensor non-numeric")
+            self._reset_learning_state()
             return
 
         delta = ac_power_now - (c.ac_power_before or 0.0)
@@ -58,10 +52,22 @@ class SolarACController:
             c.learned_power[zone_name] = new_value
             c.samples += 1
 
-            await self._save()
-        # else: skip learning
+            await c._log(
+                f"[LEARNING_FINISHED] zone={zone_name} delta={round(delta)} "
+                f"prev={prev} new={new_value} samples={c.samples}"
+            )
 
-        # Reset learning state
+            await self._save()
+        else:
+            await c._log(
+                f"[LEARNING_SKIP] zone={zone_name} delta={round(delta)} "
+                "outside [250,2500]W"
+            )
+
+        self._reset_learning_state()
+
+    def _reset_learning_state(self):
+        c = self.coordinator
         c.learning_active = False
         c.learning_zone = None
         c.learning_start_time = None
@@ -86,4 +92,5 @@ class SolarACController:
 
         c.samples = 0
 
+        await c._log("[LEARNING_RESET] all_zones")
         await self._save()
