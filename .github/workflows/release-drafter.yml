@@ -1,29 +1,16 @@
-name-template: "v$NEXT_PATCH_VERSION"
-tag-template: "v$NEXT_PATCH_VERSION"
+name: Release Drafter
 
-template: |
-  ## Changes
-  $CHANGES
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    types: [opened, reopened, synchronize]
 
-categories:
-  - title: "🚀 Features"
-    labels:
-      - feature
-  - title: "🐛 Fixes"
-    labels:
-      - bug
-  - title: "🧹 Maintenance"
-    labels:
-      - chore
-
-change-template: "- $TITLE (#$NUMBER)"
-no-changes-template: "* No changes"
-
-version-resolver:
-  major:
-    labels: []
-  minor:
-    labels: []
-  patch:
-    labels: []
-  default: patch
+jobs:
+  update_release_draft:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: release-drafter/release-drafter@v6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
