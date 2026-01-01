@@ -1,0 +1,77 @@
+# -----------------------------
+# Python cache / build artifacts
+# -----------------------------
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pydist
+*.egg-info/
+build/
+dist/
+*.egg
+*.manifest
+*.spec
+
+# -----------------------------
+# Virtual environments
+# -----------------------------
+venv/
+env/
+.venv/
+.env/
+
+# -----------------------------
+# OS junk
+# -----------------------------
+.DS_Store
+Thumbs.db
+
+# -----------------------------
+# Editor settings
+# -----------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# -----------------------------
+# Home Assistant specific
+# -----------------------------
+# HA internal storage (never commit)
+.storage/
+.cloud/
+.homeassistant/
+
+# HA database files
+home-assistant_v2.db*
+*.db-shm
+*.db-wal
+
+# HA logs
+home-assistant.log
+home-assistant.log.*
+*.log
+
+# HA backups
+backup/
+*.tar
+*.tar.gz
+
+# -----------------------------
+# GitHub Actions
+# -----------------------------
+# Workflow artifacts
+*.coverage
+coverage.xml
+pytest.xml
+test-results/
+.github/workflows/*.tmp
+
+# -----------------------------
+# Misc
+# -----------------------------
+*.tmp
+*.bak
+*.old
+*.orig
