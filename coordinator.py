@@ -6,15 +6,14 @@ from datetime import timedelta
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
-from homeassistant.helpers.entity import Entity
 
-from .const import DOMAIN
+from .const import DOMAIN, STORAGE_KEY
 
 
 class SolarACCoordinator(DataUpdateCoordinator):
     """Main control loop for the Solar AC Controller."""
 
-    def __init__(self, hass: HomeAssistant, config):
+    def __init__(self, hass: HomeAssistant, config, store, stored):
         super().__init__(
             hass,
             logger=hass.logger,
@@ -24,6 +23,11 @@ class SolarACCoordinator(DataUpdateCoordinator):
 
         self.hass = hass
         self.config = config
+        self.store = store
+
+        # Load learned values from storage
+        self.learned_power = stored.get("learned_power", {})
+        self.samples = stored.get("samples", 0)
 
         # Internal state
         self.last_action = None
@@ -34,12 +38,6 @@ class SolarACCoordinator(DataUpdateCoordinator):
         # EMA state
         self.ema_30s = 0
         self.ema_5m = 0
-
-        # Learning memory
-        self.learned_power = {
-            zone.split(".")[-1]: 1200 for zone in config["zones"]
-        }
-        self.samples = 0
 
         # Short cycle memory
         self.zone_last_changed = {}
@@ -140,7 +138,6 @@ class SolarACCoordinator(DataUpdateCoordinator):
             "climate", "turn_on", {"entity_id": zone}
         )
 
-        # Learning will be completed in next cycles
         self.zone_last_changed[zone] = time.time()
 
     async def _remove_zone(self, zone):
