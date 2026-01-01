@@ -17,3 +17,6 @@
 ### Installation
 Update via HACS or download the ZIP from this release and extract into:
 
+`custom_components/solar_ac_controller/`
+
+Restart Home Assistant after updating.
