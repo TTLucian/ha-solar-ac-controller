@@ -24,13 +24,13 @@ class SolarACController:
     async def finish_learning(self):
         """Finish learning after stabilization delay."""
         c = self.coordinator
-    
+
         if not c.learning_active or not c.learning_zone:
             return
-    
+
         zone_entity = c.learning_zone
         zone_state = self.hass.states.get(zone_entity)
-    
+
         # Abort if zone was manually turned off or changed mode
         if not zone_state or zone_state.state not in ("heat", "on"):
             await c._log(
@@ -39,7 +39,7 @@ class SolarACController:
             )
             self._reset_learning_state()
             return
-    
+
         # Abort if zone is locked due to manual override
         lock_until = c.zone_manual_lock_until.get(zone_entity)
         if lock_until and time.time() < lock_until:
@@ -50,9 +50,7 @@ class SolarACController:
             self._reset_learning_state()
             return
 
-    ac_state = self.hass.states.get(c.config["ac_power_sensor"])
-
-
+        # Read AC power
         ac_state = self.hass.states.get(c.config["ac_power_sensor"])
         if not ac_state:
             await c._log("[LEARNING_ABORT] ac_power_sensor state missing")
@@ -72,18 +70,10 @@ class SolarACController:
         # Validate delta
         if 250 < delta < 2500:
             prev = c.learned_power.get(zone_name, 1200)
-        
+
             # EMA-style update: trust previous value more once we have samples
             alpha = 0.3 if c.samples < 10 else 0.2
             new_value = round(prev * (1 - alpha) + delta * alpha)
-        
-            c.learned_power[zone_name] = new_value
-            c.samples += 1
-        
-            await c._log(
-                f"[LEARNING_FINISHED] zone={zone_name} delta={round(delta)} "
-                f"prev={prev} new={new_value} samples={c.samples}"
-            )
 
             c.learned_power[zone_name] = new_value
             c.samples += 1
