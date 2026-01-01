@@ -9,6 +9,15 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .controller import SolarACController
+from .const import (
+    CONF_SOLAR_SENSOR,
+    CONF_GRID_SENSOR,
+    CONF_AC_POWER_SENSOR,
+    CONF_AC_SWITCH,
+    CONF_ZONES,
+    CONF_SOLAR_THRESHOLD_ON,
+    CONF_SOLAR_THRESHOLD_OFF,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -28,9 +37,9 @@ class SolarACCoordinator(DataUpdateCoordinator):
         self.config = config
         self.store = store
 
-        # Load learned values from storage
-        self.learned_power = stored.get("learned_power", {})
-        self.samples = stored.get("samples", 0)
+        # Learned values from storage
+        self.learned_power: dict[str, float] = stored.get("learned_power", {})
+        self.samples: int = stored.get("samples", 0)
 
         # Internal state
         self.last_action: str | None = None
@@ -52,9 +61,9 @@ class SolarACCoordinator(DataUpdateCoordinator):
     async def _async_update_data(self):
         """Main loop executed every 5 seconds."""
 
-        grid_state = self.hass.states.get(self.config["grid_sensor"])
-        solar_state = self.hass.states.get(self.config["solar_sensor"])
-        ac_state = self.hass.states.get(self.config["ac_power_sensor"])
+        grid_state = self.hass.states.get(self.config[CONF_GRID_SENSOR])
+        solar_state = self.hass.states.get(self.config[CONF_SOLAR_SENSOR])
+        ac_state = self.hass.states.get(self.config[CONF_AC_POWER_SENSOR])
 
         if not grid_state or not solar_state or not ac_state:
             _LOGGER.debug("Missing sensor state, skipping cycle")
@@ -62,21 +71,22 @@ class SolarACCoordinator(DataUpdateCoordinator):
 
         try:
             grid_raw = float(grid_state.state)
-            # solar = float(solar_state.state)  # unused for now
+            solar = float(solar_state.state)
             ac_power = float(ac_state.state)
         except ValueError:
             _LOGGER.debug("Non-numeric sensor value, skipping cycle")
             return
 
-        # Update EMA 30s
+        # EMA updates
         self.ema_30s = 0.25 * grid_raw + 0.75 * self.ema_30s
-
-        # Update EMA 5m
         self.ema_5m = 0.03 * grid_raw + 0.97 * self.ema_5m
+
+        # MASTER SWITCH CONTROL
+        await self._handle_master_switch(solar, ac_power)
 
         # Determine active zones
         active_zones: list[str] = []
-        for zone in self.config["zones"]:
+        for zone in self.config[CONF_ZONES]:
             state_obj = self.hass.states.get(zone)
             if not state_obj:
                 continue
@@ -85,11 +95,13 @@ class SolarACCoordinator(DataUpdateCoordinator):
 
         on_count = len(active_zones)
 
-        # Determine next and last zone
-        next_zone = next((z for z in self.config["zones"] if z not in active_zones), None)
+        # Next and last zone
+        next_zone = next(
+            (z for z in self.config[CONF_ZONES] if z not in active_zones), None
+        )
         last_zone = active_zones[-1] if active_zones else None
 
-        # Compute required export
+        # Required export
         if next_zone:
             zone_name = next_zone.split(".")[-1]
             lp = self.learned_power.get(zone_name, 1200)
@@ -98,7 +110,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
         else:
             required_export = 99999
 
-        # Compute ADD confidence
+        # ADD confidence
         export = -self.ema_30s
         export_margin = export - required_export
         add_conf = (
@@ -108,7 +120,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
             + (-30 if self._is_short_cycling(last_zone) else 0)
         )
 
-        # Compute REMOVE confidence
+        # REMOVE confidence
         import_power = self.ema_5m
         remove_conf = (
             min(60, max(0, (import_power - 200) / 8))
@@ -117,7 +129,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
             + (-40 if self._is_short_cycling(last_zone) else 0)
         )
 
-        # Learning completion check
+        # Learning completion
         if self.learning_active and self.learning_start_time:
             if time.time() - self.learning_start_time >= 360:  # 6 minutes
                 await self.controller.finish_learning()
@@ -125,6 +137,9 @@ class SolarACCoordinator(DataUpdateCoordinator):
         # PANIC SHED
         if grid_raw > 2500 and on_count > 1:
             if self.last_action != "panic":
+                await self._log(
+                    f"[PANIC_SHED] import={round(self.ema_5m)} zones={active_zones}"
+                )
                 await self._panic_shed(active_zones)
                 self.last_action = "panic"
             return
@@ -132,6 +147,11 @@ class SolarACCoordinator(DataUpdateCoordinator):
         # ZONE ADD
         if next_zone and add_conf >= 25 and not self.learning_active:
             if self.last_action != f"add_{next_zone}":
+                await self._log(
+                    f"[ZONE_ADD_ATTEMPT] zone={next_zone} "
+                    f"add_conf={round(add_conf)} export={round(export)} "
+                    f"req_export={round(required_export)} samples={self.samples}"
+                )
                 await self._add_zone(next_zone, ac_power)
                 self.last_action = f"add_{next_zone}"
             return
@@ -139,12 +159,21 @@ class SolarACCoordinator(DataUpdateCoordinator):
         # ZONE REMOVE
         if last_zone and remove_conf >= 40:
             if self.last_action != f"remove_{last_zone}":
+                await self._log(
+                    f"[ZONE_REMOVE_ATTEMPT] zone={last_zone} "
+                    f"remove_conf={round(remove_conf)} import={round(import_power)} "
+                    f"short_cycling={self._is_short_cycling(last_zone)}"
+                )
                 await self._remove_zone(last_zone)
                 self.last_action = f"remove_{last_zone}"
             return
 
         # SYSTEM BALANCED
         self.last_action = "balanced"
+        await self._log(
+            f"[SYSTEM_BALANCED] ema30={round(self.ema_30s)} ema5m={round(self.ema_5m)} "
+            f"zones={on_count} samples={self.samples}"
+        )
 
     def _is_short_cycling(self, zone: str | None) -> bool:
         if not zone:
@@ -164,11 +193,20 @@ class SolarACCoordinator(DataUpdateCoordinator):
 
         self.zone_last_changed[zone] = time.time()
 
+        await self._log(
+            f"[LEARNING_START] zone={zone} ac_before={round(ac_power_before)} "
+            f"samples={self.samples}"
+        )
+
     async def _remove_zone(self, zone: str):
         await self.hass.services.async_call(
             "climate", "turn_off", {"entity_id": zone}, blocking=True
         )
         self.zone_last_changed[zone] = time.time()
+
+        await self._log(
+            f"[ZONE_REMOVE_SUCCESS] zone={zone} import_after={round(self.ema_5m)}"
+        )
 
     async def _panic_shed(self, active_zones: list[str]):
         """Turn off all but the first zone."""
@@ -177,15 +215,66 @@ class SolarACCoordinator(DataUpdateCoordinator):
                 "climate", "turn_off", {"entity_id": zone}, blocking=True
             )
             await asyncio.sleep(3)
-            
-async def _log(self, message: str):
-    await self.hass.services.async_call(
-        "logbook",
-        "log",
-        {
-            "name": "Solar AC",
-            "entity_id": "sensor.solar_ac_controller_debug",
-            "message": message,
-        },
-        blocking=False,
-    )
+
+    async def _handle_master_switch(self, solar: float, ac_power: float):
+        """Master relay control based on solar availability and compressor safety."""
+        ac_switch = self.config[CONF_AC_SWITCH]
+        if not ac_switch:
+            return
+
+        on_threshold = self.config.get(CONF_SOLAR_THRESHOLD_ON, 1200)
+        off_threshold = self.config.get(CONF_SOLAR_THRESHOLD_OFF, 800)
+
+        switch_state_obj = self.hass.states.get(ac_switch)
+        if not switch_state_obj:
+            return
+
+        switch_state = switch_state_obj.state
+
+        # Turn ON when solar is consistently above threshold
+        if solar > on_threshold and switch_state == "off":
+            await self._log(
+                f"[MASTER_POWER_ON] solar={round(solar)}W ac_state={switch_state}"
+            )
+            await self.hass.services.async_call(
+                "switch", "turn_on", {"entity_id": ac_switch}, blocking=True
+            )
+
+        # Turn OFF when solar is low and AC is idle
+        if solar < off_threshold and switch_state == "on":
+            await self._log(
+                f"[MASTER_SHUTDOWN] solar={round(solar)}W ac_power={round(ac_power)}W "
+                "waiting 10 minutes for compressor safety"
+            )
+            await asyncio.sleep(600)
+
+            ac_state = self.hass.states.get(self.config[CONF_AC_POWER_SENSOR])
+            try:
+                ac_now = float(ac_state.state) if ac_state else ac_power
+            except ValueError:
+                ac_now = ac_power
+
+            if ac_now < 25:
+                await self.hass.services.async_call(
+                    "switch", "turn_off", {"entity_id": ac_switch}, blocking=True
+                )
+                await self._log(
+                    f"[MASTER_POWER_OFF] solar={round(solar)}W ac={round(ac_now)}W"
+                )
+            else:
+                await self._log(
+                    f"[MASTER_SHUTDOWN_BLOCKED] solar={round(solar)}W ac={round(ac_now)}W"
+                )
+
+    async def _log(self, message: str):
+        """Log to HA logbook with a consistent taxonomy."""
+        await self.hass.services.async_call(
+            "logbook",
+            "log",
+            {
+                "name": "Solar AC",
+                "entity_id": "sensor.solar_ac_controller_debug",
+                "message": message,
+            },
+            blocking=False,
+        )
