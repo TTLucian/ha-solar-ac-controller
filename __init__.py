@@ -1,3 +1,6 @@
+self.controller = SolarACController(hass, self, store)
+
+
 from __future__ import annotations
 
 from homeassistant.config_entries import ConfigEntry
