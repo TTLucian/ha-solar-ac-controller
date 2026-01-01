@@ -1,10 +1,7 @@
 from __future__ import annotations
 
 from homeassistant.components.sensor import SensorEntity
-from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
-
-from .const import DOMAIN
 
 
 class SolarACDebugEntity(CoordinatorEntity, SensorEntity):
