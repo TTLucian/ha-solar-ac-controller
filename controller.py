@@ -25,15 +25,29 @@ class SolarACController:
         """Finish learning after stabilization delay."""
         c = self.coordinator
 
-        if not c.learning_active:
+        if not c.learning_active or not c.learning_zone:
             return
 
-        # Read current AC power
-        ac_power_now = float(
-            self.hass.states.get(self.coordinator.config["ac_power_sensor"]).state
-        )
+        ac_state = self.hass.states.get(c.config["ac_power_sensor"])
+        if not ac_state:
+            # No data → abort learning gracefully
+            c.learning_active = False
+            c.learning_zone = None
+            c.learning_start_time = None
+            c.ac_power_before = None
+            return
 
-        delta = ac_power_now - c.ac_power_before
+        try:
+            ac_power_now = float(ac_state.state)
+        except ValueError:
+            # Invalid value → abort learning
+            c.learning_active = False
+            c.learning_zone = None
+            c.learning_start_time = None
+            c.ac_power_before = None
+            return
+
+        delta = ac_power_now - (c.ac_power_before or 0.0)
         zone_name = c.learning_zone.split(".")[-1]
 
         # Validate delta
