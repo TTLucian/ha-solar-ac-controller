@@ -2,29 +2,43 @@ from __future__ import annotations
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from .const import DOMAIN
+from homeassistant.helpers.storage import Store
+
+from .const import DOMAIN, STORAGE_KEY, STORAGE_VERSION
+from .coordinator import SolarACCoordinator
+
 
 async def async_setup(hass: HomeAssistant, config: dict):
-    """Set up from YAML (not used for config flow, but keep for compatibility)."""
+    """YAML setup not supported."""
     return True
+
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     """Set up Solar AC Controller from a config entry."""
     hass.data.setdefault(DOMAIN, {})
+
+    # Load storage
+    store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
+    stored = await store.async_load() or {}
+
+    coordinator = SolarACCoordinator(hass, entry.data, store, stored)
+    await coordinator.async_config_entry_first_refresh()
+
     hass.data[DOMAIN][entry.entry_id] = {
-        "solar_sensor": entry.data.get("solar_sensor"),
-        "grid_sensor": entry.data.get("grid_sensor"),
-        "ac_power_sensor": entry.data.get("ac_power_sensor"),
-        "ac_switch": entry.data.get("ac_switch"),
-        "zones": entry.data.get("zones", []),
+        "coordinator": coordinator,
+        "store": store,
     }
 
-    # Placeholder: later you can register platforms or services here
-    # e.g. hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    # Register debug entity
+    hass.async_create_task(
+        hass.config_entries.async_forward_entry_setup(entry, "sensor")
+    )
 
     return True
 
+
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
-    """Unload a config entry."""
+    """Unload integration."""
+    await hass.config_entries.async_forward_entry_unload(entry, "sensor")
     hass.data[DOMAIN].pop(entry.entry_id, None)
     return True
