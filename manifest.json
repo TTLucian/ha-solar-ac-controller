@@ -1,0 +1,12 @@
+{
+  "domain": "solar_ac_controller",
+  "name": "Solar AC Controller",
+  "documentation": "https://github.com/YOUR_GITHUB_USERNAME/ha-solar-ac-controller",
+  "issue_tracker": "https://github.com/YOUR_GITHUB_USERNAME/ha-solar-ac-controller/issues",
+  "version": "0.1.0",
+  "requirements": [],
+  "codeowners": ["@YOUR_GITHUB_USERNAME"],
+  "config_flow": true,
+  "iot_class": "local_push",
+  "loggers": ["custom_components.solar_ac_controller"]
+}
