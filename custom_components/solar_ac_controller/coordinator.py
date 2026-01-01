@@ -56,6 +56,15 @@ class SolarACCoordinator(DataUpdateCoordinator):
 
         # Short cycle memory
         self.zone_last_changed: dict[str, float] = {}
+        
+        # Manual override detection (hands-off window)
+        self.zone_last_state: dict[str, str | None] = {}
+        self.zone_manual_lock_until: dict[str, float] = {}
+        
+        # Panic configuration
+        self.panic_threshold: float = config.get(CONF_PANIC_THRESHOLD, 2500)
+        self.panic_delay: int = config.get(CONF_PANIC_DELAY, 10)
+
 
         # Controller
         self.controller = SolarACController(hass, self, store)
@@ -86,22 +95,57 @@ class SolarACCoordinator(DataUpdateCoordinator):
         # MASTER SWITCH CONTROL
         await self._handle_master_switch(solar, ac_power)
 
-        # Determine active zones
+        # Determine active zones & detect manual overrides
         active_zones: list[str] = []
         for zone in self.config[CONF_ZONES]:
             state_obj = self.hass.states.get(zone)
             if not state_obj:
                 continue
-            if state_obj.state in ("heat", "on"):
+        
+            state = state_obj.state
+        
+            # Manual override detection:
+            last_state = self.zone_last_state.get(zone)
+            if last_state is not None and last_state != state:
+                if not (
+                    self.last_action
+                    and (
+                        self.last_action.endswith(zone)
+                        or self.last_action == "panic"
+                    )
+                ):
+                    self.zone_manual_lock_until[zone] = time.time() + 1200  # 20 minutes
+                    await self._log(
+                        f"[MANUAL_OVERRIDE_DETECTED] zone={zone} state={state} "
+                        f"lock_until={int(self.zone_manual_lock_until[zone])}"
+                    )
+        
+            self.zone_last_state[zone] = state
+        
+            if state in ("heat", "on"):
                 active_zones.append(zone)
 
         on_count = len(active_zones)
 
-        # Next and last zone
+        # Helper: zone is currently locked by manual override
+        def _is_locked(zone_id: str) -> bool:
+            until = self.zone_manual_lock_until.get(zone_id)
+            return bool(until and time.time() < until)
+        
+        # Next and last zone (controller-managed only, ignore locked)
         next_zone = next(
-            (z for z in self.config[CONF_ZONES] if z not in active_zones), None
+            (
+                z
+                for z in self.config[CONF_ZONES]
+                if z not in active_zones and not _is_locked(z)
+            ),
+            None,
         )
-        last_zone = active_zones[-1] if active_zones else None
+        
+        # last_zone is the last active zone that is not locked
+        last_zone = next(
+            (z for z in reversed(active_zones) if not _is_locked(z)), None
+        )
 
         # Required export
         if next_zone:
@@ -136,13 +180,24 @@ class SolarACCoordinator(DataUpdateCoordinator):
             if time.time() - self.learning_start_time >= 360:  # 6 minutes
                 await self.controller.finish_learning()
 
-        # PANIC SHED
-        if grid_raw > 2500 and on_count > 1:
+        # PANIC SHED (now based on EMA and configurable threshold)
+        if self.ema_30s > self.panic_threshold and on_count > 1:
             if self.last_action != "panic":
                 await self._log(
-                    f"[PANIC_SHED] import={round(self.ema_5m)} zones={active_zones}"
+                    f"[PANIC_SHED_TRIGGER] ema30={round(self.ema_30s)} "
+                    f"ema5m={round(self.ema_5m)} threshold={self.panic_threshold} "
+                    f"zones={active_zones}"
                 )
-                await self._panic_shed(active_zones)
+                # Optional debounce before actually shedding
+                if self.panic_delay > 0:
+                    await asyncio.sleep(self.panic_delay)
+                # Re-check condition after delay
+                if self.ema_30s > self.panic_threshold:
+                    await self._panic_shed(active_zones)
+                    await self._log(
+                        f"[PANIC_SHED] ema30={round(self.ema_30s)} "
+                        f"ema5m={round(self.ema_5m)} zones={active_zones}"
+                    )
                 self.last_action = "panic"
             return
 
@@ -187,6 +242,14 @@ class SolarACCoordinator(DataUpdateCoordinator):
 
     async def _add_zone(self, zone: str, ac_power_before: float):
         """Start learning + turn on zone."""
+        # Do not start learning if another session is active
+        if self.learning_active:
+            await self._log(
+                f"[LEARNING_SKIPPED_ALREADY_ACTIVE] zone={zone} "
+                f"current_zone={self.learning_zone}"
+            )
+            return
+        
         await self.controller.start_learning(zone, ac_power_before)
 
         await self.hass.services.async_call(
