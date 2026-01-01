@@ -76,7 +76,8 @@ data:
 ```
 If zone is omitted, all zones are reset.
 
-Logging
+## Logging
+
 The integration writes structured events to the HA logbook with tags like:
 
 [ZONE_ADD_ATTEMPT]
