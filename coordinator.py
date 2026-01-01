@@ -1,3 +1,5 @@
+from .controller import SolarACController
+
 from __future__ import annotations
 
 import asyncio
