@@ -56,6 +56,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
                 coordinator.learned_power[zn] = 1200
 
         coordinator.samples = 0
+        coordinator.learning_active = False
+        coordinator.learning_zone = None
+        coordinator.learning_start_time = None
+        coordinator.ac_power_before = None
         await coordinator.controller._save()
 
     hass.services.async_register(DOMAIN, "force_relearn", handle_force_relearn)
