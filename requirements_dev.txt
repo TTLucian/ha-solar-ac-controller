@@ -1,4 +1,4 @@
-black
-pylint
-homeassistant
-pytest
+black==24.3.0
+pylint==3.2.0
+pytest==8.2.0
+pytest-homeassistant-custom-component==0.13.0
