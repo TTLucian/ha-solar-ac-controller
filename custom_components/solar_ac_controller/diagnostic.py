@@ -4,9 +4,9 @@ from homeassistant.components.sensor import SensorEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
-from homeassistant.util import dt as dt_util
 
 
 async def async_setup_entry(
@@ -19,7 +19,10 @@ async def async_setup_entry(
 
     async_add_entities([SolarACDiagnosticEntity(coordinator)])
 
+
 class SolarACDiagnosticEntity(SensorEntity):
+    """A single entity exposing the entire controller brain."""
+
     _attr_should_poll = False
     _attr_name = "Solar AC Diagnostics"
     _attr_unique_id = "solar_ac_diagnostics"
@@ -37,19 +40,6 @@ class SolarACDiagnosticEntity(SensorEntity):
             "suggested_area": "HVAC",
             "entry_type": "service",
         }
-
-    async def async_added_to_hass(self):
-        self.coordinator.async_add_listener(self.async_write_ha_state)
-
-class SolarACDiagnosticEntity(SensorEntity):
-    """A single entity exposing the entire controller brain."""
-
-    _attr_should_poll = False
-    _attr_name = "Solar AC Diagnostics"
-    _attr_unique_id = "solar_ac_diagnostics"
-
-    def __init__(self, coordinator):
-        self.coordinator = coordinator
 
     async def async_added_to_hass(self):
         self.coordinator.async_add_listener(self.async_write_ha_state)
