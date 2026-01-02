@@ -4,9 +4,9 @@ from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
-from homeassistant.util import dt as dt_util
 
 
 async def async_setup_entry(
@@ -28,7 +28,14 @@ async def async_setup_entry(
 
     async_add_entities(entities)
 
+
+# ---------------------------------------------------------------------------
+# BASE CLASS (merged, final, correct)
+# ---------------------------------------------------------------------------
+
 class _BaseSolarACBinary(BinarySensorEntity):
+    """Base class for all Solar AC binary sensors."""
+
     _attr_should_poll = False
 
     def __init__(self, coordinator):
@@ -48,15 +55,10 @@ class _BaseSolarACBinary(BinarySensorEntity):
     async def async_added_to_hass(self):
         self.coordinator.async_add_listener(self.async_write_ha_state)
 
-class _BaseSolarACBinary(BinarySensorEntity):
-    _attr_should_poll = False
 
-    def __init__(self, coordinator):
-        self.coordinator = coordinator
-
-    async def async_added_to_hass(self):
-        self.coordinator.async_add_listener(self.async_write_ha_state)
-
+# ---------------------------------------------------------------------------
+# BINARY SENSOR ENTITIES
+# ---------------------------------------------------------------------------
 
 class SolarACLearningBinarySensor(_BaseSolarACBinary):
     @property
@@ -98,9 +100,10 @@ class SolarACShortCycleBinarySensor(_BaseSolarACBinary):
     @property
     def is_on(self):
         c = self.coordinator
+        now = dt_util.utcnow().timestamp()
         for z in c.config["zones"]:
             last = c.zone_last_changed.get(z)
-            if last and (dt_util.utcnow().timestamp() - last) < 1200:
+            if last and (now - last) < 1200:
                 return True
         return False
 
