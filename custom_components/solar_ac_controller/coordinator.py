@@ -178,6 +178,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
         # Learning completion
         if self.learning_active and self.learning_start_time:
             if time.time() - self.learning_start_time >= 360:  # 6 minutes
+                await self._log(f"[LEARNING_TIMEOUT] zone={self.learning_zone}")
                 await self.controller.finish_learning()
 
         # PANIC SHED (now based on EMA and configurable threshold)
