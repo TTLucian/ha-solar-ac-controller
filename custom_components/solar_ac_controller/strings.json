@@ -3,8 +3,16 @@
   "config": {
     "step": {
       "user": {
-        "title": "Solar AC Controller",
-        "description": "Configure the Solar AC Controller integration."
+        "title": "Solar AC Controller Setup",
+        "description": "Configure how the controller manages your AC zones based on solar production and grid usage.\n\nFriendly tip: You can adjust all settings later from the Options menu."
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Solar AC Controller Options",
+        "description": "Modify sensors, thresholds, zone order, and safety settings.\n\nZone order determines activation priority."
       }
     }
   }
