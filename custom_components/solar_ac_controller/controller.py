@@ -75,7 +75,39 @@ class SolarACController:
         delta = ac_power_now - (c.ac_power_before or 0.0)
         zone_name = c.learning_zone.split(".")[-1]
 
-        # Validate delta
+        # -----------------------------
+        # BOOTSTRAP LEARNING (samples == 0)
+        # -----------------------------
+        if c.samples == 0:
+            min_d = 80
+            max_d = 2500
+            if min_d < delta < max_d:
+                prev = c.learned_power.get(zone_name, 1200)
+                # First sample = direct measurement (no EMA yet)
+                new_value = round(delta)
+
+                c.learned_power[zone_name] = new_value
+                c.samples = 1
+
+                await c._log(
+                    f"[LEARNING_BOOTSTRAP] zone={zone_name} delta={round(delta)} "
+                    f"prev={prev} new={new_value} samples={c.samples}"
+                )
+
+                await self._save()
+                self._reset_learning_state()
+                return
+            else:
+                await c._log(
+                    f"[LEARNING_SKIP_BOOTSTRAP] zone={zone_name} delta={round(delta)} "
+                    f"expected_range=[{min_d},{max_d}]"
+                )
+                self._reset_learning_state()
+                return
+
+        # -----------------------------
+        # NORMAL LEARNING (samples >= 1)
+        # -----------------------------
         min_d = 250
         max_d = 2500
         if min_d < delta < max_d:
