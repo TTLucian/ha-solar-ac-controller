@@ -11,7 +11,7 @@ from .const import (
 )
 from .coordinator import SolarACCoordinator
 
-PLATFORMS: list[str] = ["sensor"]
+PLATFORMS: list[str] = ["sensor", "binary_sensor", "diagnostic"]
 
 
 async def async_setup(hass: HomeAssistant, config: dict):
@@ -40,10 +40,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         "store": store,
     }
 
-    # Forward to platforms
+    # ---------------------------------------------------------
+    # CREATE SHARED DEVICE ID FOR ALL ENTITIES
+    # ---------------------------------------------------------
+    device_registry = hass.helpers.device_registry.async_get(hass)
+    device_registry.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, "solar_ac_controller")},
+        name="Solar AC Controller",
+        manufacturer="TTLucian",
+        model="Solar AC Smart Controller",
+        sw_version=config.get("version", "0.1.3"),
+        hw_version="virtual",
+        configuration_url="https://github.com/TTLucian/ha-solar-ac-controller",
+    )
+
+    # ---------------------------------------------------------
+    # FORWARD PLATFORMS
+    # ---------------------------------------------------------
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    # Services
+    # ---------------------------------------------------------
+    # SERVICES
+    # ---------------------------------------------------------
 
     async def handle_reset_learning(call: ServiceCall):
         await coordinator.controller.reset_learning()
