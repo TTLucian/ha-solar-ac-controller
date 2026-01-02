@@ -24,6 +24,16 @@ from .coordinator import SolarACCoordinator
 PLATFORMS: list[str] = ["sensor", "binary_sensor"]
 
 
+def _short_name(entity_id: str) -> str:
+    """Return the short name (the part after the last dot) for an entity_id.
+
+    Falls back to str(entity_id) when input is not a string.
+    """
+    if not isinstance(entity_id, str):
+        return str(entity_id)
+    return entity_id.rsplit('.', 1)[-1]
+
+
 async def async_setup(hass: HomeAssistant, config: dict):
     """YAML setup not supported."""
     return True
@@ -62,7 +72,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         coordinator.manual_lock_seconds = new_config.get(CONF_MANUAL_LOCK_SECONDS, coordinator.manual_lock_seconds)
         coordinator.short_cycle_on_seconds = new_config.get(CONF_SHORT_CYCLE_ON_SECONDS, coordinator.short_cycle_on_seconds)
         coordinator.short_cycle_off_seconds = new_config.get(CONF_SHORT_CYCLE_OFF_SECONDS, coordinator.short_cycle_off_seconds)
-        coordinator.action_delay_seconds = new_config.get("action_delay_seconds", coordinator.action_delay_seconds)
+        coordinator.action_delay_seconds = new_config.get(CONF_ACTION_DELAY_SECONDS, coordinator.action_delay_seconds)
         coordinator.panic_threshold = new_config.get(CONF_PANIC_THRESHOLD, coordinator.panic_threshold)
         coordinator.panic_delay = new_config.get(CONF_PANIC_DELAY, coordinator.panic_delay)
 
@@ -123,12 +133,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
         # Apply reset
         if zone:
-            zone_name = zone.split(".")[-1]
+            zone_name = _short_name(zone)
             coordinator.learned_power[zone_name] = 1200
             target = zone_name
         else:
             for z in coordinator.config["zones"]:
-                zn = z.split(".")[-1]
+                zn = _short_name(z)
                 coordinator.learned_power[zn] = 1200
             target = "all"
 
@@ -140,6 +150,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
         # Log the action
         await coordinator._log(f"[FORCE_RELEARN] target={target}")
+
+        # Ensure controller exists before attempting to save
+        if not hasattr(coordinator, "controller") or coordinator.controller is None:
+            _LOGGER.error("Coordinator missing controller during force_relearn")
+            await coordinator._log("[SERVICE_ERROR] force_relearn missing controller")
+            return
 
         try:
             await coordinator.controller._save()
