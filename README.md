@@ -59,10 +59,7 @@ The integration exposes multiple entities to let you see exactly what the contro
 - Import power
 - Learned power per zone
 
-#### Binary sensors
-
 - Learning active
-- Panic state
 - Short-cycling
 - Manual lock active
 - Exporting
@@ -85,7 +82,6 @@ A single entity exposing the controller brain via attributes:
 #### Home Assistant diagnostics export
 
 A dedicated diagnostics handler provides a JSON dump of internal state that can be downloaded from:
-
 `Settings → Devices & Services → Solar AC Controller → Diagnostics`
 
 This is useful for debugging and for attaching to GitHub issues.
@@ -107,12 +103,73 @@ During setup you define:
 - AC power sensor
 - Master AC switch
 - Zones (as a comma-separated list, in activation priority order)
-- Solar thresholds
 - Panic threshold
 - Panic delay
 
 ### Options Flow
 
+## Runtime options (new)
+
+The integration supports several runtime-configurable options (available in the entry options UI):
+
+- `manual_lock_seconds`: seconds to respect a user manual override (default 1200).
+- `short_cycle_on_seconds`: delay after turning a zone on before allowing another add.
+- `short_cycle_off_seconds`: delay after turning a zone off before allowing another remove.
+- `action_delay_seconds`: delay between consecutive HA service calls to avoid API hammering (default 3).
+- `panic_threshold`: grid-import threshold (W) to trigger panic shed (default 1500).
+- `panic_delay`: seconds the panic condition must persist before executing panic actions (default 30).
+
+These options are applied at runtime; changing them via the options flow will update the coordinator immediately.
+
+## Services
+
+Two integration services are provided:
+
+- `solar_ac_controller.reset_learning` — Cancels any active learning cycle and resets runtime learning state.
+- `solar_ac_controller.force_relearn` — Force a relearn for a specific zone or all zones. Example calls:
+
+YAML example (single zone):
+
+```yaml
+service: solar_ac_controller.force_relearn
+data:
+  zone: climate.living_room
+```
+
+YAML example (all zones):
+
+```yaml
+service: solar_ac_controller.force_relearn
+data: {}
+```
+
+The service validates the `zone` against configured zones and logs structured messages on invalid input.
+
+## Developer notes
+
+- CI is provided in `.github/workflows/ci.yml` and runs `black`, `pylint`, and `pytest` (matrix: Python 3.10/3.11).
+- Dev dependencies are pinned in `requirements_dev.txt` to avoid CI breakage when Home Assistant test fixtures change.
+- Run locally:
+
+```powershell
+python -m pip install --upgrade pip
+pip install -r requirements_dev.txt
+black --check --diff .
+$env:PYTHONPATH='.'; pylint custom_components/solar_ac_controller --disable=import-error
+$env:PYTHONPATH='.'; pytest -q --maxfail=1
+```
+
+- Add `pre-commit` to your dev setup and run `pre-commit install` to enforce formatting and linters locally.
+- When changing stored state layout, increment `STORAGE_VERSION` (see `custom_components/solar_ac_controller/const.py`) and add a simple migration path.
+
+## Tests (recommended)
+
+Add `tests/` with unit tests for the coordinator and controller covering:
+
+- Coordinator: add/no-add, remove/no-remove, panic path, and learning timeout behavior.
+- Controller: learning bootstrap, EMA updates, and abort conditions (manual lock, missing sensors, non-numeric inputs).
+
+Contributions: open a PR, run the test suite and linters, and include a CHANGELOG entry for user-visible changes.
 All key parameters can be adjusted later without removing the integration:
 
 - Sensors
