@@ -19,6 +19,27 @@ async def async_setup_entry(
 
     async_add_entities([SolarACDiagnosticEntity(coordinator)])
 
+class SolarACDiagnosticEntity(SensorEntity):
+    _attr_should_poll = False
+    _attr_name = "Solar AC Diagnostics"
+    _attr_unique_id = "solar_ac_diagnostics"
+
+    def __init__(self, coordinator):
+        self.coordinator = coordinator
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, "solar_ac_controller")},
+            "name": "Solar AC Controller",
+            "manufacturer": "TTLucian",
+            "model": "Solar AC Smart Controller",
+            "sw_version": self.coordinator.config.get("version", "0.1.3"),
+            "hw_version": "virtual",
+            "configuration_url": "https://github.com/TTLucian/ha-solar-ac-controller",
+            "suggested_area": "HVAC",
+            "entry_type": "service",
+        }
+
+    async def async_added_to_hass(self):
+        self.coordinator.async_add_listener(self.async_write_ha_state)
 
 class SolarACDiagnosticEntity(SensorEntity):
     """A single entity exposing the entire controller brain."""
