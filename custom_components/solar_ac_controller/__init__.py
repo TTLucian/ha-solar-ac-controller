@@ -47,24 +47,31 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     async def handle_force_relearn(call: ServiceCall):
         zone = call.data.get("zone")
 
+        # Validate zone
         if zone and zone not in coordinator.config["zones"]:
             await coordinator._log(f"[FORCE_RELEARN_INVALID_ZONE] {zone}")
             return
 
+        # Apply reset
         if zone:
             zone_name = zone.split(".")[-1]
             coordinator.learned_power[zone_name] = 1200
+            target = zone_name
         else:
             for z in coordinator.config["zones"]:
                 zn = z.split(".")[-1]
                 coordinator.learned_power[zn] = 1200
+            target = "all"
 
         coordinator.samples = 0
         coordinator.learning_active = False
         coordinator.learning_zone = None
         coordinator.learning_start_time = None
         coordinator.ac_power_before = None
-        
+
+        # Log the action
+        await coordinator._log(f"[FORCE_RELEARN] target={target}")
+
         await coordinator.controller._save()
 
     hass.services.async_register(DOMAIN, "force_relearn", handle_force_relearn)
