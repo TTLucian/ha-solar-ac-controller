@@ -1,8 +1,8 @@
 from __future__ import annotations
+from homeassistant.util import dt as dt_util
 
 import asyncio
 import logging
-import time
 from datetime import timedelta
 
 from homeassistant.core import HomeAssistant
@@ -114,7 +114,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
                         or self.last_action == "panic"
                     )
                 ):
-                    self.zone_manual_lock_until[zone] = time.time() + 1200  # 20 minutes
+                    self.zone_manual_lock_until[zone] = dt_util.utcnow().timestamp() + 1200  # 20 minutes
                     await self._log(
                         f"[MANUAL_OVERRIDE_DETECTED] zone={zone} state={state} "
                         f"lock_until={int(self.zone_manual_lock_until[zone])}"
@@ -130,7 +130,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
         # Helper: zone is currently locked by manual override
         def _is_locked(zone_id: str) -> bool:
             until = self.zone_manual_lock_until.get(zone_id)
-            return bool(until and time.time() < until)
+            return bool(until and dt_util.utcnow().timestamp() < until)
         
         # Next and last zone (controller-managed only, ignore locked)
         next_zone = next(
@@ -177,7 +177,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
 
         # Learning completion
         if self.learning_active and self.learning_start_time:
-            if time.time() - self.learning_start_time >= 360:  # 6 minutes
+            if dt_util.utcnow().timestamp() - self.learning_start_time >= 360:  # 6 minutes
                 await self._log(f"[LEARNING_TIMEOUT] zone={self.learning_zone}")
                 await self.controller.finish_learning()
 
@@ -239,7 +239,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
         last = self.zone_last_changed.get(zone)
         if not last:
             return False
-        return (time.time() - last) < 1200  # 20 minutes
+        return (dt_util.utcnow().timestamp() - last) < 1200  # 20 minutes
 
     async def _add_zone(self, zone: str, ac_power_before: float):
         """Start learning + turn on zone."""
@@ -257,7 +257,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
             "climate", "turn_on", {"entity_id": zone}, blocking=True
         )
 
-        self.zone_last_changed[zone] = time.time()
+        self.zone_last_changed[zone] = dt_util.utcnow().timestamp()
 
         await self._log(
             f"[LEARNING_START] zone={zone} ac_before={round(ac_power_before)} "
@@ -268,7 +268,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
         await self.hass.services.async_call(
             "climate", "turn_off", {"entity_id": zone}, blocking=True
         )
-        self.zone_last_changed[zone] = time.time()
+        self.zone_last_changed[zone] = dt_util.utcnow().timestamp()
 
         await self._log(
             f"[ZONE_REMOVE_SUCCESS] zone={zone} import_after={round(self.ema_5m)}"
