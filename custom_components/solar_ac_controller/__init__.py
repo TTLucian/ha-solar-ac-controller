@@ -47,6 +47,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     async def handle_force_relearn(call: ServiceCall):
         zone = call.data.get("zone")
 
+        if zone and zone not in coordinator.config["zones"]:
+            await coordinator._log(f"[FORCE_RELEARN_INVALID_ZONE] {zone}")
+            return
+
         if zone:
             zone_name = zone.split(".")[-1]
             coordinator.learned_power[zone_name] = 1200
