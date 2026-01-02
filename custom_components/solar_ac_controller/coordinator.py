@@ -65,7 +65,6 @@ class SolarACCoordinator(DataUpdateCoordinator):
         self.panic_threshold: float = config.get(CONF_PANIC_THRESHOLD, 2500)
         self.panic_delay: int = config.get(CONF_PANIC_DELAY, 10)
 
-
         # Controller
         self.controller = SolarACController(hass, self, store)
 
@@ -175,13 +174,14 @@ class SolarACCoordinator(DataUpdateCoordinator):
             + (-40 if self._is_short_cycling(last_zone) else 0)
         )
 
-        # Learning completion
+        # Learning completion (Improvement A: return immediately after finishing)
         if self.learning_active and self.learning_start_time:
             if dt_util.utcnow().timestamp() - self.learning_start_time >= 360:  # 6 minutes
                 await self._log(f"[LEARNING_TIMEOUT] zone={self.learning_zone}")
                 await self.controller.finish_learning()
+                return  # <--- Improvement A
 
-        # PANIC SHED (now based on EMA and configurable threshold)
+        # PANIC SHED (Improvement B: reset learning state)
         if self.ema_30s > self.panic_threshold and on_count > 1:
             if self.last_action != "panic":
                 await self._log(
@@ -195,6 +195,13 @@ class SolarACCoordinator(DataUpdateCoordinator):
                 # Re-check condition after delay
                 if self.ema_30s > self.panic_threshold:
                     await self._panic_shed(active_zones)
+
+                    # Improvement B: reset learning state explicitly
+                    self.learning_active = False
+                    self.learning_zone = None
+                    self.learning_start_time = None
+                    self.ac_power_before = None
+
                     await self._log(
                         f"[PANIC_SHED] ema30={round(self.ema_30s)} "
                         f"ema5m={round(self.ema_5m)} zones={active_zones}"
