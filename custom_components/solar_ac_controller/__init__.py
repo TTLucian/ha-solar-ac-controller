@@ -3,6 +3,7 @@ from __future__ import annotations
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers.storage import Store
+from homeassistant.helpers import device_registry as dr
 
 from .const import (
     DOMAIN,
@@ -43,7 +44,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     # ---------------------------------------------------------
     # CREATE SHARED DEVICE ID FOR ALL ENTITIES
     # ---------------------------------------------------------
-    device_registry = hass.helpers.device_registry.async_get(hass)
+    device_registry = dr.async_get(hass)
     device_registry.async_get_or_create(
         config_entry_id=entry.entry_id,
         identifiers={(DOMAIN, "solar_ac_controller")},
