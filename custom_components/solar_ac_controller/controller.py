@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import time
+from homeassistant.util import dt as dt_util
 from homeassistant.core import HomeAssistant
 
 
@@ -17,7 +17,7 @@ class SolarACController:
         c = self.coordinator
 
         c.learning_active = True
-        c.learning_start_time = time.time()
+        c.learning_start_time = dt_util.utcnow().timestamp()
         c.ac_power_before = ac_power_before
         c.learning_zone = zone
 
@@ -42,7 +42,7 @@ class SolarACController:
 
         # Abort if zone is locked due to manual override
         lock_until = c.zone_manual_lock_until.get(zone_entity)
-        if lock_until and time.time() < lock_until:
+        if lock_until and dt_util.utcnow().timestamp() < lock_until:
             await c._log(
                 f"[LEARNING_ABORT_MANUAL_LOCK] zone={zone_entity} "
                 f"lock_until={int(lock_until)}"
