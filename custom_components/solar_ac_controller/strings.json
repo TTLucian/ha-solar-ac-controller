@@ -3,17 +3,22 @@
   "config": {
     "step": {
       "user": {
-        "title": "Solar AC Controller Setup",
-        "description": "Configure how the controller manages your AC zones based on solar production and grid usage.\n\nFriendly tip: You can adjust all settings later from the Options menu."
+        "title": "Solar AC Controller setup",
+        "description": "Configure how the controller manages your AC zones based on solar production and grid usage.\n\nTip: Define zones in the order you want them to be activated. All settings can be adjusted later from the Options menu."
       }
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "Solar AC Controller Options",
-        "description": "Modify sensors, thresholds, zone order, and safety settings.\n\nZone order determines activation priority."
+        "title": "Solar AC Controller options",
+        "description": "Adjust sensors, zones, thresholds and safety settings.\n\nZone order determines activation priority. Panic settings protect your inverter from overload."
       }
+    },
+    "error": {
+      "no_zones": "You must define at least one climate zone.",
+      "invalid_solar_hysteresis": "Solar OFF threshold must be lower than Solar ON threshold.",
+      "panic_too_low": "Panic threshold should be safely above the Solar ON threshold."
     }
   }
 }
