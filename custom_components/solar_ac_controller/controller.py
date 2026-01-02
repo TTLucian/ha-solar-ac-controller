@@ -100,13 +100,14 @@ class SolarACController:
         c.ac_power_before = None
 
     async def _save(self):
-        """Persist learned values to HA storage."""
-        await self.store.async_save(
-            {
+        try:
+            await self.store.async_save({
                 "learned_power": self.coordinator.learned_power,
                 "samples": self.coordinator.samples,
-            }
-        )
+            })
+        except Exception as e:
+            await self.coordinator._log(f"[STORAGE_ERROR] {e}")
+
 
     async def reset_learning(self):
         """Reset all learned values."""
