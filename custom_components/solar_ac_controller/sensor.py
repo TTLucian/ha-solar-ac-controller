@@ -4,9 +4,9 @@ from homeassistant.components.sensor import SensorEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
-from homeassistant.util import dt as dt_util
 
 
 async def async_setup_entry(
@@ -37,7 +37,14 @@ async def async_setup_entry(
 
     async_add_entities(entities)
 
+
+# ---------------------------------------------------------------------------
+# BASE CLASS (merged, final, correct)
+# ---------------------------------------------------------------------------
+
 class _BaseSolarACSensor(SensorEntity):
+    """Base class for all Solar AC sensors."""
+
     _attr_should_poll = False
 
     def __init__(self, coordinator):
@@ -54,17 +61,6 @@ class _BaseSolarACSensor(SensorEntity):
             "entry_type": "service",
         }
 
-    async def async_added_to_hass(self):
-        self.coordinator.async_add_listener(self.async_write_ha_state)
-
-class _BaseSolarACSensor(SensorEntity):
-    """Base class for Solar AC sensors."""
-
-    _attr_should_poll = False
-
-    def __init__(self, coordinator):
-        self.coordinator = coordinator
-
     @property
     def available(self):
         return True
@@ -72,6 +68,10 @@ class _BaseSolarACSensor(SensorEntity):
     async def async_added_to_hass(self):
         self.coordinator.async_add_listener(self.async_write_ha_state)
 
+
+# ---------------------------------------------------------------------------
+# SENSOR ENTITIES
+# ---------------------------------------------------------------------------
 
 class SolarACActiveZonesSensor(_BaseSolarACSensor):
     @property
@@ -104,11 +104,13 @@ class SolarACNextZoneSensor(_BaseSolarACSensor):
     @property
     def state(self):
         c = self.coordinator
+        now = dt_util.utcnow().timestamp()
+
         for z in c.config["zones"]:
             st = c.hass.states.get(z)
             if not st or st.state not in ("heat", "on"):
                 lock = c.zone_manual_lock_until.get(z)
-                if lock and lock > dt_util.utcnow().timestamp():
+                if lock and lock > now:
                     continue
                 return z
         return "none"
@@ -196,12 +198,14 @@ class SolarACRequiredExportSensor(_BaseSolarACSensor):
     @property
     def state(self):
         c = self.coordinator
+        now = dt_util.utcnow().timestamp()
+
         next_zone = None
         for z in c.config["zones"]:
             st = c.hass.states.get(z)
             if not st or st.state not in ("heat", "on"):
                 lock = c.zone_manual_lock_until.get(z)
-                if lock and lock > dt_util.utcnow().timestamp():
+                if lock and lock > now:
                     continue
                 next_zone = z
                 break
