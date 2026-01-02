@@ -23,10 +23,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     """Set up Solar AC Controller from a config entry."""
     hass.data.setdefault(DOMAIN, {})
 
+    # ---------------------------------------------------------
+    # OPTIONS FLOW SUPPORT:
+    # Merge options over data so runtime changes take effect
+    # ---------------------------------------------------------
+    config = {**entry.data, **entry.options}
+
     store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
     stored = await store.async_load() or {}
 
-    coordinator = SolarACCoordinator(hass, entry.data, store, stored)
+    coordinator = SolarACCoordinator(hass, config, store, stored)
     await coordinator.async_config_entry_first_refresh()
 
     hass.data[DOMAIN][entry.entry_id] = {
