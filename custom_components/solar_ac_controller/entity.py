@@ -45,9 +45,14 @@ class SolarACDebugEntity(Entity):
             "samples": c.samples,
             "ema_30s": round(c.ema_30s, 2),
             "ema_5m": round(c.ema_5m, 2),
+            "last_add_conf": getattr(c, "last_add_conf", None),
+            "last_remove_conf": getattr(c, "last_remove_conf", None),
+            "last_action_start_ts": getattr(c, "last_action_start_ts", None),
+            "last_action_duration": getattr(c, "last_action_duration", None),
             "learned_power": c.learned_power,
             "zone_last_changed": c.zone_last_changed,
             "zone_manual_lock_until": c.zone_manual_lock_until,
+            "action_delay_seconds": getattr(c, "action_delay_seconds", None),
         }
 
     async def async_added_to_hass(self):

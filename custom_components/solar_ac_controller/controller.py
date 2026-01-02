@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from homeassistant.util import dt as dt_util
 from homeassistant.core import HomeAssistant
+import logging
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class SolarACController:
@@ -148,7 +151,11 @@ class SolarACController:
                 "samples": self.coordinator.samples,
             })
         except Exception as e:
-            await self.coordinator._log(f"[STORAGE_ERROR] {e}")
+            _LOGGER.exception("Error saving learned values: %s", e)
+            try:
+                await self.coordinator._log(f"[STORAGE_ERROR] {e}")
+            except Exception:
+                _LOGGER.exception("Failed to write storage error to coordinator log")
 
     async def reset_learning(self):
         """Reset all learned values."""

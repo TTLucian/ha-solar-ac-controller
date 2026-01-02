@@ -19,6 +19,9 @@ from .const import (
     CONF_SOLAR_THRESHOLD_OFF,
     CONF_PANIC_THRESHOLD,
     CONF_PANIC_DELAY,
+    CONF_MANUAL_LOCK_SECONDS,
+    CONF_SHORT_CYCLE_ON_SECONDS,
+    CONF_SHORT_CYCLE_OFF_SECONDS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -56,17 +59,35 @@ class SolarACCoordinator(DataUpdateCoordinator):
 
         # Short cycle memory
         self.zone_last_changed: dict[str, float] = {}
+        # last change type per zone: 'on' or 'off'
+        self.zone_last_changed_type: dict[str, str] = {}
         
         # Manual override detection (hands-off window)
         self.zone_last_state: dict[str, str | None] = {}
         self.zone_manual_lock_until: dict[str, float] = {}
         
-        # Panic configuration
-        self.panic_threshold: float = config.get(CONF_PANIC_THRESHOLD, 2500)
+        # Panic configuration (watts, positive = grid import)
+        self.panic_threshold: float = config.get(CONF_PANIC_THRESHOLD, 1500)
         self.panic_delay: int = config.get(CONF_PANIC_DELAY, 10)
+        # Manual lock duration (seconds) — configurable via options
+        self.manual_lock_seconds: int = config.get(CONF_MANUAL_LOCK_SECONDS, 1200)
+        # Short-cycle thresholds (different after on vs off)
+        self.short_cycle_on_seconds: int = config.get(CONF_SHORT_CYCLE_ON_SECONDS, 1200)
+        self.short_cycle_off_seconds: int = config.get(CONF_SHORT_CYCLE_OFF_SECONDS, 1200)
+        # Delay between consecutive zone actions (seconds) to avoid hammering cloud APIs
+        self.action_delay_seconds: int = config.get("action_delay_seconds", 3)
 
         # Controller
         self.controller = SolarACController(hass, self, store)
+        # last computed confidences (exposed by sensors)
+        self.last_add_conf: float = 0.0
+        self.last_remove_conf: float = 0.0
+        # last action timing for observability
+        self.last_action_start_ts: float | None = None
+        self.last_action_duration: float | None = None
+        # background task handles
+        self._panic_task: asyncio.Task | None = None
+        self._master_shutdown_task: asyncio.Task | None = None
 
     async def _async_update_data(self):
         """Main loop executed every 5 seconds."""
@@ -86,6 +107,10 @@ class SolarACCoordinator(DataUpdateCoordinator):
         except ValueError:
             _LOGGER.debug("Non-numeric sensor value, skipping cycle")
             return
+
+        _LOGGER.debug(
+            "Cycle sensors: grid_raw=%s solar=%s ac_power=%s", grid_raw, solar, ac_power
+        )
 
         # EMA updates
         self.ema_30s = 0.25 * grid_raw + 0.75 * self.ema_30s
@@ -113,7 +138,11 @@ class SolarACCoordinator(DataUpdateCoordinator):
                         or self.last_action == "panic"
                     )
                 ):
-                    self.zone_manual_lock_until[zone] = dt_util.utcnow().timestamp() + 1200  # 20 minutes
+                    now_ts = dt_util.utcnow().timestamp()
+                    self.zone_manual_lock_until[zone] = now_ts + self.manual_lock_seconds
+                    # record last change timestamp and whether it was turned on/off
+                    self.zone_last_changed[zone] = now_ts
+                    self.zone_last_changed_type[zone] = "on" if state in ("heat", "on") else "off"
                     await self._log(
                         f"[MANUAL_OVERRIDE_DETECTED] zone={zone} state={state} "
                         f"lock_until={int(self.zone_manual_lock_until[zone])}"
@@ -164,6 +193,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
             + min(20, self.samples * 2)
             + (-30 if self._is_short_cycling(last_zone) else 0)
         )
+        self.last_add_conf = add_conf
 
         # REMOVE confidence
         import_power = self.ema_5m
@@ -173,6 +203,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
             + (20 if import_power > 1500 else 0)
             + (-40 if self._is_short_cycling(last_zone) else 0)
         )
+        self.last_remove_conf = remove_conf
 
         # ---------------------------------------------------------
         # IMPROVEMENT A: Learning timeout returns immediately
@@ -193,23 +224,11 @@ class SolarACCoordinator(DataUpdateCoordinator):
                     f"ema5m={round(self.ema_5m)} threshold={self.panic_threshold} "
                     f"zones={active_zones}"
                 )
-                if self.panic_delay > 0:
-                    await asyncio.sleep(self.panic_delay)
-
-                if self.ema_30s > self.panic_threshold:
-                    await self._panic_shed(active_zones)
-
-                    # FIX: reset learning state
-                    self.learning_active = False
-                    self.learning_zone = None
-                    self.learning_start_time = None
-                    self.ac_power_before = None
-
-                    await self._log(
-                        f"[PANIC_SHED] ema30={round(self.ema_30s)} "
-                        f"ema5m={round(self.ema_5m)} zones={active_zones}"
+                # schedule background panic handler to avoid blocking the coordinator
+                if not self._panic_task or self._panic_task.done():
+                    self._panic_task = self.hass.async_create_task(
+                        self._panic_task_runner(active_zones)
                     )
-                self.last_action = "panic"
             return
 
         # ZONE ADD
@@ -249,7 +268,16 @@ class SolarACCoordinator(DataUpdateCoordinator):
         last = self.zone_last_changed.get(zone)
         if not last:
             return False
-        return (dt_util.utcnow().timestamp() - last) < 1200  # 20 minutes
+        now = dt_util.utcnow().timestamp()
+        last_type = self.zone_last_changed_type.get(zone)
+        if last_type == "on":
+            threshold = self.short_cycle_on_seconds
+        elif last_type == "off":
+            threshold = self.short_cycle_off_seconds
+        else:
+            threshold = self.short_cycle_off_seconds
+
+        return (now - last) < threshold
 
     async def _add_zone(self, zone: str, ac_power_before: float):
         """Start learning + turn on zone."""
@@ -262,11 +290,20 @@ class SolarACCoordinator(DataUpdateCoordinator):
         
         await self.controller.start_learning(zone, ac_power_before)
 
-        await self.hass.services.async_call(
-            "climate", "turn_on", {"entity_id": zone}, blocking=True
-        )
+        # Support multiple entity domains (climate, switch, fan, etc.)
+        start = dt_util.utcnow().timestamp()
+        try:
+            await self._call_entity_service(zone, True)
+        finally:
+            # Record timing and short-cycle info regardless of success
+            now_ts = dt_util.utcnow().timestamp()
+            self.last_action_start_ts = start
+            self.last_action_duration = now_ts - start
+            self.zone_last_changed[zone] = now_ts
+            self.zone_last_changed_type[zone] = "on"
 
-        self.zone_last_changed[zone] = dt_util.utcnow().timestamp()
+        # small delay between sequential actions to avoid hammering cloud APIs
+        await asyncio.sleep(self.action_delay_seconds)
 
         await self._log(
             f"[LEARNING_START] zone={zone} ac_before={round(ac_power_before)} "
@@ -274,22 +311,82 @@ class SolarACCoordinator(DataUpdateCoordinator):
         )
 
     async def _remove_zone(self, zone: str):
-        await self.hass.services.async_call(
-            "climate", "turn_off", {"entity_id": zone}, blocking=True
-        )
-        self.zone_last_changed[zone] = dt_util.utcnow().timestamp()
+        # Support multiple entity domains (climate, switch, fan, etc.)
+        start = dt_util.utcnow().timestamp()
+        try:
+            await self._call_entity_service(zone, False)
+        finally:
+            now_ts = dt_util.utcnow().timestamp()
+            self.last_action_start_ts = start
+            self.last_action_duration = now_ts - start
+            self.zone_last_changed[zone] = now_ts
+            self.zone_last_changed_type[zone] = "off"
+
+        # small delay between sequential actions to avoid hammering cloud APIs
+        await asyncio.sleep(self.action_delay_seconds)
 
         await self._log(
             f"[ZONE_REMOVE_SUCCESS] zone={zone} import_after={round(self.ema_5m)}"
         )
 
+    async def _call_entity_service(self, entity_id: str, turn_on: bool):
+        """Call an appropriate turn_on/turn_off service for the entity's domain.
+
+        Falls back to `climate` domain if the primary domain service fails.
+        """
+        domain = entity_id.split(".")[0]
+        service = "turn_on" if turn_on else "turn_off"
+
+        try:
+            await self.hass.services.async_call(domain, service, {"entity_id": entity_id}, blocking=True)
+            return
+        except Exception as e:
+            _LOGGER.debug("Primary service %s.%s failed for %s: %s", domain, service, entity_id, e)
+
+        # Fallback to climate service (common for HVAC entities)
+        try:
+            await self.hass.services.async_call("climate", service, {"entity_id": entity_id}, blocking=True)
+            _LOGGER.warning("Primary service %s.%s failed for %s — used climate.%s as fallback", domain, service, entity_id, service)
+            return
+        except Exception as e:
+            _LOGGER.exception("Fallback climate.%s failed for %s: %s", service, entity_id, e)
+
     async def _panic_shed(self, active_zones: list[str]):
         """Turn off all but the first zone."""
+        start = dt_util.utcnow().timestamp()
         for zone in active_zones[1:]:
-            await self.hass.services.async_call(
-                "climate", "turn_off", {"entity_id": zone}, blocking=True
-            )
-            await asyncio.sleep(3)
+            await self._call_entity_service(zone, False)
+            # wait between consecutive actions to avoid hammering cloud APIs
+            await asyncio.sleep(self.action_delay_seconds)
+        end = dt_util.utcnow().timestamp()
+        self.last_action_start_ts = start
+        self.last_action_duration = end - start
+
+    async def _panic_task_runner(self, active_zones: list[str]):
+        try:
+            if self.panic_delay > 0:
+                await asyncio.sleep(self.panic_delay)
+
+            # Re-evaluate condition before acting
+            if self.ema_30s > self.panic_threshold:
+                await self._panic_shed(active_zones)
+
+                # reset learning state
+                self.learning_active = False
+                self.learning_zone = None
+                self.learning_start_time = None
+                self.ac_power_before = None
+
+                await self._log(
+                    f"[PANIC_SHED] ema30={round(self.ema_30s)} "
+                    f"ema5m={round(self.ema_5m)} zones={active_zones}"
+                )
+
+                self.last_action = "panic"
+        except Exception as e:
+            _LOGGER.exception("Error in panic task: %s", e)
+        finally:
+            self._panic_task = None
 
     async def _handle_master_switch(self, solar: float, ac_power: float):
         """Master relay control based on solar availability and compressor safety."""
@@ -319,37 +416,53 @@ class SolarACCoordinator(DataUpdateCoordinator):
         if solar < off_threshold and switch_state == "on":
             await self._log(
                 f"[MASTER_SHUTDOWN] solar={round(solar)}W ac_power={round(ac_power)}W "
-                "waiting 10 minutes for compressor safety"
+                "scheduling delayed shutdown for compressor safety"
             )
+            if not self._master_shutdown_task or self._master_shutdown_task.done():
+                self._master_shutdown_task = self.hass.async_create_task(
+                    self._delayed_master_shutdown(ac_switch)
+                )
+        
+    async def _delayed_master_shutdown(self, ac_switch: str):
+        try:
             await asyncio.sleep(600)
 
             ac_state = self.hass.states.get(self.config[CONF_AC_POWER_SENSOR])
             try:
-                ac_now = float(ac_state.state) if ac_state else ac_power
+                ac_now = float(ac_state.state) if ac_state else 0.0
             except ValueError:
-                ac_now = ac_power
+                ac_now = 0.0
 
             if ac_now < 25:
                 await self.hass.services.async_call(
                     "switch", "turn_off", {"entity_id": ac_switch}, blocking=True
                 )
                 await self._log(
-                    f"[MASTER_POWER_OFF] solar={round(solar)}W ac={round(ac_now)}W"
+                    f"[MASTER_POWER_OFF] ac={round(ac_now)}W"
                 )
             else:
                 await self._log(
-                    f"[MASTER_SHUTDOWN_BLOCKED] solar={round(solar)}W ac={round(ac_now)}W"
+                    f"[MASTER_SHUTDOWN_BLOCKED] ac={round(ac_now)}W"
                 )
+        except Exception as e:
+            _LOGGER.exception("Error in delayed master shutdown: %s", e)
+        finally:
+            self._master_shutdown_task = None
 
     async def _log(self, message: str):
         """Log to HA logbook with a consistent taxonomy."""
-        await self.hass.services.async_call(
-            "logbook",
-            "log",
-            {
-                "name": "Solar AC",
-                "entity_id": "sensor.solar_ac_controller_debug",
-                "message": message,
-            },
-            blocking=False,
-        )
+        # also log to python logger for developers
+        _LOGGER.info(message)
+        try:
+            await self.hass.services.async_call(
+                "logbook",
+                "log",
+                {
+                    "name": "Solar AC",
+                    "entity_id": "sensor.solar_ac_controller_debug",
+                    "message": message,
+                },
+                blocking=False,
+            )
+        except Exception:
+            _LOGGER.exception("Failed to write to logbook: %s", message)

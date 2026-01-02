@@ -17,6 +17,10 @@ from .const import (
     CONF_SOLAR_THRESHOLD_OFF,
     CONF_PANIC_THRESHOLD,
     CONF_PANIC_DELAY,
+    CONF_MANUAL_LOCK_SECONDS,
+    CONF_SHORT_CYCLE_ON_SECONDS,
+    CONF_SHORT_CYCLE_OFF_SECONDS,
+    CONF_ACTION_DELAY_SECONDS,
 )
 
 
@@ -84,10 +88,22 @@ class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 ): int,
                 # Safety / panic
                 vol.Optional(
-                    CONF_PANIC_THRESHOLD, default=2500
+                    CONF_PANIC_THRESHOLD, default=1500
                 ): int,
                 vol.Optional(
-                    CONF_PANIC_DELAY, default=10
+                    CONF_PANIC_DELAY, default=30
+                ): int,
+                vol.Optional(
+                    CONF_MANUAL_LOCK_SECONDS, default=1200
+                ): int,
+                vol.Optional(
+                    CONF_SHORT_CYCLE_ON_SECONDS, default=1200
+                ): int,
+                vol.Optional(
+                    CONF_SHORT_CYCLE_OFF_SECONDS, default=1200
+                ): int,
+                vol.Optional(
+                    CONF_ACTION_DELAY_SECONDS, default=3
                 ): int,
             }
         )
@@ -157,7 +173,11 @@ class SolarACOptionsFlowHandler(config_entries.OptionsFlow):
                     CONF_SOLAR_THRESHOLD_ON: solar_on,
                     CONF_SOLAR_THRESHOLD_OFF: solar_off,
                     CONF_PANIC_THRESHOLD: panic_th,
-                    CONF_PANIC_DELAY: user_input.get(CONF_PANIC_DELAY, 10),
+                    CONF_PANIC_DELAY: user_input.get(CONF_PANIC_DELAY, 30),
+                    CONF_MANUAL_LOCK_SECONDS: user_input.get(CONF_MANUAL_LOCK_SECONDS, 1200),
+                    CONF_SHORT_CYCLE_ON_SECONDS: user_input.get(CONF_SHORT_CYCLE_ON_SECONDS, 1200),
+                    CONF_SHORT_CYCLE_OFF_SECONDS: user_input.get(CONF_SHORT_CYCLE_OFF_SECONDS, 1200),
+                    CONF_ACTION_DELAY_SECONDS: user_input.get(CONF_ACTION_DELAY_SECONDS, 3),
                 }
                 return self.async_create_entry(title="", data=new_options)
 
@@ -207,11 +227,27 @@ class SolarACOptionsFlowHandler(config_entries.OptionsFlow):
                 # Advanced / safety
                 vol.Optional(
                     CONF_PANIC_THRESHOLD,
-                    default=data.get(CONF_PANIC_THRESHOLD, 2500),
+                    default=data.get(CONF_PANIC_THRESHOLD, 1500),
                 ): int,
                 vol.Optional(
                     CONF_PANIC_DELAY,
-                    default=data.get(CONF_PANIC_DELAY, 10),
+                    default=data.get(CONF_PANIC_DELAY, 30),
+                ): int,
+                vol.Optional(
+                    CONF_MANUAL_LOCK_SECONDS,
+                    default=data.get(CONF_MANUAL_LOCK_SECONDS, 1200),
+                ): int,
+                vol.Optional(
+                    CONF_SHORT_CYCLE_ON_SECONDS,
+                    default=data.get(CONF_SHORT_CYCLE_ON_SECONDS, 1200),
+                ): int,
+                vol.Optional(
+                    CONF_SHORT_CYCLE_OFF_SECONDS,
+                    default=data.get(CONF_SHORT_CYCLE_OFF_SECONDS, 1200),
+                ): int,
+                vol.Optional(
+                    CONF_ACTION_DELAY_SECONDS,
+                    default=data.get(CONF_ACTION_DELAY_SECONDS, 3),
                 ): int,
             }
         )
