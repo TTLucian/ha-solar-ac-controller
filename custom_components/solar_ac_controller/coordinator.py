@@ -174,14 +174,18 @@ class SolarACCoordinator(DataUpdateCoordinator):
             + (-40 if self._is_short_cycling(last_zone) else 0)
         )
 
-        # Learning completion (Improvement A: return immediately after finishing)
+        # ---------------------------------------------------------
+        # IMPROVEMENT A: Learning timeout returns immediately
+        # ---------------------------------------------------------
         if self.learning_active and self.learning_start_time:
             if dt_util.utcnow().timestamp() - self.learning_start_time >= 360:  # 6 minutes
                 await self._log(f"[LEARNING_TIMEOUT] zone={self.learning_zone}")
                 await self.controller.finish_learning()
-                return  # <--- Improvement A
+                return   # <-- FIX: stop the cycle here
 
-        # PANIC SHED (Improvement B: reset learning state)
+        # ---------------------------------------------------------
+        # IMPROVEMENT B: Panic shed resets learning state
+        # ---------------------------------------------------------
         if self.ema_30s > self.panic_threshold and on_count > 1:
             if self.last_action != "panic":
                 await self._log(
@@ -189,14 +193,13 @@ class SolarACCoordinator(DataUpdateCoordinator):
                     f"ema5m={round(self.ema_5m)} threshold={self.panic_threshold} "
                     f"zones={active_zones}"
                 )
-                # Optional debounce before actually shedding
                 if self.panic_delay > 0:
                     await asyncio.sleep(self.panic_delay)
-                # Re-check condition after delay
+
                 if self.ema_30s > self.panic_threshold:
                     await self._panic_shed(active_zones)
 
-                    # Improvement B: reset learning state explicitly
+                    # FIX: reset learning state
                     self.learning_active = False
                     self.learning_zone = None
                     self.learning_start_time = None
@@ -250,7 +253,6 @@ class SolarACCoordinator(DataUpdateCoordinator):
 
     async def _add_zone(self, zone: str, ac_power_before: float):
         """Start learning + turn on zone."""
-        # Do not start learning if another session is active
         if self.learning_active:
             await self._log(
                 f"[LEARNING_SKIPPED_ALREADY_ACTIVE] zone={zone} "
