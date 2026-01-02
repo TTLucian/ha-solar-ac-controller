@@ -25,7 +25,10 @@ class SolarACController:
         """Finish learning after stabilization delay."""
         c = self.coordinator
 
-        if not c.learning_active or not c.learning_zone:
+        # Improvement #9: explicit guards
+        if not c.learning_active:
+            return
+        if not c.learning_zone:
             return
 
         zone_entity = c.learning_zone
@@ -57,6 +60,11 @@ class SolarACController:
             self._reset_learning_state()
             return
 
+        if ac_state.state in ("unknown", "unavailable"):
+            await c._log("[LEARNING_ABORT] ac_power_sensor unavailable")
+            self._reset_learning_state()
+            return
+
         try:
             ac_power_now = float(ac_state.state)
         except ValueError:
@@ -68,7 +76,9 @@ class SolarACController:
         zone_name = c.learning_zone.split(".")[-1]
 
         # Validate delta
-        if 250 < delta < 2500:
+        min_d = 250
+        max_d = 2500
+        if min_d < delta < max_d:
             prev = c.learned_power.get(zone_name, 1200)
 
             # EMA-style update: trust previous value more once we have samples
@@ -87,7 +97,7 @@ class SolarACController:
         else:
             await c._log(
                 f"[LEARNING_SKIP] zone={zone_name} delta={round(delta)} "
-                "outside [250,2500]W"
+                f"expected_range=[{min_d},{max_d}]"
             )
 
         self._reset_learning_state()
@@ -107,7 +117,6 @@ class SolarACController:
             })
         except Exception as e:
             await self.coordinator._log(f"[STORAGE_ERROR] {e}")
-
 
     async def reset_learning(self):
         """Reset all learned values."""
