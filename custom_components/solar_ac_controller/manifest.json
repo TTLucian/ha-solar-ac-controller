@@ -10,7 +10,7 @@
   "iot_class": "local_polling",
   "integration_type": "service",
   "loggers": ["custom_components.solar_ac_controller"],
-  "icon": "icon.png",
+  "icon": "mdi:solar-power",
   "platforms": [
     "sensor",
     "binary_sensor"
