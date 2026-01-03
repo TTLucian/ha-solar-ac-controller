@@ -43,10 +43,6 @@ class _BaseSolarACBinary(BinarySensorEntity):
         self._attr_device_info = {
             "identifiers": {(DOMAIN, "solar_ac_controller")},
             "name": "Solar AC Controller",
-            "manufacturer": "TTLucian",
-            "model": "Solar AC Smart Controller",
-            "sw_version": self.coordinator.config.get("version", "0.1.3"),
-            "hw_version": "virtual",
             "configuration_url": "https://github.com/TTLucian/ha-solar-ac-controller",
             "suggested_area": "HVAC",
             "entry_type": "service",
