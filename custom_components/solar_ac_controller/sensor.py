@@ -32,6 +32,10 @@ async def async_setup_entry(
         SolarACMasterOffSinceSensor(coordinator),
         SolarACLastPanicSensor(coordinator),
         SolarACPanicCooldownSensor(coordinator),
+
+        # NEW — Confidence threshold sensors
+        SolarACAddConfidenceThresholdSensor(coordinator),
+        SolarACRemoveConfidenceThresholdSensor(coordinator),
     ]
 
     # Learned power sensors (one per zone)
@@ -285,6 +289,42 @@ class SolarACPanicCooldownSensor(_BaseSolarACSensor):
             return "no"
         return "yes" if (now - ts) < 120 else "no"
 
+
+# ---------------------------------------------------------------------------
+# NEW — Confidence Threshold Sensors
+# ---------------------------------------------------------------------------
+
+class SolarACAddConfidenceThresholdSensor(_BaseSolarACSensor):
+    @property
+    def name(self):
+        return "Solar AC Add Confidence Threshold"
+
+    @property
+    def unique_id(self):
+        return "solar_ac_add_conf_threshold"
+
+    @property
+    def state(self):
+        return self.coordinator.add_confidence_threshold
+
+
+class SolarACRemoveConfidenceThresholdSensor(_BaseSolarACSensor):
+    @property
+    def name(self):
+        return "Solar AC Remove Confidence Threshold"
+
+    @property
+    def unique_id(self):
+        return "solar_ac_remove_conf_threshold"
+
+    @property
+    def state(self):
+        return self.coordinator.remove_confidence_threshold
+
+
+# ---------------------------------------------------------------------------
+# Learned Power Sensor
+# ---------------------------------------------------------------------------
 
 class SolarACLearnedPowerSensor(_BaseSolarACSensor):
     def __init__(self, coordinator, zone_name):
