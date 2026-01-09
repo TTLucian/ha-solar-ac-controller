@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import logging
 from homeassistant.util import dt as dt_util
 from homeassistant.core import HomeAssistant
-import logging
+
+from .const import (
+    CONF_AC_POWER_SENSOR,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -15,7 +19,10 @@ class SolarACController:
         self.coordinator = coordinator
         self.store = store
 
-    async def start_learning(self, zone, ac_power_before):
+    # -------------------------------------------------------------------------
+    # LEARNING START
+    # -------------------------------------------------------------------------
+    async def start_learning(self, zone: str, ac_power_before: float):
         """Mark learning as active and store initial state."""
         c = self.coordinator
 
@@ -24,11 +31,14 @@ class SolarACController:
         c.ac_power_before = ac_power_before
         c.learning_zone = zone
 
+    # -------------------------------------------------------------------------
+    # LEARNING FINISH
+    # -------------------------------------------------------------------------
     async def finish_learning(self):
         """Finish learning after stabilization delay."""
         c = self.coordinator
 
-        # Improvement #9: explicit guards
+        # Guards
         if not c.learning_active:
             return
         if not c.learning_zone:
@@ -57,7 +67,7 @@ class SolarACController:
             return
 
         # Read AC power
-        ac_state = self.hass.states.get(c.config["ac_power_sensor"])
+        ac_state = self.hass.states.get(c.config[CONF_AC_POWER_SENSOR])
         if not ac_state:
             await c._log("[LEARNING_ABORT] ac_power_sensor state missing")
             self._reset_learning_state()
@@ -78,15 +88,15 @@ class SolarACController:
         delta = ac_power_now - (c.ac_power_before or 0.0)
         zone_name = c.learning_zone.split(".")[-1]
 
-        # -----------------------------
+        # ---------------------------------------------------------------------
         # BOOTSTRAP LEARNING (samples == 0)
-        # -----------------------------
+        # ---------------------------------------------------------------------
         if c.samples == 0:
             min_d = 80
             max_d = 2500
+
             if min_d < delta < max_d:
-                prev = c.learned_power.get(zone_name, 1200)
-                # First sample = direct measurement (no EMA yet)
+                prev = c.learned_power.get(zone_name, c.initial_learned_power)
                 new_value = round(delta)
 
                 c.learned_power[zone_name] = new_value
@@ -100,6 +110,7 @@ class SolarACController:
                 await self._save()
                 self._reset_learning_state()
                 return
+
             else:
                 await c._log(
                     f"[LEARNING_SKIP_BOOTSTRAP] zone={zone_name} delta={round(delta)} "
@@ -108,15 +119,16 @@ class SolarACController:
                 self._reset_learning_state()
                 return
 
-        # -----------------------------
+        # ---------------------------------------------------------------------
         # NORMAL LEARNING (samples >= 1)
-        # -----------------------------
+        # ---------------------------------------------------------------------
         min_d = 250
         max_d = 2500
-        if min_d < delta < max_d:
-            prev = c.learned_power.get(zone_name, 1200)
 
-            # EMA-style update: trust previous value more once we have samples
+        if min_d < delta < max_d:
+            prev = c.learned_power.get(zone_name, c.initial_learned_power)
+
+            # EMA-style update
             alpha = 0.3 if c.samples < 10 else 0.2
             new_value = round(prev * (1 - alpha) + delta * alpha)
 
@@ -129,6 +141,7 @@ class SolarACController:
             )
 
             await self._save()
+
         else:
             await c._log(
                 f"[LEARNING_SKIP] zone={zone_name} delta={round(delta)} "
@@ -137,6 +150,9 @@ class SolarACController:
 
         self._reset_learning_state()
 
+    # -------------------------------------------------------------------------
+    # RESET LEARNING STATE
+    # -------------------------------------------------------------------------
     def _reset_learning_state(self):
         c = self.coordinator
         c.learning_active = False
@@ -144,12 +160,17 @@ class SolarACController:
         c.learning_start_time = None
         c.ac_power_before = None
 
+    # -------------------------------------------------------------------------
+    # SAVE LEARNED VALUES
+    # -------------------------------------------------------------------------
     async def _save(self):
         try:
-            await self.store.async_save({
-                "learned_power": self.coordinator.learned_power,
-                "samples": self.coordinator.samples,
-            })
+            await self.store.async_save(
+                {
+                    "learned_power": self.coordinator.learned_power,
+                    "samples": self.coordinator.samples,
+                }
+            )
         except Exception as e:
             _LOGGER.exception("Error saving learned values: %s", e)
             try:
@@ -157,13 +178,16 @@ class SolarACController:
             except Exception:
                 _LOGGER.exception("Failed to write storage error to coordinator log")
 
+    # -------------------------------------------------------------------------
+    # RESET ALL LEARNING
+    # -------------------------------------------------------------------------
     async def reset_learning(self):
         """Reset all learned values."""
         c = self.coordinator
 
         for zone in c.config["zones"]:
             zone_name = zone.split(".")[-1]
-            c.learned_power[zone_name] = 1200
+            c.learned_power[zone_name] = c.initial_learned_power
 
         c.samples = 0
 
