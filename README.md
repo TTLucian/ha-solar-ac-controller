@@ -7,241 +7,213 @@
 
 # 🌞 Solar AC Controller — Home Assistant Integration
 
-A smart, adaptive controller that manages multi-zone AC systems based on solar production, grid import/export, and learned compressor behavior.
+A smart, adaptive controller that manages multi‑zone AC systems based on solar production, grid import/export, and learned compressor behavior.
 
 This integration automatically:
 
-- Turns AC zones on/off based on available solar power
-- Learns each zone’s compressor delta (W)
-- Avoids short-cycling
-- Detects manual overrides
-- Performs panic shedding when grid import spikes
-- Exposes full diagnostics and observability sensors
-- Provides a complete Options Flow for reconfiguration
+- Turns AC zones on/off based on available solar power  
+- Learns each zone’s compressor delta (W)  
+- Avoids short‑cycling  
+- Detects manual overrides  
+- Performs panic shedding when grid import spikes  
+- Exposes full diagnostics and observability sensors  
+- Provides a complete Options Flow for reconfiguration  
 
-Designed for high-performance solar-aware HVAC automation.
+Designed for high‑performance, solar‑aware HVAC automation.
 
 ---
 
 ## 🚀 Features
 
-### 🌞 Solar-aware zone control
+### 🌞 Solar‑aware zone control  
+Zones activate in priority order based on real‑time solar export and grid import.
 
-Zones are activated in priority order based on real-time solar export and grid import.
+### 🧠 Adaptive learning engine  
+Each zone’s compressor delta is learned using a bootstrap + EMA model, improving accuracy over time.
 
-### 🧠 Adaptive learning engine
+### 🔒 Manual override detection  
+If a user manually changes a zone, the controller locks that zone for a configurable period.
 
-The controller learns each zone’s compressor power delta using a bootstrap + EMA model, improving decisions over time.
+### 🆘 Panic shedding  
+If grid import exceeds a threshold, the controller safely shuts down zones to protect the inverter and installation.
 
-### 🔒 Manual override detection
-
-If a user manually changes a zone, the controller locks that zone for a period to avoid fighting the user.
-
-### 🆘 Panic shedding
-
-If grid import exceeds a configurable threshold, the controller safely shuts down zones to protect the inverter and installation.
-
-### 📊 Full observability
-
-The integration exposes multiple entities to let you see exactly what the controller is doing and why.
-
-#### Sensors
-
-- Active zones
-- Next zone
-- Last action
-- EMA 30s
-- EMA 5m
-- Add confidence
-- Remove confidence
-- Required export
-- Export margin
-- Import power
-- Learned power per zone
-
-- Learning active
-- Short-cycling
-- Manual lock active
-- Exporting
-- Importing
-
-#### Diagnostic entity
-
-A single entity exposing the controller brain via attributes:
-
-- Config
-- Active zones
-- Learning state and current learning zone
-- Learned power
-- EMA values
-- Zone last changed timestamps
-- Zone manual lock timers
-- Panic configuration
-- Last action
-
-#### Home Assistant diagnostics export
-
-A dedicated diagnostics handler provides a JSON dump of internal state that can be downloaded from:
-`Settings → Devices & Services → Solar AC Controller → Diagnostics`
-
-This is useful for debugging and for attaching to GitHub issues.
+### 📊 Full observability  
+The integration exposes a rich set of sensors and diagnostics so you can see exactly what the controller is doing and why.
 
 ---
 
-## Configuration
+## 📡 Exposed Entities
 
-### Initial setup
+### **Sensors**
+- Active zones  
+- Next zone  
+- Last zone  
+- Last action  
+- EMA 30s  
+- EMA 5m  
+- Add confidence  
+- Remove confidence  
+- Required export  
+- Export margin  
+- Import power  
+- Learned compressor power per zone  
+- Master‑off timestamp  
+- Last panic timestamp  
+- Panic cooldown active  
 
-The integration uses Home Assistant’s Config Flow. You can add it from:
+### **Binary Sensors**
+- Learning active  
+- Panic state  
+- Panic cooldown  
+- Short‑cycling  
+- Manual lock active  
+- Exporting  
+- Importing  
+- Master switch OFF  
+
+### **Diagnostic Entity**
+A single entity (`Solar AC Diagnostics`) exposing the entire controller brain:
+
+- Config  
+- Active zones  
+- Learning state  
+- Learned power  
+- EMA values  
+- Zone last‑changed timestamps  
+- Manual lock timers  
+- Panic configuration  
+- Required export  
+- Export margin  
+- Next/last zone  
+- Master‑off timestamp  
+- Panic cooldown state  
+- Last action  
+
+### **Home Assistant Diagnostics Export**
+A dedicated diagnostics handler (`diagnostics.py`) provides a JSON‑safe snapshot of all internal state:
+
+`Settings → Devices & Services → Solar AC Controller → Diagnostics`
+
+Perfect for debugging or attaching to GitHub issues.
+
+---
+
+## ⚙️ Configuration
+
+### Initial Setup
+Add the integration via:
 
 `Settings → Devices & Services → Add Integration → Solar AC Controller`
 
-During setup you define:
+You will configure:
 
-- Solar sensor
-- Grid sensor
-- AC power sensor
-- Master AC switch
-- Zones (as a comma-separated list, in activation priority order)
-- Panic threshold
-- Panic delay
+- Solar sensor  
+- Grid sensor  
+- AC power sensor  
+- Master AC switch  
+- Zones (comma‑separated, in activation priority order)  
+- Panic threshold  
+- Panic delay  
 
-### Options Flow
+---
 
-## Runtime options (new)
+## 🛠 Runtime Options (Options Flow)
 
-The integration supports several runtime-configurable options (available in the entry options UI):
+All key behavioral parameters can be changed at runtime:
 
-- `manual_lock_seconds`: seconds to respect a user manual override (default 1200).
-- `short_cycle_on_seconds`: delay after turning a zone on before allowing another add.
-- `short_cycle_off_seconds`: delay after turning a zone off before allowing another remove.
-- `action_delay_seconds`: delay between consecutive HA service calls to avoid API hammering (default 3).
-- `panic_threshold`: grid-import threshold (W) to trigger panic shed (default 1500).
-- `panic_delay`: seconds the panic condition must persist before executing panic actions (default 30).
+- `manual_lock_seconds` — how long to respect manual overrides  
+- `short_cycle_on_seconds` — cooldown after turning a zone ON  
+- `short_cycle_off_seconds` — cooldown after turning a zone OFF  
+- `action_delay_seconds` — delay between HA service calls  
+- `panic_threshold` — grid import threshold for panic shed  
+- `panic_delay` — how long the panic condition must persist  
 
-These options are applied at runtime; changing them via the options flow will update the coordinator immediately.
+Changes apply immediately without restarting the integration.
 
-## Services
+---
 
-Two integration services are provided:
+## 🧩 Services
 
-- `solar_ac_controller.reset_learning` — Cancels any active learning cycle and resets runtime learning state.
-- `solar_ac_controller.force_relearn` — Force a relearn for a specific zone or all zones. Example calls:
+### `solar_ac_controller.reset_learning`
+Cancels any active learning cycle and resets runtime learning state.
 
-YAML example (single zone):
+### `solar_ac_controller.force_relearn`
+Forces relearning for:
 
+- A specific zone (`zone:` provided)  
+- All zones (no `zone:` provided)  
+
+**Example (single zone):**
 ```yaml
 service: solar_ac_controller.force_relearn
 data:
   zone: climate.living_room
 ```
-
-YAML example (all zones):
+Example (all zones):
 
 ```yaml
 service: solar_ac_controller.force_relearn
 data: {}
 ```
 
-The service validates the `zone` against configured zones and logs structured messages on invalid input.
 
-## Developer notes
+## 🧪 Recommended Tests
+Add tests/ with coverage for:
 
-- CI is provided in `.github/workflows/ci.yml` and runs `black`, `pylint`, and `pytest` (matrix: Python 3.10/3.11).
-- Dev dependencies are pinned in `requirements_dev.txt` to avoid CI breakage when Home Assistant test fixtures change.
-- Run locally:
+Coordinator
+Add/no‑add logic
 
-```powershell
-python -m pip install --upgrade pip
-pip install -r requirements_dev.txt
-black --check --diff .
-$env:PYTHONPATH='.'; pylint custom_components/solar_ac_controller --disable=import-error
-$env:PYTHONPATH='.'; pytest -q --maxfail=1
-```
+Remove/no‑remove logic
 
-- Add `pre-commit` to your dev setup and run `pre-commit install` to enforce formatting and linters locally.
-- When changing stored state layout, increment `STORAGE_VERSION` (see `custom_components/solar_ac_controller/const.py`) and add a simple migration path.
+Panic path
 
-## Tests (recommended)
+Learning timeout
 
-Add `tests/` with unit tests for the coordinator and controller covering:
+Master‑off behavior
 
-- Coordinator: add/no-add, remove/no-remove, panic path, and learning timeout behavior.
-- Controller: learning bootstrap, EMA updates, and abort conditions (manual lock, missing sensors, non-numeric inputs).
+Panic cooldown
 
-Contributions: open a PR, run the test suite and linters, and include a CHANGELOG entry for user-visible changes.
-All key parameters can be adjusted later without removing the integration:
+Controller
+Bootstrap learning
 
-- Sensors
-- Zones and their order (comma-separated)
-- Solar ON/OFF thresholds
-- Panic threshold
-- Panic delay
+EMA updates
 
-Changes take effect immediately after saving.
-
----
-
-## Services
-
-### `solar_ac_controller.reset_learning`
-
-Resets all learned compressor values and related learning statistics.
-
-### `solar_ac_controller.force_relearn`
-
-Forces relearning for:
-
-- A specific zone (when `zone` is provided)
-- All zones (when `zone` is omitted)
-
----
-
-## Diagnostics
-
-The integration provides two layers of diagnostics:
-
-1. A diagnostic entity (`Solar AC Diagnostics`) with rich attributes
-2. A Home Assistant diagnostics export (`diagnostics.py`) that returns a JSON-safe snapshot of:
-
-   - Config
-   - Learned power
-   - Samples
-   - Learning state
-   - EMA values
-   - Zone lock timers
-   - Zone last changed
-   - Panic configuration
-   - Active zones
-   - Next zone
-   - Last action
-
-This makes it easy to understand behavior and report issues.
-
----
+Abort conditions (manual lock, missing sensors, invalid values)
 
 ## 📦 Installation
+Manual Installation
+Copy custom_components/solar_ac_controller into your HA config directory.
 
-### Manual installation
+Restart Home Assistant.
 
-1. Copy the `custom_components/solar_ac_controller` folder into your Home Assistant `config` directory.
-2. Restart Home Assistant.
-3. Add the integration via: `Settings → Devices & Services → Add Integration → Solar AC Controller`
+Add the integration via the UI.
 
-### HACS (Custom Repository)
+HACS (Custom Repository)
+Open HACS → Integrations
 
-This integration can be installed through **HACS** by adding it as a **Custom Repository**:
+Three‑dot menu → Custom repositories
 
-1. Open HACS → Integrations
-2. Click the three‑dot menu → *Custom repositories*
-3. Add the repository URL: ```https://github.com/TTLucian/ha-solar-ac-controller```
-4. Select category: **Integration**
-5. Install the integration
-6. Restart Home Assistant
-7. Add it via: `Settings → Devices & Services → Add Integration → Solar AC Controller`
+Add:
 
----
+```Code
+https://github.com/TTLucian/ha-solar-ac-controller
+Category: Integration
+```
+Install
+
+Restart Home Assistant
+
+Add the integration via the UI
+
+Or click this:
+
+[![Add Solar AC Controller to HACS](https://img.shields.io/badge/HACS-Add%20Solar%20AC%20Controller-blue?style=for-the-badge)](https://my.home-assistant.io/redirect/hacs_repository/?owner=TTLucian&repository=ha-solar-ac-controller&category=integration)
+
+then this:
+
+[![Add Solar AC Controller Integration](https://img.shields.io/badge/Home%20Assistant-Add%20Integration-blue?style=for-the-badge&logo=homeassistant)](https://my.home-assistant.io/redirect/config_flow_start?domain=solar_ac_controller)
+
 
 ## 🙌 Credits
 Created by @TTLucian.
-Designed for high-performance, solar-aware HVAC automation with strong observability.
+Designed for high‑performance, solar‑aware HVAC automation with strong observability.
