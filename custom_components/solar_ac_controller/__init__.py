@@ -17,6 +17,7 @@ from .const import (
     CONF_PANIC_THRESHOLD,
     CONF_PANIC_DELAY,
     CONF_ACTION_DELAY_SECONDS,
+    CONF_INITIAL_LEARNED_POWER,
 )
 from .coordinator import SolarACCoordinator
 
@@ -41,15 +42,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     """Set up Solar AC Controller from a config entry."""
     hass.data.setdefault(DOMAIN, {})
 
-    # Merge options over data so runtime changes take effect
-    config = {**entry.data, **entry.options}
-
     # Load persistent storage
     store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
     stored = await store.async_load() or {}
 
-    # Create coordinator
-    coordinator = SolarACCoordinator(hass, config_entry, store, stored)
+    # Create coordinator (PASS THE ENTRY, NOT MERGED CONFIG)
+    coordinator = SolarACCoordinator(hass, entry, store, stored)
     await coordinator.async_config_entry_first_refresh()
 
     # Store integration data
@@ -68,7 +66,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
         coordinator: SolarACCoordinator = data["coordinator"]
 
-        # Merge new options
+        # Merge new options over data
         new_config = {**entry.data, **entry.options}
         coordinator.config = new_config
 
@@ -92,6 +90,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
             CONF_PANIC_DELAY, coordinator.panic_delay
         )
 
+        # NEW: update initial learned power
+        coordinator.initial_learned_power = new_config.get(
+            CONF_INITIAL_LEARNED_POWER,
+            coordinator.initial_learned_power,
+        )
+
         _LOGGER.info("Solar AC options updated, refreshing coordinator")
 
         try:
@@ -111,7 +115,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         name="Solar AC Controller",
         manufacturer="TTLucian",
         model="Solar AC Smart Controller",
-        sw_version=config.get("version", "0.1.3"),
+        sw_version=entry.data.get("version", "0.1.3"),
         hw_version="virtual",
         configuration_url="https://github.com/TTLucian/ha-solar-ac-controller",
     )
@@ -138,7 +142,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         zone = call.data.get("zone")
 
         # Validate zone
-        if zone and zone not in coordinator.config["zones"]:
+        if zone and zone not in coordinator.config.get("zones", []):
             await coordinator._log(f"[FORCE_RELEARN_INVALID_ZONE] {zone}")
             return
 
@@ -148,7 +152,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
             coordinator.learned_power[zone_name] = 1200
             target = zone_name
         else:
-            for z in coordinator.config["zones"]:
+            for z in coordinator.config.get("zones", []):
                 zn = _short_name(z)
                 coordinator.learned_power[zn] = 1200
             target = "all"
