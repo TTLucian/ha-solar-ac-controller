@@ -21,6 +21,10 @@ CONF_SHORT_CYCLE_ON_SECONDS = "short_cycle_on_seconds"
 CONF_SHORT_CYCLE_OFF_SECONDS = "short_cycle_off_seconds"
 CONF_ACTION_DELAY_SECONDS = "action_delay_seconds"
 
+# Confidence thresholds
+CONF_ADD_CONFIDENCE = "add_confidence"
+CONF_REMOVE_CONFIDENCE = "remove_confidence"
+
 # Storage
 STORAGE_KEY = DOMAIN
 STORAGE_VERSION = 1
