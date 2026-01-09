@@ -20,6 +20,7 @@ async def async_setup_entry(
     entities = [
         SolarACActiveZonesSensor(coordinator),
         SolarACNextZoneSensor(coordinator),
+        SolarACLastZoneSensor(coordinator),
         SolarACLastActionSensor(coordinator),
         SolarACEma30Sensor(coordinator),
         SolarACEma5Sensor(coordinator),
@@ -28,6 +29,9 @@ async def async_setup_entry(
         SolarACRequiredExportSensor(coordinator),
         SolarACExportMarginSensor(coordinator),
         SolarACImportPowerSensor(coordinator),
+        SolarACMasterOffSinceSensor(coordinator),
+        SolarACLastPanicSensor(coordinator),
+        SolarACPanicCooldownSensor(coordinator),
     ]
 
     # Learned power sensors (one per zone)
@@ -39,7 +43,7 @@ async def async_setup_entry(
 
 
 # ---------------------------------------------------------------------------
-# BASE CLASS (merged, final, correct)
+# BASE CLASS
 # ---------------------------------------------------------------------------
 
 class _BaseSolarACSensor(SensorEntity):
@@ -99,17 +103,21 @@ class SolarACNextZoneSensor(_BaseSolarACSensor):
 
     @property
     def state(self):
-        c = self.coordinator
-        now = dt_util.utcnow().timestamp()
+        return self.coordinator.next_zone or "none"
 
-        for z in c.config["zones"]:
-            st = c.hass.states.get(z)
-            if not st or st.state not in ("heat", "on"):
-                lock = c.zone_manual_lock_until.get(z)
-                if lock and lock > now:
-                    continue
-                return z
-        return "none"
+
+class SolarACLastZoneSensor(_BaseSolarACSensor):
+    @property
+    def name(self):
+        return "Solar AC Last Zone"
+
+    @property
+    def unique_id(self):
+        return "solar_ac_last_zone"
+
+    @property
+    def state(self):
+        return self.coordinator.last_zone or "none"
 
 
 class SolarACLastActionSensor(_BaseSolarACSensor):
@@ -165,7 +173,7 @@ class SolarACAddConfidenceSensor(_BaseSolarACSensor):
 
     @property
     def state(self):
-        return getattr(self.coordinator, "last_add_conf", None)
+        return round(self.coordinator.last_add_conf, 2)
 
 
 class SolarACRemoveConfidenceSensor(_BaseSolarACSensor):
@@ -179,7 +187,7 @@ class SolarACRemoveConfidenceSensor(_BaseSolarACSensor):
 
     @property
     def state(self):
-        return getattr(self.coordinator, "last_remove_conf", None)
+        return round(self.coordinator.last_remove_conf, 2)
 
 
 class SolarACRequiredExportSensor(_BaseSolarACSensor):
@@ -193,26 +201,7 @@ class SolarACRequiredExportSensor(_BaseSolarACSensor):
 
     @property
     def state(self):
-        c = self.coordinator
-        now = dt_util.utcnow().timestamp()
-
-        next_zone = None
-        for z in c.config["zones"]:
-            st = c.hass.states.get(z)
-            if not st or st.state not in ("heat", "on"):
-                lock = c.zone_manual_lock_until.get(z)
-                if lock and lock > now:
-                    continue
-                next_zone = z
-                break
-
-        if not next_zone:
-            return 0
-
-        zone_name = next_zone.split(".")[-1]
-        lp = c.learned_power.get(zone_name, 1200)
-        safety_mult = 1.15 if c.samples >= 10 else 1.30
-        return round(lp * safety_mult)
+        return round(self.coordinator.required_export, 2)
 
 
 class SolarACExportMarginSensor(_BaseSolarACSensor):
@@ -226,10 +215,7 @@ class SolarACExportMarginSensor(_BaseSolarACSensor):
 
     @property
     def state(self):
-        c = self.coordinator
-        required = SolarACRequiredExportSensor(c).state
-        export = -c.ema_30s
-        return round(export - required, 2)
+        return round(self.coordinator.export_margin, 2)
 
 
 class SolarACImportPowerSensor(_BaseSolarACSensor):
@@ -244,6 +230,60 @@ class SolarACImportPowerSensor(_BaseSolarACSensor):
     @property
     def state(self):
         return round(self.coordinator.ema_5m, 2)
+
+
+class SolarACMasterOffSinceSensor(_BaseSolarACSensor):
+    @property
+    def name(self):
+        return "Solar AC Master Off Since"
+
+    @property
+    def unique_id(self):
+        return "solar_ac_master_off_since"
+
+    @property
+    def state(self):
+        return (
+            int(self.coordinator.master_off_since)
+            if self.coordinator.master_off_since
+            else 0
+        )
+
+
+class SolarACLastPanicSensor(_BaseSolarACSensor):
+    @property
+    def name(self):
+        return "Solar AC Last Panic"
+
+    @property
+    def unique_id(self):
+        return "solar_ac_last_panic"
+
+    @property
+    def state(self):
+        return (
+            int(self.coordinator.last_panic_ts)
+            if self.coordinator.last_panic_ts
+            else 0
+        )
+
+
+class SolarACPanicCooldownSensor(_BaseSolarACSensor):
+    @property
+    def name(self):
+        return "Solar AC Panic Cooldown Active"
+
+    @property
+    def unique_id(self):
+        return "solar_ac_panic_cooldown"
+
+    @property
+    def state(self):
+        now = dt_util.utcnow().timestamp()
+        ts = self.coordinator.last_panic_ts
+        if not ts:
+            return "no"
+        return "yes" if (now - ts) < 120 else "no"
 
 
 class SolarACLearnedPowerSensor(_BaseSolarACSensor):
