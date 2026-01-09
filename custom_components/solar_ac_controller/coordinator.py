@@ -24,7 +24,9 @@ from .const import (
     CONF_ZONES,
     CONF_ADD_CONFIDENCE,
     CONF_REMOVE_CONFIDENCE,
+    CONF_INITIAL_LEARNED_POWER,
 )
+
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -52,7 +54,10 @@ class SolarACCoordinator(DataUpdateCoordinator):
         self.store = store
 
         # Learned values
-        self.initial_learned_power = config.get(CONF_INITIAL_LEARNED_POWER, 1200)
+        self.initial_learned_power = (config_entry.options.get(CONF_INITIAL_LEARNED_POWER, config_entry.data.get(CONF_INITIAL_LEARNED_POWER, 1200)
+    )
+)
+
         self.learned_power: dict[str, float] = stored.get("learned_power", {})
         self.samples: int = stored.get("samples", 0)
 
