@@ -353,7 +353,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
 
     def _compute_required_export(self, next_zone: str | None) -> float:
         if not next_zone:
-            return 99999.0
+            return None
 
         zone_name = next_zone.split(".")[-1]
         lp = self.learned_power.get(zone_name, self.initial_learned_power)
