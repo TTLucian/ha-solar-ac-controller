@@ -24,18 +24,17 @@ async def async_setup_entry(
         SolarACLastActionSensor(coordinator),
         SolarACEma30Sensor(coordinator),
         SolarACEma5Sensor(coordinator),
-        SolarACAddConfidenceSensor(coordinator),
-        SolarACRemoveConfidenceSensor(coordinator),
+
+        # Unified confidence sensors
+        SolarACConfidenceSensor(coordinator),
+        SolarACConfidenceThresholdSensor(coordinator),
+
         SolarACRequiredExportSensor(coordinator),
         SolarACExportMarginSensor(coordinator),
         SolarACImportPowerSensor(coordinator),
         SolarACMasterOffSinceSensor(coordinator),
         SolarACLastPanicSensor(coordinator),
         SolarACPanicCooldownSensor(coordinator),
-
-        # NEW — Confidence threshold sensors
-        SolarACAddConfidenceThresholdSensor(coordinator),
-        SolarACRemoveConfidenceThresholdSensor(coordinator),
     ]
 
     # Learned power sensors (one per zone)
@@ -166,33 +165,50 @@ class SolarACEma5Sensor(_BaseSolarACSensor):
         return round(self.coordinator.ema_5m, 2)
 
 
-class SolarACAddConfidenceSensor(_BaseSolarACSensor):
+# ---------------------------------------------------------------------------
+# UNIFIED CONFIDENCE SENSORS
+# ---------------------------------------------------------------------------
+
+class SolarACConfidenceSensor(_BaseSolarACSensor):
     @property
     def name(self):
-        return "Solar AC Add Confidence"
+        return "Solar AC Confidence"
 
     @property
     def unique_id(self):
-        return "solar_ac_add_conf"
+        return "solar_ac_confidence"
 
     @property
     def state(self):
-        return round(self.coordinator.last_add_conf, 2)
+        # Signed confidence: positive → add, negative → remove
+        return round(self.coordinator.confidence, 2)
 
 
-class SolarACRemoveConfidenceSensor(_BaseSolarACSensor):
+class SolarACConfidenceThresholdSensor(_BaseSolarACSensor):
     @property
     def name(self):
-        return "Solar AC Remove Confidence"
+        return "Solar AC Confidence Thresholds"
 
     @property
     def unique_id(self):
-        return "solar_ac_remove_conf"
+        return "solar_ac_conf_thresholds"
 
     @property
     def state(self):
-        return round(self.coordinator.last_remove_conf, 2)
+        # State is informational
+        return "ok"
 
+    @property
+    def extra_state_attributes(self):
+        return {
+            "add_threshold": self.coordinator.add_confidence_threshold,
+            "remove_threshold": self.coordinator.remove_confidence_threshold,
+        }
+
+
+# ---------------------------------------------------------------------------
+# OTHER METRIC SENSORS
+# ---------------------------------------------------------------------------
 
 class SolarACRequiredExportSensor(_BaseSolarACSensor):
     @property
@@ -288,38 +304,6 @@ class SolarACPanicCooldownSensor(_BaseSolarACSensor):
         if not ts:
             return "no"
         return "yes" if (now - ts) < 120 else "no"
-
-
-# ---------------------------------------------------------------------------
-# NEW — Confidence Threshold Sensors
-# ---------------------------------------------------------------------------
-
-class SolarACAddConfidenceThresholdSensor(_BaseSolarACSensor):
-    @property
-    def name(self):
-        return "Solar AC Add Confidence Threshold"
-
-    @property
-    def unique_id(self):
-        return "solar_ac_add_conf_threshold"
-
-    @property
-    def state(self):
-        return self.coordinator.add_confidence_threshold
-
-
-class SolarACRemoveConfidenceThresholdSensor(_BaseSolarACSensor):
-    @property
-    def name(self):
-        return "Solar AC Remove Confidence Threshold"
-
-    @property
-    def unique_id(self):
-        return "solar_ac_remove_conf_threshold"
-
-    @property
-    def state(self):
-        return self.coordinator.remove_confidence_threshold
 
 
 # ---------------------------------------------------------------------------
