@@ -6,7 +6,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.core import HomeAssistant
-    from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
@@ -264,7 +264,6 @@ class SolarACImportPowerSensor(_NumericSolarACSensor):
 
     @property
     def state(self):
-        # Import power = EMA 5m (positive = import)
         return round(self.coordinator.ema_5m, 2)
 
 
