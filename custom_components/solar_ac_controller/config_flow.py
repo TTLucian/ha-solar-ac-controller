@@ -25,8 +25,9 @@ from .const import (
     CONF_REMOVE_CONFIDENCE,
 )
 
-DEFAULT_ADD_CONFIDENCE = 0.7
-DEFAULT_REMOVE_CONFIDENCE = 0.3
+# Unified confidence defaults (ADD positive, REMOVE is magnitude for negative side)
+DEFAULT_ADD_CONFIDENCE = 25
+DEFAULT_REMOVE_CONFIDENCE = 10
 
 
 def _ensure_list(value: Any) -> list[str]:
@@ -97,9 +98,9 @@ class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Optional(CONF_SHORT_CYCLE_OFF_SECONDS, default=1200): int,
                 vol.Optional(CONF_ACTION_DELAY_SECONDS, default=3): int,
 
-                # NEW — Confidence thresholds
-                vol.Optional(CONF_ADD_CONFIDENCE, default=DEFAULT_ADD_CONFIDENCE): float,
-                vol.Optional(CONF_REMOVE_CONFIDENCE, default=DEFAULT_REMOVE_CONFIDENCE): float,
+                # Unified confidence thresholds
+                vol.Optional(CONF_ADD_CONFIDENCE, default=DEFAULT_ADD_CONFIDENCE): int,
+                vol.Optional(CONF_REMOVE_CONFIDENCE, default=DEFAULT_REMOVE_CONFIDENCE): int,
             }
         )
 
@@ -172,7 +173,7 @@ class SolarACOptionsFlowHandler(config_entries.OptionsFlow):
                     CONF_SHORT_CYCLE_OFF_SECONDS: user_input.get(CONF_SHORT_CYCLE_OFF_SECONDS, 1200),
                     CONF_ACTION_DELAY_SECONDS: user_input.get(CONF_ACTION_DELAY_SECONDS, 3),
 
-                    # NEW — Confidence thresholds
+                    # Unified confidence thresholds
                     CONF_ADD_CONFIDENCE: user_input.get(CONF_ADD_CONFIDENCE, DEFAULT_ADD_CONFIDENCE),
                     CONF_REMOVE_CONFIDENCE: user_input.get(CONF_REMOVE_CONFIDENCE, DEFAULT_REMOVE_CONFIDENCE),
                 }
@@ -217,9 +218,9 @@ class SolarACOptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Optional(CONF_SHORT_CYCLE_OFF_SECONDS, default=data.get(CONF_SHORT_CYCLE_OFF_SECONDS, 1200)): int,
                 vol.Optional(CONF_ACTION_DELAY_SECONDS, default=data.get(CONF_ACTION_DELAY_SECONDS, 3)): int,
 
-                # NEW — Confidence thresholds
-                vol.Optional(CONF_ADD_CONFIDENCE, default=data.get(CONF_ADD_CONFIDENCE, DEFAULT_ADD_CONFIDENCE)): float,
-                vol.Optional(CONF_REMOVE_CONFIDENCE, default=data.get(CONF_REMOVE_CONFIDENCE, DEFAULT_REMOVE_CONFIDENCE)): float,
+                # Unified confidence thresholds
+                vol.Optional(CONF_ADD_CONFIDENCE, default=data.get(CONF_ADD_CONFIDENCE, DEFAULT_ADD_CONFIDENCE)): int,
+                vol.Optional(CONF_REMOVE_CONFIDENCE, default=data.get(CONF_REMOVE_CONFIDENCE, DEFAULT_REMOVE_CONFIDENCE)): int,
             }
         )
 
@@ -241,7 +242,10 @@ class SolarACOptionsFlowHandler(config_entries.OptionsFlow):
                     "- Solar OFF: below this, the master switch may shut the AC down.\n\n"
                     "Advanced:\n"
                     "- Panic threshold: grid import level that triggers emergency shedding.\n"
-                    "- Panic delay: seconds to wait before shedding, to ignore short spikes."
+                    "- Panic delay: seconds to wait before shedding, to ignore short spikes.\n\n"
+                    "Confidence:\n"
+                    "- Add threshold: confidence required to add a zone (positive).\n"
+                    "- Remove threshold: magnitude required to remove a zone (negative side)."
                 )
             },
         )
