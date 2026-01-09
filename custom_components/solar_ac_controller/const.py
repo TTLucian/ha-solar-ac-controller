@@ -27,6 +27,8 @@ CONF_ACTION_DELAY_SECONDS = "action_delay_seconds"
 CONF_ADD_CONFIDENCE = "add_confidence_threshold"
 CONF_REMOVE_CONFIDENCE = "remove_confidence_threshold"
 
+CONF_INITIAL_LEARNED_POWER = "initial_learned_power"
+
 # Storage
 STORAGE_KEY = DOMAIN
 STORAGE_VERSION = 1
