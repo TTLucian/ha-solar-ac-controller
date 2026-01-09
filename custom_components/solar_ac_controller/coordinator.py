@@ -187,7 +187,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
         self.next_zone = next_zone
         self.last_zone = last_zone
         self.required_export = required_export
-        self.export_margin = export - required_export
+        self.export_margin = None if required_export is None else export - required_export
 
         self.last_add_conf = self._compute_add_conf(
             export=export,
