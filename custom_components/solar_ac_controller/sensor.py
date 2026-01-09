@@ -251,7 +251,8 @@ class SolarACExportMarginSensor(_NumericSolarACSensor):
 
     @property
     def state(self):
-        return round(self.coordinator.export_margin, 2)
+        val = self.coordinator.export_margin
+        return None if val is None else round(val, 2)
 
 
 class SolarACImportPowerSensor(_NumericSolarACSensor):
