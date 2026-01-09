@@ -1,12 +1,11 @@
 from __future__ import annotations
 
+import logging
+
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers import device_registry as dr
-import logging
-
-_LOGGER = logging.getLogger(__name__)
 
 from .const import (
     DOMAIN,
@@ -21,17 +20,16 @@ from .const import (
 )
 from .coordinator import SolarACCoordinator
 
+_LOGGER = logging.getLogger(__name__)
+
 PLATFORMS: list[str] = ["sensor", "binary_sensor"]
 
 
 def _short_name(entity_id: str) -> str:
-    """Return the short name (the part after the last dot) for an entity_id.
-
-    Falls back to str(entity_id) when input is not a string.
-    """
+    """Return the short name (the part after the last dot) for an entity_id."""
     if not isinstance(entity_id, str):
         return str(entity_id)
-    return entity_id.rsplit('.', 1)[-1]
+    return entity_id.rsplit(".", 1)[-1]
 
 
 async def async_setup(hass: HomeAssistant, config: dict):
@@ -43,41 +41,59 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     """Set up Solar AC Controller from a config entry."""
     hass.data.setdefault(DOMAIN, {})
 
-    # ---------------------------------------------------------
-    # OPTIONS FLOW SUPPORT:
     # Merge options over data so runtime changes take effect
-    # ---------------------------------------------------------
     config = {**entry.data, **entry.options}
 
+    # Load persistent storage
     store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
     stored = await store.async_load() or {}
 
+    # Create coordinator
     coordinator = SolarACCoordinator(hass, config, store, stored)
     await coordinator.async_config_entry_first_refresh()
 
-    # ------------------------------------------------------------------
-    # Listen for options updates so runtime changes apply immediately
-    # ------------------------------------------------------------------
+    # Store integration data
+    hass.data[DOMAIN][entry.entry_id] = {
+        "coordinator": coordinator,
+        "store": store,
+    }
+
+    # -------------------------------------------------------------------------
+    # OPTIONS UPDATE LISTENER
+    # -------------------------------------------------------------------------
     async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
         data = hass.data.get(DOMAIN, {}).get(entry.entry_id)
         if not data:
             return
+
         coordinator: SolarACCoordinator = data["coordinator"]
 
-        # Merge options over data (same pattern used at setup)
+        # Merge new options
         new_config = {**entry.data, **entry.options}
         coordinator.config = new_config
 
         # Update runtime-configurable attributes
-        coordinator.manual_lock_seconds = new_config.get(CONF_MANUAL_LOCK_SECONDS, coordinator.manual_lock_seconds)
-        coordinator.short_cycle_on_seconds = new_config.get(CONF_SHORT_CYCLE_ON_SECONDS, coordinator.short_cycle_on_seconds)
-        coordinator.short_cycle_off_seconds = new_config.get(CONF_SHORT_CYCLE_OFF_SECONDS, coordinator.short_cycle_off_seconds)
-        coordinator.action_delay_seconds = new_config.get(CONF_ACTION_DELAY_SECONDS, coordinator.action_delay_seconds)
-        coordinator.panic_threshold = new_config.get(CONF_PANIC_THRESHOLD, coordinator.panic_threshold)
-        coordinator.panic_delay = new_config.get(CONF_PANIC_DELAY, coordinator.panic_delay)
+        coordinator.manual_lock_seconds = new_config.get(
+            CONF_MANUAL_LOCK_SECONDS, coordinator.manual_lock_seconds
+        )
+        coordinator.short_cycle_on_seconds = new_config.get(
+            CONF_SHORT_CYCLE_ON_SECONDS, coordinator.short_cycle_on_seconds
+        )
+        coordinator.short_cycle_off_seconds = new_config.get(
+            CONF_SHORT_CYCLE_OFF_SECONDS, coordinator.short_cycle_off_seconds
+        )
+        coordinator.action_delay_seconds = new_config.get(
+            CONF_ACTION_DELAY_SECONDS, coordinator.action_delay_seconds
+        )
+        coordinator.panic_threshold = new_config.get(
+            CONF_PANIC_THRESHOLD, coordinator.panic_threshold
+        )
+        coordinator.panic_delay = new_config.get(
+            CONF_PANIC_DELAY, coordinator.panic_delay
+        )
 
-        _LOGGER.info("Solar AC options updated, refreshed coordinator runtime config")
-        # Trigger an immediate refresh to apply new settings
+        _LOGGER.info("Solar AC options updated, refreshing coordinator")
+
         try:
             await coordinator.async_refresh()
         except Exception:
@@ -85,14 +101,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
     entry.add_update_listener(_async_options_updated)
 
-    hass.data[DOMAIN][entry.entry_id] = {
-        "coordinator": coordinator,
-        "store": store,
-    }
-
-    # ---------------------------------------------------------
-    # CREATE SHARED DEVICE ID FOR ALL ENTITIES
-    # ---------------------------------------------------------
+    # -------------------------------------------------------------------------
+    # DEVICE REGISTRY ENTRY
+    # -------------------------------------------------------------------------
     device_registry = dr.async_get(hass)
     device_registry.async_get_or_create(
         config_entry_id=entry.entry_id,
@@ -105,14 +116,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         configuration_url="https://github.com/TTLucian/ha-solar-ac-controller",
     )
 
-    # ---------------------------------------------------------
+    # -------------------------------------------------------------------------
     # FORWARD PLATFORMS
-    # ---------------------------------------------------------
+    # -------------------------------------------------------------------------
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    # ---------------------------------------------------------
+    # -------------------------------------------------------------------------
     # SERVICES
-    # ---------------------------------------------------------
+    # -------------------------------------------------------------------------
 
     async def handle_reset_learning(call: ServiceCall):
         try:
@@ -131,7 +142,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
             await coordinator._log(f"[FORCE_RELEARN_INVALID_ZONE] {zone}")
             return
 
-        # Apply reset
+        # Reset one zone or all zones
         if zone:
             zone_name = _short_name(zone)
             coordinator.learned_power[zone_name] = 1200
@@ -142,21 +153,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
                 coordinator.learned_power[zn] = 1200
             target = "all"
 
+        # Reset learning state
         coordinator.samples = 0
         coordinator.learning_active = False
         coordinator.learning_zone = None
         coordinator.learning_start_time = None
         coordinator.ac_power_before = None
 
-        # Log the action
         await coordinator._log(f"[FORCE_RELEARN] target={target}")
 
-        # Ensure controller exists before attempting to save
-        if not hasattr(coordinator, "controller") or coordinator.controller is None:
-            _LOGGER.error("Coordinator missing controller during force_relearn")
-            await coordinator._log("[SERVICE_ERROR] force_relearn missing controller")
-            return
-
+        # Save updated values
         try:
             await coordinator.controller._save()
         except Exception as e:
