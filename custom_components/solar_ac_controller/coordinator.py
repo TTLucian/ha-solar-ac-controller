@@ -152,6 +152,13 @@ class SolarACCoordinator(DataUpdateCoordinator):
         required_export = self._compute_required_export(next_zone)
         export = -self.ema_30s
         import_power = self.ema_5m
+        
+        # Store for sensors
+        self.next_zone = next_zone
+        self.last_zone = last_zone
+        self.required_export = required_export
+        self.export_margin = export - required_export
+
 
         self.last_add_conf = self._compute_add_conf(
             export=export,
