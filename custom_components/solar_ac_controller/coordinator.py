@@ -387,7 +387,12 @@ class SolarACCoordinator(DataUpdateCoordinator):
         last_zone: str | None,
     ) -> float:
 
+        if required_export is None:
+            return 0.0
+        
         export_margin = export - required_export
+
+
         base = min(40, max(0, export_margin / 25))
         sample_bonus = min(20, self.samples * 2)
         short_cycle_penalty = -30 if self._is_short_cycling(last_zone) else 0
