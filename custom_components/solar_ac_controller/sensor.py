@@ -1,8 +1,12 @@
 from __future__ import annotations
 
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.components.sensor import (
+    SensorEntity,
+    SensorDeviceClass,
+    SensorStateClass,
+)
 from homeassistant.core import HomeAssistant
-from homeassistant.config_entries import ConfigEntry
+    from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
@@ -73,7 +77,7 @@ class _BaseSolarACSensor(SensorEntity):
 
 
 # ---------------------------------------------------------------------------
-# SENSOR ENTITIES
+# NON-NUMERIC SENSORS
 # ---------------------------------------------------------------------------
 
 class SolarACActiveZonesSensor(_BaseSolarACSensor):
@@ -137,7 +141,23 @@ class SolarACLastActionSensor(_BaseSolarACSensor):
         return self.coordinator.last_action or "none"
 
 
-class SolarACEma30Sensor(_BaseSolarACSensor):
+# ---------------------------------------------------------------------------
+# NUMERIC SENSOR BASE CLASS
+# ---------------------------------------------------------------------------
+
+class _NumericSolarACSensor(_BaseSolarACSensor):
+    """Base class for numeric sensors with proper metadata."""
+
+    _attr_device_class = SensorDeviceClass.POWER
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "W"
+
+
+# ---------------------------------------------------------------------------
+# NUMERIC SENSORS
+# ---------------------------------------------------------------------------
+
+class SolarACEma30Sensor(_NumericSolarACSensor):
     @property
     def name(self):
         return "Solar AC EMA 30s"
@@ -151,7 +171,7 @@ class SolarACEma30Sensor(_BaseSolarACSensor):
         return round(self.coordinator.ema_30s, 2)
 
 
-class SolarACEma5Sensor(_BaseSolarACSensor):
+class SolarACEma5Sensor(_NumericSolarACSensor):
     @property
     def name(self):
         return "Solar AC EMA 5m"
@@ -165,11 +185,13 @@ class SolarACEma5Sensor(_BaseSolarACSensor):
         return round(self.coordinator.ema_5m, 2)
 
 
-# ---------------------------------------------------------------------------
-# UNIFIED CONFIDENCE SENSORS
-# ---------------------------------------------------------------------------
-
 class SolarACConfidenceSensor(_BaseSolarACSensor):
+    """Dimensionless numeric confidence value."""
+
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "pts"
+    _attr_device_class = None  # confidence is not power
+
     @property
     def name(self):
         return "Solar AC Confidence"
@@ -180,7 +202,6 @@ class SolarACConfidenceSensor(_BaseSolarACSensor):
 
     @property
     def state(self):
-        # Signed confidence: positive → add, negative → remove
         return round(self.coordinator.confidence, 2)
 
 
@@ -195,7 +216,6 @@ class SolarACConfidenceThresholdSensor(_BaseSolarACSensor):
 
     @property
     def state(self):
-        # State is informational
         return "ok"
 
     @property
@@ -206,11 +226,7 @@ class SolarACConfidenceThresholdSensor(_BaseSolarACSensor):
         }
 
 
-# ---------------------------------------------------------------------------
-# OTHER METRIC SENSORS
-# ---------------------------------------------------------------------------
-
-class SolarACRequiredExportSensor(_BaseSolarACSensor):
+class SolarACRequiredExportSensor(_NumericSolarACSensor):
     @property
     def name(self):
         return "Solar AC Required Export"
@@ -224,7 +240,7 @@ class SolarACRequiredExportSensor(_BaseSolarACSensor):
         return round(self.coordinator.required_export, 2)
 
 
-class SolarACExportMarginSensor(_BaseSolarACSensor):
+class SolarACExportMarginSensor(_NumericSolarACSensor):
     @property
     def name(self):
         return "Solar AC Export Margin"
@@ -238,7 +254,7 @@ class SolarACExportMarginSensor(_BaseSolarACSensor):
         return round(self.coordinator.export_margin, 2)
 
 
-class SolarACImportPowerSensor(_BaseSolarACSensor):
+class SolarACImportPowerSensor(_NumericSolarACSensor):
     @property
     def name(self):
         return "Solar AC Import Power"
@@ -252,7 +268,7 @@ class SolarACImportPowerSensor(_BaseSolarACSensor):
         return round(self.coordinator.ema_5m, 2)
 
 
-class SolarACMasterOffSinceSensor(_BaseSolarACSensor):
+class SolarACMasterOffSinceSensor(_NumericSolarACSensor):
     @property
     def name(self):
         return "Solar AC Master Off Since"
@@ -263,14 +279,10 @@ class SolarACMasterOffSinceSensor(_BaseSolarACSensor):
 
     @property
     def state(self):
-        return (
-            int(self.coordinator.master_off_since)
-            if self.coordinator.master_off_since
-            else 0
-        )
+        return int(self.coordinator.master_off_since or 0)
 
 
-class SolarACLastPanicSensor(_BaseSolarACSensor):
+class SolarACLastPanicSensor(_NumericSolarACSensor):
     @property
     def name(self):
         return "Solar AC Last Panic"
@@ -281,11 +293,7 @@ class SolarACLastPanicSensor(_BaseSolarACSensor):
 
     @property
     def state(self):
-        return (
-            int(self.coordinator.last_panic_ts)
-            if self.coordinator.last_panic_ts
-            else 0
-        )
+        return int(self.coordinator.last_panic_ts or 0)
 
 
 class SolarACPanicCooldownSensor(_BaseSolarACSensor):
@@ -307,10 +315,10 @@ class SolarACPanicCooldownSensor(_BaseSolarACSensor):
 
 
 # ---------------------------------------------------------------------------
-# Learned Power Sensor
+# LEARNED POWER SENSOR
 # ---------------------------------------------------------------------------
 
-class SolarACLearnedPowerSensor(_BaseSolarACSensor):
+class SolarACLearnedPowerSensor(_NumericSolarACSensor):
     def __init__(self, coordinator, zone_name):
         super().__init__(coordinator)
         self.zone_name = zone_name
