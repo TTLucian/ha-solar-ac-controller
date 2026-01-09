@@ -6,7 +6,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.config_entries import ConfigEntry
+    from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
@@ -26,16 +26,17 @@ async def async_setup_entry(
         SolarACNextZoneSensor(coordinator),
         SolarACLastZoneSensor(coordinator),
         SolarACLastActionSensor(coordinator),
+
         SolarACEma30Sensor(coordinator),
         SolarACEma5Sensor(coordinator),
 
-        # Unified confidence sensors
         SolarACConfidenceSensor(coordinator),
         SolarACConfidenceThresholdSensor(coordinator),
 
         SolarACRequiredExportSensor(coordinator),
         SolarACExportMarginSensor(coordinator),
         SolarACImportPowerSensor(coordinator),
+
         SolarACMasterOffSinceSensor(coordinator),
         SolarACLastPanicSensor(coordinator),
         SolarACPanicCooldownSensor(coordinator),
@@ -63,9 +64,9 @@ class _BaseSolarACSensor(SensorEntity):
         self._attr_device_info = {
             "identifiers": {(DOMAIN, "solar_ac_controller")},
             "name": "Solar AC Controller",
+            "manufacturer": "TTLucian",
+            "model": "Solar AC Smart Controller",
             "configuration_url": "https://github.com/TTLucian/ha-solar-ac-controller",
-            "suggested_area": "HVAC",
-            "entry_type": "service",
         }
 
     @property
@@ -265,6 +266,7 @@ class SolarACImportPowerSensor(_NumericSolarACSensor):
 
     @property
     def state(self):
+        # Import power = EMA 5m (positive = import)
         return round(self.coordinator.ema_5m, 2)
 
 
@@ -333,4 +335,7 @@ class SolarACLearnedPowerSensor(_NumericSolarACSensor):
 
     @property
     def state(self):
-        return self.coordinator.learned_power.get(self.zone_name, 1200)
+        return self.coordinator.learned_power.get(
+            self.zone_name,
+            self.coordinator.initial_learned_power,
+        )
