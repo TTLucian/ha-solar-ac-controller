@@ -23,9 +23,9 @@ from .const import (
     CONF_ACTION_DELAY_SECONDS,
     CONF_ADD_CONFIDENCE,
     CONF_REMOVE_CONFIDENCE,
+    CONF_INITIAL_LEARNED_POWER,
 )
 
-# Unified confidence defaults (ADD positive, REMOVE is magnitude for negative side)
 DEFAULT_ADD_CONFIDENCE = 25
 DEFAULT_REMOVE_CONFIDENCE = 10
 
@@ -63,28 +63,13 @@ class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         schema = vol.Schema(
             {
                 # Core sensors
-                vol.Required(
-                    CONF_SOLAR_SENSOR,
-                    description="Entity ID of sensor showing solar/net export (W)",
-                ): str,
-                vol.Required(
-                    CONF_GRID_SENSOR,
-                    description="Entity ID of sensor showing grid import/export (W)",
-                ): str,
-                vol.Required(
-                    CONF_AC_POWER_SENSOR,
-                    description="Entity ID of sensor showing AC total power (W)",
-                ): str,
-                vol.Required(
-                    CONF_AC_SWITCH,
-                    description="Master relay / smart plug that powers the AC",
-                ): str,
+                vol.Required(CONF_SOLAR_SENSOR): str,
+                vol.Required(CONF_GRID_SENSOR): str,
+                vol.Required(CONF_AC_POWER_SENSOR): str,
+                vol.Required(CONF_AC_SWITCH): str,
 
-                # Zones
-                vol.Required(
-                    CONF_ZONES,
-                    description="Comma-separated climate entities, in activation priority order",
-                ): str,
+                # Zones (comma-separated)
+                vol.Required(CONF_ZONES): str,
 
                 # Thresholds
                 vol.Optional(CONF_SOLAR_THRESHOLD_ON, default=1200): int,
@@ -101,6 +86,8 @@ class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 # Unified confidence thresholds
                 vol.Optional(CONF_ADD_CONFIDENCE, default=DEFAULT_ADD_CONFIDENCE): int,
                 vol.Optional(CONF_REMOVE_CONFIDENCE, default=DEFAULT_REMOVE_CONFIDENCE): int,
+
+                # Initial learned power
                 vol.Required(CONF_INITIAL_LEARNED_POWER, default=1200): vol.Coerce(int),
             }
         )
@@ -109,14 +96,6 @@ class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="user",
             data_schema=schema,
             errors=errors,
-            description_placeholders={
-                "info": (
-                    "The controller adds/removes AC zones based on solar production, "
-                    "grid import/export, and learned compressor behavior.\n\n"
-                    "- Define zones in the order you want them activated.\n"
-                    "- Thresholds and sensors can be adjusted later from Options."
-                )
-            },
         )
 
     async def async_step_import(self, user_input: dict[str, Any]):
@@ -177,6 +156,9 @@ class SolarACOptionsFlowHandler(config_entries.OptionsFlow):
                     # Unified confidence thresholds
                     CONF_ADD_CONFIDENCE: user_input.get(CONF_ADD_CONFIDENCE, DEFAULT_ADD_CONFIDENCE),
                     CONF_REMOVE_CONFIDENCE: user_input.get(CONF_REMOVE_CONFIDENCE, DEFAULT_REMOVE_CONFIDENCE),
+
+                    # Initial learned power (now editable)
+                    CONF_INITIAL_LEARNED_POWER: user_input.get(CONF_INITIAL_LEARNED_POWER, 1200),
                 }
                 return self.async_create_entry(title="", data=new_options)
 
@@ -201,11 +183,7 @@ class SolarACOptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Required(CONF_AC_SWITCH, default=data.get(CONF_AC_SWITCH, "")): str,
 
                 # Zones
-                vol.Required(
-                    CONF_ZONES,
-                    description="Comma-separated climate entities, in activation priority order",
-                    default=zones_str,
-                ): str,
+                vol.Required(CONF_ZONES, default=zones_str): str,
 
                 # Thresholds
                 vol.Optional(CONF_SOLAR_THRESHOLD_ON, default=data.get(CONF_SOLAR_THRESHOLD_ON, 1200)): int,
@@ -222,6 +200,9 @@ class SolarACOptionsFlowHandler(config_entries.OptionsFlow):
                 # Unified confidence thresholds
                 vol.Optional(CONF_ADD_CONFIDENCE, default=data.get(CONF_ADD_CONFIDENCE, DEFAULT_ADD_CONFIDENCE)): int,
                 vol.Optional(CONF_REMOVE_CONFIDENCE, default=data.get(CONF_REMOVE_CONFIDENCE, DEFAULT_REMOVE_CONFIDENCE)): int,
+
+                # Initial learned power (editable)
+                vol.Optional(CONF_INITIAL_LEARNED_POWER, default=data.get(CONF_INITIAL_LEARNED_POWER, 1200)): int,
             }
         )
 
@@ -229,24 +210,4 @@ class SolarACOptionsFlowHandler(config_entries.OptionsFlow):
             step_id="init",
             data_schema=schema,
             errors=errors,
-            description_placeholders={
-                "info": (
-                    "Sensors:\n"
-                    "- Solar: usually your inverter/net sensor (export positive or negative; "
-                    "the controller only cares about trends).\n"
-                    "- Grid: import/export at the meter; used for EMA and panic logic.\n\n"
-                    "Zones:\n"
-                    "- Enter climate entities as a comma-separated list.\n"
-                    "- Order defines which zone turns on first, second, etc.\n\n"
-                    "Thresholds:\n"
-                    "- Solar ON: minimum export before adding another zone.\n"
-                    "- Solar OFF: below this, the master switch may shut the AC down.\n\n"
-                    "Advanced:\n"
-                    "- Panic threshold: grid import level that triggers emergency shedding.\n"
-                    "- Panic delay: seconds to wait before shedding, to ignore short spikes.\n\n"
-                    "Confidence:\n"
-                    "- Add threshold: confidence required to add a zone (positive).\n"
-                    "- Remove threshold: magnitude required to remove a zone (negative side)."
-                )
-            },
         )
