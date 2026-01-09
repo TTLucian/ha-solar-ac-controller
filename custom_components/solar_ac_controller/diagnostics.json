@@ -1,25 +1,38 @@
 {
   "diagnostics": {
-    "description": "Provides detailed internal state of the Solar AC Controller, including learned power values, EMA metrics, zone states, panic/learning status, and configuration parameters.",
+    "description": "Provides a complete snapshot of the Solar AC Controller internal state, including configuration, learned power values, EMA metrics, zone activity, panic state, master switch state, and decision engine outputs.",
     "privacy": "No sensitive personal data is collected. Only integration configuration and runtime controller state are included.",
     "included": [
+      "timestamp",
       "config",
+
       "samples",
       "learned_power",
       "learning_active",
       "learning_zone",
       "learning_start_time",
       "ac_power_before",
+
       "ema_30s",
       "ema_5m",
+
       "last_action",
+      "next_zone",
+      "last_zone",
+      "required_export",
+      "export_margin",
+
+      "active_zones",
       "zone_last_changed",
       "zone_last_state",
       "zone_manual_lock_until",
+
       "panic_threshold",
       "panic_delay",
-      "active_zones",
-      "next_zone"
+      "last_panic_ts",
+      "panic_cooldown_active",
+
+      "master_off_since"
     ]
   }
 }
