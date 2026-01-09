@@ -32,8 +32,10 @@ _LOGGER = logging.getLogger(__name__)
 _PANIC_COOLDOWN_SECONDS = 120          # No add/remove for 2 minutes after panic
 _EMA_RESET_AFTER_OFF_SECONDS = 600     # Reset EMA after 10 minutes master OFF
 _MAX_ZONES_DEFAULT = 3                 # Hard cap on concurrently active zones
+
+# Confidence defaults (UI passes positive values; remove is treated as negative internally)
 _DEFAULT_ADD_CONFIDENCE = 25
-_DEFAULT_REMOVE_CONFIDENCE = 40
+_DEFAULT_REMOVE_CONFIDENCE = 10
 
 
 class SolarACCoordinator(DataUpdateCoordinator):
@@ -88,9 +90,15 @@ class SolarACCoordinator(DataUpdateCoordinator):
         # Delay between actions
         self.action_delay_seconds: int = config.get("action_delay_seconds", 3)
 
-        # Confidence thresholds
-        self.add_confidence_threshold: float = config.get(CONF_ADD_CONFIDENCE, _DEFAULT_ADD_CONFIDENCE)
-        self.remove_confidence_threshold: float = config.get(CONF_REMOVE_CONFIDENCE, _DEFAULT_REMOVE_CONFIDENCE)
+        # Confidence thresholds (ADD positive, REMOVE is magnitude for negative side)
+        self.add_confidence_threshold: float = config.get(
+            CONF_ADD_CONFIDENCE,
+            _DEFAULT_ADD_CONFIDENCE,
+        )
+        self.remove_confidence_threshold: float = config.get(
+            CONF_REMOVE_CONFIDENCE,
+            _DEFAULT_REMOVE_CONFIDENCE,
+        )
 
         # Controller
         self.controller = SolarACController(hass, self, store)
@@ -98,6 +106,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
         # Observability
         self.last_add_conf: float = 0.0
         self.last_remove_conf: float = 0.0
+        self.confidence: float = 0.0
         self.last_action_start_ts: float | None = None
         self.last_action_duration: float | None = None
 
@@ -166,13 +175,12 @@ class SolarACCoordinator(DataUpdateCoordinator):
         required_export = self._compute_required_export(next_zone)
         export = -self.ema_30s
         import_power = self.ema_5m
-        
+
         # Store for sensors
         self.next_zone = next_zone
         self.last_zone = last_zone
         self.required_export = required_export
         self.export_margin = export - required_export
-
 
         self.last_add_conf = self._compute_add_conf(
             export=export,
@@ -183,6 +191,9 @@ class SolarACCoordinator(DataUpdateCoordinator):
             import_power=import_power,
             last_zone=last_zone,
         )
+
+        # Unified signed confidence: positive → add, negative → remove
+        self.confidence = self.last_add_conf - self.last_remove_conf
 
         now_ts = dt_util.utcnow().timestamp()
 
@@ -464,7 +475,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
             self._panic_task = None
 
     # -------------------------------------------------------------------------
-    # Add / remove decisions
+    # Add / remove decisions (unified confidence axis)
     # -------------------------------------------------------------------------
     def _should_add_zone(self, next_zone: str, required_export: float) -> bool:
         """Return True if we should attempt to add next_zone."""
@@ -475,11 +486,13 @@ class SolarACCoordinator(DataUpdateCoordinator):
         if self.ema_5m > -200:
             return False
 
-        return self.last_add_conf >= self.add_confidence_threshold
+        # Unified confidence: add only if strongly positive
+        return self.confidence >= self.add_confidence_threshold
 
     def _should_remove_zone(self, last_zone: str, import_power: float) -> bool:
         """Return True if we should attempt to remove last_zone."""
-        return self.last_remove_conf >= self.remove_confidence_threshold
+        # Unified confidence: remove only if strongly negative
+        return self.confidence <= -self.remove_confidence_threshold
 
     async def _attempt_add_zone(
         self,
@@ -494,7 +507,9 @@ class SolarACCoordinator(DataUpdateCoordinator):
         await self._log(
             f"[ZONE_ADD_ATTEMPT] zone={next_zone} "
             f"add_conf={round(self.last_add_conf)} export={round(export)} "
-            f"req_export={round(required_export)} samples={self.samples}"
+            f"req_export={round(required_export)} samples={self.samples} "
+            f"conf={round(self.confidence)} "
+            f"thr_add={self.add_confidence_threshold} thr_rem={self.remove_confidence_threshold}"
         )
 
         await self._add_zone(next_zone, ac_power_before)
@@ -511,7 +526,9 @@ class SolarACCoordinator(DataUpdateCoordinator):
         await self._log(
             f"[ZONE_REMOVE_ATTEMPT] zone={last_zone} "
             f"remove_conf={round(self.last_remove_conf)} import={round(import_power)} "
-            f"short_cycling={self._is_short_cycling(last_zone)}"
+            f"short_cycling={self._is_short_cycling(last_zone)} "
+            f"conf={round(self.confidence)} "
+            f"thr_add={self.add_confidence_threshold} thr_rem={self.remove_confidence_threshold}"
         )
 
         await self._remove_zone(last_zone)
