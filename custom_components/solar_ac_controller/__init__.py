@@ -49,7 +49,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     stored = await store.async_load() or {}
 
     # Create coordinator
-    coordinator = SolarACCoordinator(hass, config, store, stored)
+    coordinator = SolarACCoordinator(hass, config_entry, store, stored)
     await coordinator.async_config_entry_first_refresh()
 
     # Store integration data
