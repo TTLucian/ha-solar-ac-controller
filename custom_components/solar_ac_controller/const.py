@@ -22,11 +22,10 @@ CONF_SHORT_CYCLE_OFF_SECONDS = "short_cycle_off_seconds"
 CONF_ACTION_DELAY_SECONDS = "action_delay_seconds"
 
 # Unified confidence thresholds
-# ADD = positive threshold (e.g. +25)
-# REMOVE = magnitude for negative threshold (e.g. -10)
-CONF_ADD_CONFIDENCE = "add_confidence_threshold"
-CONF_REMOVE_CONFIDENCE = "remove_confidence_threshold"
+CONF_ADD_CONFIDENCE = "add_confidence"
+CONF_REMOVE_CONFIDENCE = "remove_confidence"
 
+# Learning system
 CONF_INITIAL_LEARNED_POWER = "initial_learned_power"
 
 # Storage
