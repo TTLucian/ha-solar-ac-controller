@@ -28,11 +28,10 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-# Internal behavioral constants (no config/UI exposure for now)
-_PANIC_COOLDOWN_SECONDS = 120          # No add/remove for 2 minutes after panic
-_EMA_RESET_AFTER_OFF_SECONDS = 600     # Reset EMA after 10 minutes master OFF
+# Internal behavioral constants
+_PANIC_COOLDOWN_SECONDS = 120
+_EMA_RESET_AFTER_OFF_SECONDS = 600
 
-# Confidence defaults (UI passes positive values; remove is treated as negative internally)
 _DEFAULT_ADD_CONFIDENCE = 25
 _DEFAULT_REMOVE_CONFIDENCE = 10
 
@@ -52,7 +51,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
         self.config = config
         self.store = store
 
-        # Learned values from storage
+        # Learned values
         self.learned_power: dict[str, float] = stored.get("learned_power", {})
         self.samples: int = stored.get("samples", 0)
 
@@ -89,14 +88,12 @@ class SolarACCoordinator(DataUpdateCoordinator):
         # Delay between actions
         self.action_delay_seconds: int = config.get("action_delay_seconds", 3)
 
-        # Confidence thresholds (ADD positive, REMOVE is magnitude for negative side)
+        # Confidence thresholds
         self.add_confidence_threshold: float = config.get(
-            CONF_ADD_CONFIDENCE,
-            _DEFAULT_ADD_CONFIDENCE,
+            CONF_ADD_CONFIDENCE, _DEFAULT_ADD_CONFIDENCE
         )
         self.remove_confidence_threshold: float = config.get(
-            CONF_REMOVE_CONFIDENCE,
-            _DEFAULT_REMOVE_CONFIDENCE,
+            CONF_REMOVE_CONFIDENCE, _DEFAULT_REMOVE_CONFIDENCE
         )
 
         # Controller
@@ -155,13 +152,13 @@ class SolarACCoordinator(DataUpdateCoordinator):
             "Cycle sensors: grid_raw=%s solar=%s ac_power=%s", grid_raw, solar, ac_power
         )
 
-        # 2. EMA updates (always safe & cheap)
+        # 2. EMA updates
         self._update_ema(grid_raw)
 
-        # 3. Master switch handling (may schedule ON/OFF)
+        # 3. Master switch handling
         await self._handle_master_switch(solar, ac_power)
 
-        # 4. If master is OFF → skip all zone logic and manage OFF-state behavior
+        # 4. Master OFF guard
         if await self._handle_master_off_guard():
             return
 
@@ -191,24 +188,24 @@ class SolarACCoordinator(DataUpdateCoordinator):
             last_zone=last_zone,
         )
 
-        # Unified signed confidence: positive → add, negative → remove
+        # Unified confidence
         self.confidence = self.last_add_conf - self.last_remove_conf
 
         now_ts = dt_util.utcnow().timestamp()
 
-        # 7. Learning timeout (only if still active and master is ON)
+        # 7. Learning timeout
         if self.learning_active and self.learning_start_time:
             if now_ts - self.learning_start_time >= 360:
                 await self._log(f"[LEARNING_TIMEOUT] zone={self.learning_zone}")
                 await self.controller.finish_learning()
                 return
 
-        # 8. Panic logic (grid import too high)
+        # 8. Panic logic
         if self._should_panic(on_count):
             await self._schedule_panic(active_zones)
             return
 
-        # 9. Panic cooldown: avoid immediate re-add after shed
+        # 9. Panic cooldown
         if self._in_panic_cooldown(now_ts):
             self.last_action = "panic_cooldown"
             await self._log("[PANIC_COOLDOWN] skipping add/remove decisions")
@@ -235,12 +232,10 @@ class SolarACCoordinator(DataUpdateCoordinator):
     # EMA / metrics / guards
     # -------------------------------------------------------------------------
     def _update_ema(self, grid_raw: float) -> None:
-        """Update short and long EMAs of grid power."""
         self.ema_30s = 0.25 * grid_raw + 0.75 * self.ema_30s
         self.ema_5m = 0.03 * grid_raw + 0.97 * self.ema_5m
 
     async def _handle_master_off_guard(self) -> bool:
-        """Handle master off behavior: skip logic, cancel panic, reset learning, EMA reset."""
         ac_switch = self.config.get(CONF_AC_SWITCH)
         if not ac_switch:
             return False
@@ -250,7 +245,6 @@ class SolarACCoordinator(DataUpdateCoordinator):
             return False
 
         if switch_state_obj.state != "off":
-            # Master is ON → clear OFF tracking
             self.master_off_since = None
             return False
 
@@ -259,20 +253,18 @@ class SolarACCoordinator(DataUpdateCoordinator):
         if self.master_off_since is None:
             self.master_off_since = now_ts
 
-        # Cancel any in-flight panic task
+        # Cancel panic task
         if self._panic_task and not self._panic_task.done():
             self._panic_task.cancel()
             self._panic_task = None
 
-        # Reset learning state while master is off
+        # Reset learning
         self.controller._reset_learning_state()
 
-        # Optionally reset EMA after long OFF
+        # Reset EMA after long OFF
         if now_ts - self.master_off_since >= _EMA_RESET_AFTER_OFF_SECONDS:
             if self.ema_30s != 0.0 or self.ema_5m != 0.0:
-                await self._log(
-                    "[EMA_RESET_AFTER_MASTER_OFF] resetting EMA due to long OFF period"
-                )
+                await self._log("[EMA_RESET_AFTER_MASTER_OFF] resetting EMA")
             self.ema_30s = 0.0
             self.ema_5m = 0.0
 
@@ -281,16 +273,14 @@ class SolarACCoordinator(DataUpdateCoordinator):
         return True
 
     def _in_panic_cooldown(self, now_ts: float) -> bool:
-        """Return True if we are still within cooldown period after panic."""
         if self.last_panic_ts is None:
             return False
         return (now_ts - self.last_panic_ts) < _PANIC_COOLDOWN_SECONDS
 
     # -------------------------------------------------------------------------
-    # Zones, overrides, and short-cycling
+    # Zones, overrides, short-cycling
     # -------------------------------------------------------------------------
     async def _update_zone_states_and_overrides(self) -> list[str]:
-        """Build active zone list and update manual override and short-cycle memory."""
         active_zones: list[str] = []
 
         for zone in self.config[CONF_ZONES]:
@@ -301,7 +291,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
             state = state_obj.state
             last_state = self.zone_last_state.get(zone)
 
-            # Manual override detection: state change not caused by controller
+            # Manual override detection
             if last_state is not None and last_state != state:
                 if not (
                     self.last_action
@@ -312,12 +302,8 @@ class SolarACCoordinator(DataUpdateCoordinator):
                 ):
                     now_ts = dt_util.utcnow().timestamp()
                     self.zone_manual_lock_until[zone] = now_ts + self.manual_lock_seconds
-                    self.zone_last_changed[zone] = now_ts
-                    self.zone_last_changed_type[zone] = (
-                        "on" if state in ("heat", "on") else "off"
-                    )
                     await self._log(
-                        f"[MANUAL_OVERRIDE_DETECTED] zone={zone} state={state} "
+                        f"[MANUAL_OVERRIDE] zone={zone} state={state} "
                         f"lock_until={int(self.zone_manual_lock_until[zone])}"
                     )
 
@@ -329,14 +315,13 @@ class SolarACCoordinator(DataUpdateCoordinator):
         return active_zones
 
     def _is_locked(self, zone_id: str) -> bool:
-        """Return True if zone is manually locked."""
         until = self.zone_manual_lock_until.get(zone_id)
         return bool(until and dt_util.utcnow().timestamp() < until)
 
     def _select_next_and_last_zone(
         self, active_zones: list[str]
     ) -> tuple[str | None, str | None]:
-        """Select next candidate zone to add and last candidate zone to remove."""
+
         next_zone = next(
             (
                 z
@@ -354,7 +339,6 @@ class SolarACCoordinator(DataUpdateCoordinator):
         return next_zone, last_zone
 
     def _compute_required_export(self, next_zone: str | None) -> float:
-        """Compute required export margin for adding next_zone."""
         if not next_zone:
             return 99999.0
 
@@ -389,7 +373,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
         required_export: float,
         last_zone: str | None,
     ) -> float:
-        """Compute confidence for adding a zone."""
+
         export_margin = export - required_export
         base = min(40, max(0, export_margin / 25))
         sample_bonus = min(20, self.samples * 2)
@@ -402,7 +386,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
         import_power: float,
         last_zone: str | None,
     ) -> float:
-        """Compute confidence for removing a zone."""
+
         base = min(60, max(0, (import_power - 200) / 8))
         heavy_import_bonus = 20 if import_power > 1500 else 0
         short_cycle_penalty = -40 if self._is_short_cycling(last_zone) else 0
@@ -413,11 +397,9 @@ class SolarACCoordinator(DataUpdateCoordinator):
     # Learning and panic
     # -------------------------------------------------------------------------
     def _should_panic(self, on_count: int) -> bool:
-        """Return True if we should trigger panic shed."""
         return self.ema_30s > self.panic_threshold and on_count > 1
 
     async def _schedule_panic(self, active_zones: list[str]) -> None:
-        """Schedule panic shed in the background if not already running."""
         if self.last_action != "panic":
             await self._log(
                 f"[PANIC_SHED_TRIGGER] ema30={round(self.ema_30s)} "
@@ -430,7 +412,6 @@ class SolarACCoordinator(DataUpdateCoordinator):
                 )
 
     async def _panic_shed(self, active_zones: list[str]):
-        """Turn off all but the first zone."""
         start = dt_util.utcnow().timestamp()
         for zone in active_zones[1:]:
             await self._call_entity_service(zone, False)
@@ -444,11 +425,9 @@ class SolarACCoordinator(DataUpdateCoordinator):
             if self.panic_delay > 0:
                 await asyncio.sleep(self.panic_delay)
 
-            # Re-evaluate condition before acting
             if self.ema_30s > self.panic_threshold:
                 await self._panic_shed(active_zones)
 
-                # Reset learning state
                 self.controller._reset_learning_state()
 
                 now_ts = dt_util.utcnow().timestamp()
@@ -466,23 +445,18 @@ class SolarACCoordinator(DataUpdateCoordinator):
             self._panic_task = None
 
     # -------------------------------------------------------------------------
-    # Add / remove decisions (unified confidence axis)
+    # Add / remove decisions
     # -------------------------------------------------------------------------
     def _should_add_zone(self, next_zone: str, required_export: float) -> bool:
-        """Return True if we should attempt to add next_zone."""
         if self.learning_active:
             return False
 
-        # Require stable export on the 5m EMA side as well (no import)
         if self.ema_5m > -200:
             return False
 
-        # Unified confidence: add only if strongly positive
         return self.confidence >= self.add_confidence_threshold
 
     def _should_remove_zone(self, last_zone: str, import_power: float) -> bool:
-        """Return True if we should attempt to remove last_zone."""
-        # Unified confidence: remove only if strongly negative
         return self.confidence <= -self.remove_confidence_threshold
 
     async def _attempt_add_zone(
@@ -492,6 +466,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
         export: float,
         required_export: float,
     ) -> None:
+
         if self.last_action == f"add_{next_zone}":
             return
 
@@ -511,6 +486,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
         last_zone: str,
         import_power: float,
     ) -> None:
+
         if self.last_action == f"remove_{last_zone}":
             return
 
@@ -521,7 +497,6 @@ class SolarACCoordinator(DataUpdateCoordinator):
             f"conf={round(self.confidence)} "
             f"thr_add={self.add_confidence_threshold} thr_rem={self.remove_confidence_threshold}"
         )
-
         await self._remove_zone(last_zone)
         self.last_action = f"remove_{last_zone}"
 
