@@ -21,7 +21,12 @@ from .const import (
     CONF_SHORT_CYCLE_ON_SECONDS,
     CONF_SHORT_CYCLE_OFF_SECONDS,
     CONF_ACTION_DELAY_SECONDS,
+    CONF_ADD_CONFIDENCE,
+    CONF_REMOVE_CONFIDENCE,
 )
+
+DEFAULT_ADD_CONFIDENCE = 0.7
+DEFAULT_REMOVE_CONFIDENCE = 0.3
 
 
 def _ensure_list(value: Any) -> list[str]:
@@ -47,7 +52,6 @@ class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if not zones:
                 errors["base"] = "no_zones"
             else:
-                # Normalize and store
                 data = dict(user_input)
                 data[CONF_ZONES] = zones
                 return self.async_create_entry(
@@ -74,37 +78,28 @@ class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_AC_SWITCH,
                     description="Master relay / smart plug that powers the AC",
                 ): str,
-                # Zones, as comma-separated for nicer UX
+
+                # Zones
                 vol.Required(
                     CONF_ZONES,
                     description="Comma-separated climate entities, in activation priority order",
                 ): str,
+
                 # Thresholds
-                vol.Optional(
-                    CONF_SOLAR_THRESHOLD_ON, default=1200
-                ): int,
-                vol.Optional(
-                    CONF_SOLAR_THRESHOLD_OFF, default=800
-                ): int,
+                vol.Optional(CONF_SOLAR_THRESHOLD_ON, default=1200): int,
+                vol.Optional(CONF_SOLAR_THRESHOLD_OFF, default=800): int,
+
                 # Safety / panic
-                vol.Optional(
-                    CONF_PANIC_THRESHOLD, default=1500
-                ): int,
-                vol.Optional(
-                    CONF_PANIC_DELAY, default=30
-                ): int,
-                vol.Optional(
-                    CONF_MANUAL_LOCK_SECONDS, default=1200
-                ): int,
-                vol.Optional(
-                    CONF_SHORT_CYCLE_ON_SECONDS, default=1200
-                ): int,
-                vol.Optional(
-                    CONF_SHORT_CYCLE_OFF_SECONDS, default=1200
-                ): int,
-                vol.Optional(
-                    CONF_ACTION_DELAY_SECONDS, default=3
-                ): int,
+                vol.Optional(CONF_PANIC_THRESHOLD, default=1500): int,
+                vol.Optional(CONF_PANIC_DELAY, default=30): int,
+                vol.Optional(CONF_MANUAL_LOCK_SECONDS, default=1200): int,
+                vol.Optional(CONF_SHORT_CYCLE_ON_SECONDS, default=1200): int,
+                vol.Optional(CONF_SHORT_CYCLE_OFF_SECONDS, default=1200): int,
+                vol.Optional(CONF_ACTION_DELAY_SECONDS, default=3): int,
+
+                # NEW — Confidence thresholds
+                vol.Optional(CONF_ADD_CONFIDENCE, default=DEFAULT_ADD_CONFIDENCE): float,
+                vol.Optional(CONF_REMOVE_CONFIDENCE, default=DEFAULT_REMOVE_CONFIDENCE): float,
             }
         )
 
@@ -150,7 +145,6 @@ class SolarACOptionsFlowHandler(config_entries.OptionsFlow):
         current = self._current
 
         if user_input is not None:
-            # Validation
             solar_on = user_input.get(CONF_SOLAR_THRESHOLD_ON, 1200)
             solar_off = user_input.get(CONF_SOLAR_THRESHOLD_OFF, 800)
             panic_th = user_input.get(CONF_PANIC_THRESHOLD, 2500)
@@ -163,7 +157,6 @@ class SolarACOptionsFlowHandler(config_entries.OptionsFlow):
             elif panic_th <= solar_on:
                 errors["base"] = "panic_too_low"
             else:
-                # Persist options
                 new_options = {
                     CONF_SOLAR_SENSOR: user_input[CONF_SOLAR_SENSOR],
                     CONF_GRID_SENSOR: user_input[CONF_GRID_SENSOR],
@@ -178,10 +171,13 @@ class SolarACOptionsFlowHandler(config_entries.OptionsFlow):
                     CONF_SHORT_CYCLE_ON_SECONDS: user_input.get(CONF_SHORT_CYCLE_ON_SECONDS, 1200),
                     CONF_SHORT_CYCLE_OFF_SECONDS: user_input.get(CONF_SHORT_CYCLE_OFF_SECONDS, 1200),
                     CONF_ACTION_DELAY_SECONDS: user_input.get(CONF_ACTION_DELAY_SECONDS, 3),
+
+                    # NEW — Confidence thresholds
+                    CONF_ADD_CONFIDENCE: user_input.get(CONF_ADD_CONFIDENCE, DEFAULT_ADD_CONFIDENCE),
+                    CONF_REMOVE_CONFIDENCE: user_input.get(CONF_REMOVE_CONFIDENCE, DEFAULT_REMOVE_CONFIDENCE),
                 }
                 return self.async_create_entry(title="", data=new_options)
 
-            # if errors, reuse user_input as current for redisplay
             current = user_input
 
         return self._show_main_form(current, errors)
@@ -197,58 +193,33 @@ class SolarACOptionsFlowHandler(config_entries.OptionsFlow):
         schema = vol.Schema(
             {
                 # Sensors
-                vol.Required(
-                    CONF_SOLAR_SENSOR, default=data.get(CONF_SOLAR_SENSOR, "")
-                ): str,
-                vol.Required(
-                    CONF_GRID_SENSOR, default=data.get(CONF_GRID_SENSOR, "")
-                ): str,
-                vol.Required(
-                    CONF_AC_POWER_SENSOR, default=data.get(CONF_AC_POWER_SENSOR, "")
-                ): str,
-                vol.Required(
-                    CONF_AC_SWITCH, default=data.get(CONF_AC_SWITCH, "")
-                ): str,
+                vol.Required(CONF_SOLAR_SENSOR, default=data.get(CONF_SOLAR_SENSOR, "")): str,
+                vol.Required(CONF_GRID_SENSOR, default=data.get(CONF_GRID_SENSOR, "")): str,
+                vol.Required(CONF_AC_POWER_SENSOR, default=data.get(CONF_AC_POWER_SENSOR, "")): str,
+                vol.Required(CONF_AC_SWITCH, default=data.get(CONF_AC_SWITCH, "")): str,
+
                 # Zones
                 vol.Required(
                     CONF_ZONES,
                     description="Comma-separated climate entities, in activation priority order",
                     default=zones_str,
                 ): str,
+
                 # Thresholds
-                vol.Optional(
-                    CONF_SOLAR_THRESHOLD_ON,
-                    default=data.get(CONF_SOLAR_THRESHOLD_ON, 1200),
-                ): int,
-                vol.Optional(
-                    CONF_SOLAR_THRESHOLD_OFF,
-                    default=data.get(CONF_SOLAR_THRESHOLD_OFF, 800),
-                ): int,
+                vol.Optional(CONF_SOLAR_THRESHOLD_ON, default=data.get(CONF_SOLAR_THRESHOLD_ON, 1200)): int,
+                vol.Optional(CONF_SOLAR_THRESHOLD_OFF, default=data.get(CONF_SOLAR_THRESHOLD_OFF, 800)): int,
+
                 # Advanced / safety
-                vol.Optional(
-                    CONF_PANIC_THRESHOLD,
-                    default=data.get(CONF_PANIC_THRESHOLD, 1500),
-                ): int,
-                vol.Optional(
-                    CONF_PANIC_DELAY,
-                    default=data.get(CONF_PANIC_DELAY, 30),
-                ): int,
-                vol.Optional(
-                    CONF_MANUAL_LOCK_SECONDS,
-                    default=data.get(CONF_MANUAL_LOCK_SECONDS, 1200),
-                ): int,
-                vol.Optional(
-                    CONF_SHORT_CYCLE_ON_SECONDS,
-                    default=data.get(CONF_SHORT_CYCLE_ON_SECONDS, 1200),
-                ): int,
-                vol.Optional(
-                    CONF_SHORT_CYCLE_OFF_SECONDS,
-                    default=data.get(CONF_SHORT_CYCLE_OFF_SECONDS, 1200),
-                ): int,
-                vol.Optional(
-                    CONF_ACTION_DELAY_SECONDS,
-                    default=data.get(CONF_ACTION_DELAY_SECONDS, 3),
-                ): int,
+                vol.Optional(CONF_PANIC_THRESHOLD, default=data.get(CONF_PANIC_THRESHOLD, 1500)): int,
+                vol.Optional(CONF_PANIC_DELAY, default=data.get(CONF_PANIC_DELAY, 30)): int,
+                vol.Optional(CONF_MANUAL_LOCK_SECONDS, default=data.get(CONF_MANUAL_LOCK_SECONDS, 1200)): int,
+                vol.Optional(CONF_SHORT_CYCLE_ON_SECONDS, default=data.get(CONF_SHORT_CYCLE_ON_SECONDS, 1200)): int,
+                vol.Optional(CONF_SHORT_CYCLE_OFF_SECONDS, default=data.get(CONF_SHORT_CYCLE_OFF_SECONDS, 1200)): int,
+                vol.Optional(CONF_ACTION_DELAY_SECONDS, default=data.get(CONF_ACTION_DELAY_SECONDS, 3)): int,
+
+                # NEW — Confidence thresholds
+                vol.Optional(CONF_ADD_CONFIDENCE, default=data.get(CONF_ADD_CONFIDENCE, DEFAULT_ADD_CONFIDENCE)): float,
+                vol.Optional(CONF_REMOVE_CONFIDENCE, default=data.get(CONF_REMOVE_CONFIDENCE, DEFAULT_REMOVE_CONFIDENCE)): float,
             }
         )
 
