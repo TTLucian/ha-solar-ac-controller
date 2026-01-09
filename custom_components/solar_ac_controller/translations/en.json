@@ -45,6 +45,7 @@
           "manual_lock_seconds": "Manual Override Lock Duration (seconds)",
           "short_cycle_on_seconds": "Short Cycle ON Protection (seconds)",
           "short_cycle_off_seconds": "Short Cycle OFF Protection (seconds)",
+          "action_delay_seconds": "Action delay (seconds)",
           "add_confidence": "Add Confidence Threshold",
           "remove_confidence": "Remove Confidence Threshold"
         },
@@ -56,6 +57,7 @@
           "manual_lock_seconds": "When a user manually changes a zone, it is locked for this duration.",
           "short_cycle_on_seconds": "Minimum time a zone must stay ON before it can be turned OFF.",
           "short_cycle_off_seconds": "Minimum time a zone must stay OFF before it can be turned ON.",
+          "action_delay_seconds": "Minimum time between sending zone actions or commands.",
           "add_confidence": "Minimum confidence required to add a new zone.",
           "remove_confidence": "Minimum negative confidence required to remove a zone."
         }
