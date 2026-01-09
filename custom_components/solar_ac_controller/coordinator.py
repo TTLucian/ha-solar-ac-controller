@@ -31,7 +31,6 @@ _LOGGER = logging.getLogger(__name__)
 # Internal behavioral constants (no config/UI exposure for now)
 _PANIC_COOLDOWN_SECONDS = 120          # No add/remove for 2 minutes after panic
 _EMA_RESET_AFTER_OFF_SECONDS = 600     # Reset EMA after 10 minutes master OFF
-_MAX_ZONES_DEFAULT = 3                 # Hard cap on concurrently active zones
 
 # Confidence defaults (UI passes positive values; remove is treated as negative internally)
 _DEFAULT_ADD_CONFIDENCE = 25
@@ -215,25 +214,17 @@ class SolarACCoordinator(DataUpdateCoordinator):
             await self._log("[PANIC_COOLDOWN] skipping add/remove decisions")
             return
 
-        # 10. Max-zones safety: never exceed hard cap
-        if on_count >= _MAX_ZONES_DEFAULT:
-            self.last_action = "max_zones_reached"
-            await self._log(
-                f"[MAX_ZONES_REACHED] on_count={on_count} max={_MAX_ZONES_DEFAULT}"
-            )
-            return
-
-        # 11. ADD zone decision
+        # 10. ADD zone decision
         if next_zone and self._should_add_zone(next_zone, required_export):
             await self._attempt_add_zone(next_zone, ac_power, export, required_export)
             return
 
-        # 12. REMOVE zone decision
+        # 11. REMOVE zone decision
         if last_zone and self._should_remove_zone(last_zone, import_power):
             await self._attempt_remove_zone(last_zone, import_power)
             return
 
-        # 13. SYSTEM BALANCED
+        # 12. SYSTEM BALANCED
         self.last_action = "balanced"
         await self._log(
             f"[SYSTEM_BALANCED] ema30={round(self.ema_30s)} "
