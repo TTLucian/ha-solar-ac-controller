@@ -46,8 +46,6 @@ class _BaseSolarACBinary(BinarySensorEntity):
             "identifiers": {(DOMAIN, "solar_ac_controller")},
             "name": "Solar AC Controller",
             "configuration_url": "https://github.com/TTLucian/ha-solar-ac-controller",
-            "suggested_area": "HVAC",
-            "entry_type": "service",
         }
 
     async def async_added_to_hass(self):
@@ -119,7 +117,6 @@ class SolarACShortCycleBinarySensor(_BaseSolarACBinary):
         c = self.coordinator
         now = dt_util.utcnow().timestamp()
 
-        # Use coordinator thresholds instead of hardcoded 1200s
         for z in c.config["zones"]:
             last = c.zone_last_changed.get(z)
             if not last:
@@ -194,5 +191,4 @@ class SolarACMasterOffBinarySensor(_BaseSolarACBinary):
 
     @property
     def is_on(self):
-        # True when master switch is OFF
         return self.coordinator.last_action == "master_off"
