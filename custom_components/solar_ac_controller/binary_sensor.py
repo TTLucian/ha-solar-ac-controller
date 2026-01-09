@@ -20,17 +20,19 @@ async def async_setup_entry(
     entities = [
         SolarACLearningBinarySensor(coordinator),
         SolarACPanicBinarySensor(coordinator),
+        SolarACPanicCooldownBinarySensor(coordinator),
         SolarACShortCycleBinarySensor(coordinator),
         SolarACLockedBinarySensor(coordinator),
         SolarACExportingBinarySensor(coordinator),
         SolarACImportingBinarySensor(coordinator),
+        SolarACMasterOffBinarySensor(coordinator),
     ]
 
     async_add_entities(entities)
 
 
 # ---------------------------------------------------------------------------
-# BASE CLASS (merged, final, correct)
+# BASE CLASS
 # ---------------------------------------------------------------------------
 
 class _BaseSolarACBinary(BinarySensorEntity):
@@ -81,7 +83,26 @@ class SolarACPanicBinarySensor(_BaseSolarACBinary):
 
     @property
     def is_on(self):
+        # Panic is true only during the actual shed event
         return self.coordinator.last_action == "panic"
+
+
+class SolarACPanicCooldownBinarySensor(_BaseSolarACBinary):
+    @property
+    def name(self):
+        return "Solar AC Panic Cooldown"
+
+    @property
+    def unique_id(self):
+        return "solar_ac_panic_cooldown"
+
+    @property
+    def is_on(self):
+        ts = self.coordinator.last_panic_ts
+        if not ts:
+            return False
+        now = dt_util.utcnow().timestamp()
+        return (now - ts) < 120  # matches coordinator cooldown
 
 
 class SolarACShortCycleBinarySensor(_BaseSolarACBinary):
@@ -97,10 +118,22 @@ class SolarACShortCycleBinarySensor(_BaseSolarACBinary):
     def is_on(self):
         c = self.coordinator
         now = dt_util.utcnow().timestamp()
+
+        # Use coordinator thresholds instead of hardcoded 1200s
         for z in c.config["zones"]:
             last = c.zone_last_changed.get(z)
-            if last and (now - last) < 1200:
+            if not last:
+                continue
+
+            last_type = c.zone_last_changed_type.get(z)
+            if last_type == "on":
+                threshold = c.short_cycle_on_seconds
+            else:
+                threshold = c.short_cycle_off_seconds
+
+            if (now - last) < threshold:
                 return True
+
         return False
 
 
@@ -115,11 +148,10 @@ class SolarACLockedBinarySensor(_BaseSolarACBinary):
 
     @property
     def is_on(self):
-        c = self.coordinator
         now = dt_util.utcnow().timestamp()
         return any(
             until and until > now
-            for until in c.zone_manual_lock_until.values()
+            for until in self.coordinator.zone_manual_lock_until.values()
         )
 
 
@@ -149,3 +181,18 @@ class SolarACImportingBinarySensor(_BaseSolarACBinary):
     @property
     def is_on(self):
         return self.coordinator.ema_30s > 0
+
+
+class SolarACMasterOffBinarySensor(_BaseSolarACBinary):
+    @property
+    def name(self):
+        return "Solar AC Master Switch Off"
+
+    @property
+    def unique_id(self):
+        return "solar_ac_master_off"
+
+    @property
+    def is_on(self):
+        # True when master switch is OFF
+        return self.coordinator.last_action == "master_off"
