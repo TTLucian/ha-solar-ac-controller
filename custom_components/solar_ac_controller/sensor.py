@@ -64,8 +64,6 @@ class _BaseSolarACSensor(SensorEntity):
         self._attr_device_info = {
             "identifiers": {(DOMAIN, "solar_ac_controller")},
             "name": "Solar AC Controller",
-            "manufacturer": "TTLucian",
-            "model": "Solar AC Smart Controller",
             "configuration_url": "https://github.com/TTLucian/ha-solar-ac-controller",
         }
 
