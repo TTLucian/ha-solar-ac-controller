@@ -22,6 +22,8 @@ from .const import (
     CONF_SOLAR_THRESHOLD_OFF,
     CONF_SOLAR_THRESHOLD_ON,
     CONF_ZONES,
+    CONF_ADD_CONFIDENCE,
+    CONF_REMOVE_CONFIDENCE,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -30,6 +32,8 @@ _LOGGER = logging.getLogger(__name__)
 _PANIC_COOLDOWN_SECONDS = 120          # No add/remove for 2 minutes after panic
 _EMA_RESET_AFTER_OFF_SECONDS = 600     # Reset EMA after 10 minutes master OFF
 _MAX_ZONES_DEFAULT = 3                 # Hard cap on concurrently active zones
+_DEFAULT_ADD_CONFIDENCE = 25
+_DEFAULT_REMOVE_CONFIDENCE = 40
 
 
 class SolarACCoordinator(DataUpdateCoordinator):
@@ -83,6 +87,10 @@ class SolarACCoordinator(DataUpdateCoordinator):
 
         # Delay between actions
         self.action_delay_seconds: int = config.get("action_delay_seconds", 3)
+
+        # Confidence thresholds
+        self.add_confidence_threshold: float = config.get(CONF_ADD_CONFIDENCE, _DEFAULT_ADD_CONFIDENCE)
+        self.remove_confidence_threshold: float = config.get(CONF_REMOVE_CONFIDENCE, _DEFAULT_REMOVE_CONFIDENCE)
 
         # Controller
         self.controller = SolarACController(hass, self, store)
@@ -467,11 +475,11 @@ class SolarACCoordinator(DataUpdateCoordinator):
         if self.ema_5m > -200:
             return False
 
-        return self.last_add_conf >= 25
+        return self.last_add_conf >= self.add_confidence_threshold
 
     def _should_remove_zone(self, last_zone: str, import_power: float) -> bool:
         """Return True if we should attempt to remove last_zone."""
-        return self.last_remove_conf >= 40
+        return self.last_remove_conf >= self.remove_confidence_threshold
 
     async def _attempt_add_zone(
         self,
