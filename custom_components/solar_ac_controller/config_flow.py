@@ -101,6 +101,7 @@ class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 # Unified confidence thresholds
                 vol.Optional(CONF_ADD_CONFIDENCE, default=DEFAULT_ADD_CONFIDENCE): int,
                 vol.Optional(CONF_REMOVE_CONFIDENCE, default=DEFAULT_REMOVE_CONFIDENCE): int,
+                vol.Required(CONF_INITIAL_LEARNED_POWER, default=1200): vol.Coerce(int),
             }
         )
 
