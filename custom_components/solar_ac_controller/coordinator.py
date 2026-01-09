@@ -27,7 +27,6 @@ from .const import (
     CONF_INITIAL_LEARNED_POWER,
 )
 
-
 _LOGGER = logging.getLogger(__name__)
 
 # Internal behavioral constants
@@ -42,8 +41,6 @@ class SolarACCoordinator(DataUpdateCoordinator):
     """Main control loop for the Solar AC Controller."""
 
     def __init__(self, hass: HomeAssistant, config_entry, store, stored):
-    self.config_entry = config_entry
-    config = config_entry.data
         super().__init__(
             hass,
             logger=_LOGGER,
@@ -52,16 +49,15 @@ class SolarACCoordinator(DataUpdateCoordinator):
         )
 
         self.hass = hass
-        self.config = config
+        self.config_entry = config_entry
+        self.config = config_entry.data
         self.store = store
 
         # Learned values
         self.initial_learned_power = config_entry.options.get(
             CONF_INITIAL_LEARNED_POWER,
-            config_entry.data.get(CONF_INITIAL_LEARNED_POWER, 1200)
+            config_entry.data.get(CONF_INITIAL_LEARNED_POWER, 1200),
         )
-    )
-)
 
         self.learned_power: dict[str, float] = stored.get("learned_power", {})
         self.samples: int = stored.get("samples", 0)
@@ -86,24 +82,28 @@ class SolarACCoordinator(DataUpdateCoordinator):
         self.zone_manual_lock_until: dict[str, float] = {}
 
         # Panic config
-        self.panic_threshold: float = config.get(CONF_PANIC_THRESHOLD, 1500)
-        self.panic_delay: int = config.get(CONF_PANIC_DELAY, 10)
+        self.panic_threshold: float = self.config.get(CONF_PANIC_THRESHOLD, 1500)
+        self.panic_delay: int = self.config.get(CONF_PANIC_DELAY, 10)
 
         # Manual lock duration
-        self.manual_lock_seconds: int = config.get(CONF_MANUAL_LOCK_SECONDS, 1200)
+        self.manual_lock_seconds: int = self.config.get(CONF_MANUAL_LOCK_SECONDS, 1200)
 
         # Short-cycle thresholds
-        self.short_cycle_on_seconds: int = config.get(CONF_SHORT_CYCLE_ON_SECONDS, 1200)
-        self.short_cycle_off_seconds: int = config.get(CONF_SHORT_CYCLE_OFF_SECONDS, 1200)
+        self.short_cycle_on_seconds: int = self.config.get(
+            CONF_SHORT_CYCLE_ON_SECONDS, 1200
+        )
+        self.short_cycle_off_seconds: int = self.config.get(
+            CONF_SHORT_CYCLE_OFF_SECONDS, 1200
+        )
 
         # Delay between actions
-        self.action_delay_seconds: int = config.get("action_delay_seconds", 3)
+        self.action_delay_seconds: int = self.config.get("action_delay_seconds", 3)
 
         # Confidence thresholds
-        self.add_confidence_threshold: float = config.get(
+        self.add_confidence_threshold: float = self.config.get(
             CONF_ADD_CONFIDENCE, _DEFAULT_ADD_CONFIDENCE
         )
-        self.remove_confidence_threshold: float = config.get(
+        self.remove_confidence_threshold: float = self.config.get(
             CONF_REMOVE_CONFIDENCE, _DEFAULT_REMOVE_CONFIDENCE
         )
 
@@ -312,7 +312,9 @@ class SolarACCoordinator(DataUpdateCoordinator):
                     )
                 ):
                     now_ts = dt_util.utcnow().timestamp()
-                    self.zone_manual_lock_until[zone] = now_ts + self.manual_lock_seconds
+                    self.zone_manual_lock_until[zone] = (
+                        now_ts + self.manual_lock_seconds
+                    )
                     await self._log(
                         f"[MANUAL_OVERRIDE] zone={zone} state={state} "
                         f"lock_until={int(self.zone_manual_lock_until[zone])}"
@@ -596,7 +598,9 @@ class SolarACCoordinator(DataUpdateCoordinator):
             )
             return
         except Exception as e:
-            _LOGGER.exception("Fallback climate.%s failed for %s: %s", service, entity_id, e)
+            _LOGGER.exception(
+                "Fallback climate.%s failed for %s: %s", service, entity_id, e
+            )
 
     # -------------------------------------------------------------------------
     # Master switch control
@@ -630,7 +634,9 @@ class SolarACCoordinator(DataUpdateCoordinator):
             # Clear manual locks when restoring master power
             if self.zone_manual_lock_until:
                 self.zone_manual_lock_until.clear()
-                await self._log("[MASTER_POWER_ON] cleared manual locks after OFF period")
+                await self._log(
+                    "[MASTER_POWER_ON] cleared manual locks after OFF period"
+                )
 
         # Turn OFF when solar is low and AC is idle (delayed for compressor safety)
         if solar < off_threshold and switch_state == "on":
