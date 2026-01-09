@@ -49,26 +49,55 @@ class SolarACDiagnosticEntity(SensorEntity):
         c = self.coordinator
         now = dt_util.utcnow().timestamp()
 
-        active_zones = []
-        for z in c.config["zones"]:
-            st = c.hass.states.get(z)
-            if st and st.state in ("heat", "on"):
-                active_zones.append(z)
+        # Active zones (direct from HA state)
+        active_zones = [
+            z for z in c.config["zones"]
+            if (st := c.hass.states.get(z)) and st.state in ("heat", "on")
+        ]
+
+        # Panic cooldown
+        panic_cooldown_active = False
+        if c.last_panic_ts:
+            panic_cooldown_active = (now - c.last_panic_ts) < 120
 
         return {
+            # Timestamp
+            "timestamp": now,
+
+            # Config
             "config": c.config,
-            "active_zones": active_zones,
+
+            # Learning
             "learning_active": c.learning_active,
             "learning_zone": c.learning_zone,
             "learning_start_time": c.learning_start_time,
             "samples": c.samples,
             "learned_power": c.learned_power,
+            "ac_power_before": c.ac_power_before,
+
+            # EMA metrics
             "ema_30s": c.ema_30s,
             "ema_5m": c.ema_5m,
+
+            # Decision state
+            "last_action": c.last_action,
+            "next_zone": c.next_zone,
+            "last_zone": c.last_zone,
+            "required_export": c.required_export,
+            "export_margin": c.export_margin,
+
+            # Zones
+            "active_zones": active_zones,
             "zone_last_changed": c.zone_last_changed,
             "zone_last_state": c.zone_last_state,
             "zone_manual_lock_until": c.zone_manual_lock_until,
+
+            # Panic
             "panic_threshold": c.panic_threshold,
             "panic_delay": c.panic_delay,
-            "last_action": c.last_action,
+            "last_panic_ts": c.last_panic_ts,
+            "panic_cooldown_active": panic_cooldown_active,
+
+            # Master switch
+            "master_off_since": c.master_off_since,
         }
