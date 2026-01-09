@@ -41,7 +41,9 @@ _DEFAULT_REMOVE_CONFIDENCE = 10
 class SolarACCoordinator(DataUpdateCoordinator):
     """Main control loop for the Solar AC Controller."""
 
-    def __init__(self, hass: HomeAssistant, config, store, stored):
+    def __init__(self, hass: HomeAssistant, config_entry, store, stored):
+    self.config_entry = config_entry
+    config = config_entry.data
         super().__init__(
             hass,
             logger=_LOGGER,
