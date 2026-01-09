@@ -52,6 +52,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
         self.store = store
 
         # Learned values
+        self.initial_learned_power = config.get(CONF_INITIAL_LEARNED_POWER, 1200)
         self.learned_power: dict[str, float] = stored.get("learned_power", {})
         self.samples: int = stored.get("samples", 0)
 
@@ -343,7 +344,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
             return 99999.0
 
         zone_name = next_zone.split(".")[-1]
-        lp = self.learned_power.get(zone_name, 1200)
+        lp = self.learned_power.get(zone_name, self.initial_learned_power)
         safety_mult = 1.15 if self.samples >= 10 else 1.30
         return lp * safety_mult
 
