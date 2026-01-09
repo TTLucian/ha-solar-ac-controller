@@ -101,6 +101,12 @@ class SolarACCoordinator(DataUpdateCoordinator):
         self.master_off_since: float | None = None
         self.last_panic_ts: float | None = None
 
+        # Exposed fields for sensors
+        self.next_zone: str | None = None
+        self.last_zone: str | None = None
+        self.required_export: float = 0.0
+        self.export_margin: float = 0.0
+
     # -------------------------------------------------------------------------
     # Main update loop
     # -------------------------------------------------------------------------
