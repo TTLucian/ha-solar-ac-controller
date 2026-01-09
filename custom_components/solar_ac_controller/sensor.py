@@ -235,9 +235,10 @@ class SolarACRequiredExportSensor(_NumericSolarACSensor):
     def unique_id(self):
         return "solar_ac_required_export"
 
-    @property
-    def state(self):
-        return round(self.coordinator.required_export, 2)
+@property
+def state(self):
+    val = self.coordinator.required_export
+    return None if val is None else round(val, 2)
 
 
 class SolarACExportMarginSensor(_NumericSolarACSensor):
