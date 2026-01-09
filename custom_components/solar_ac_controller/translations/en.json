@@ -19,7 +19,7 @@
           "grid_sensor": "Sensor showing grid import/export (negative = export).",
           "solar_sensor": "Sensor showing solar production.",
           "ac_switch": "Main switch that powers the AC system.",
-          "zones": "List of climate entities to control. Order determines activation priority.",
+          "zones": "List of entities to control. Order determines activation priority.",
           "initial_learned_power": "Starting estimate of zone power usage before learning kicks in."
         }
       }
