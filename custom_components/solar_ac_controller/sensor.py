@@ -227,18 +227,17 @@ class SolarACConfidenceThresholdSensor(_BaseSolarACSensor):
 
 class SolarACRequiredExportSensor(_NumericSolarACSensor):
     @property
-    def state(self):
-        val = self.coordinator.required_export
-        return None if val is None else round(val, 2)
+    def name(self):
+        return "Solar AC Required Export"
 
     @property
     def unique_id(self):
         return "solar_ac_required_export"
 
-@property
-def state(self):
-    val = self.coordinator.required_export
-    return None if val is None else round(val, 2)
+    @property
+    def state(self):
+        val = self.coordinator.required_export
+        return None if val is None else round(val, 2)
 
 
 class SolarACExportMarginSensor(_NumericSolarACSensor):
