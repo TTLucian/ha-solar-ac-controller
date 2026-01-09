@@ -56,7 +56,10 @@ class SolarACCoordinator(DataUpdateCoordinator):
         self.store = store
 
         # Learned values
-        self.initial_learned_power = (config_entry.options.get(CONF_INITIAL_LEARNED_POWER, config_entry.data.get(CONF_INITIAL_LEARNED_POWER, 1200)
+        self.initial_learned_power = config_entry.options.get(
+            CONF_INITIAL_LEARNED_POWER,
+            config_entry.data.get(CONF_INITIAL_LEARNED_POWER, 1200)
+        )
     )
 )
 
