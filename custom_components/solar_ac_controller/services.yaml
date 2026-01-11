@@ -8,8 +8,8 @@ force_relearn:
   fields:
     zone:
       name: Zone
-      description: Climate zone to reset (optional)
+      description: Climate or switch zone to reset (optional)
       required: false
       selector:
         entity:
-          domain: climate
+          domain: ["climate", "switch"]
