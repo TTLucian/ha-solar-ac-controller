@@ -19,6 +19,7 @@ from .const import (
     CONF_PANIC_DELAY,
     CONF_ACTION_DELAY_SECONDS,
     CONF_INITIAL_LEARNED_POWER,
+    CONF_ENABLE_DIAGNOSTICS,
 )
 from .coordinator import SolarACCoordinator
 
@@ -67,7 +68,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         coordinator: SolarACCoordinator = data["coordinator"]
 
         # Merge options over original data
+        # Old value BEFORE applying new config
+        old = bool(coordinator.config.get(CONF_ENABLE_DIAGNOSTICS, True))
+        
+        # Merge options over original data
         merged = {**updated_entry.data, **updated_entry.options}
+        
+        # New value AFTER merge
+        new = bool(merged.get(CONF_ENABLE_DIAGNOSTICS, True))
+        
+        # If toggle changed → reload integration to add/remove diagnostics sensor
+        if old != new:
+            await hass.config_entries.async_reload(updated_entry.entry_id)
+            return  # Reload will recreate coordinator and platforms
+        
+        # Apply merged config only if not reloading
         coordinator.config = merged
 
         # Update runtime parameters
