@@ -71,40 +71,76 @@ The integration exposes a rich set of sensors and diagnostics so you can see exa
 - Importing  
 - Master switch OFF  
 
-### **Diagnostics**
-The Solar AC Controller provides full internal state visibility through Home Assistant’s built‑in Diagnostics system. This is the authoritative place to inspect everything the controller knows and does.
+## 🔍 Diagnostics
+The Solar AC Controller provides a unified diagnostics system designed to help with troubleshooting, performance tuning, and understanding the controller’s internal decision engine. Diagnostics are available in two complementary forms:
 
-You can access it via:
+### 🧠 Diagnostics Sensor (Optional)
+   You can enable an always‑on diagnostics sensor that exposes the controller’s full internal state as JSON attributes.
 
-Settings → Devices & Services → Solar AC Controller → Diagnostics
+   How to enable
+   Go to Settings → Devices & Services → Solar AC Controller → Configure
 
-The diagnostics export includes a complete JSON snapshot of the controller’s internal state, such as:
+   Toggle Enable Diagnostics Sensor
 
-  - Current configuration
-  - Active zones
-  - Learned compressor power per zone
-  - EMA 30s and EMA 5m values
-  - Manual lock timers
-  - Short‑cycle memory
-  - Panic thresholds and cooldown state
-  - Required export and export margin
-  - Next and last zone
-  - Last action and timestamps
-  - Master‑off tracking
-  - Learning state and sample count
+   Submit the form
 
-This export is ideal for debugging, issue reporting, and understanding the controller’s decision‑making process in detail.
+   When enabled, Home Assistant will create:
 
-Unlike normal sensors, the diagnostics export is not an entity — it is a structured JSON report designed specifically for troubleshooting and transparency.
+   ```Code
+   sensor.solar_ac_diagnostics
+   ```
+   This entity updates in real time and includes:
+   - Controller configuration
+   - Learned power values
+   - EMA metrics (30s and 5m)
+   - Active and last‑used zones
+   - Decision engine state (next zone, last action, required export, margin)
+   - Panic thresholds and cooldown state
+   - Master switch lockout timers
+   - Timestamps and runtime counters
+   
+   This sensor is intended for advanced users, debugging, and Lovelace dashboards.
 
+### 📄 Home Assistant Diagnostics Export (Always Available)
+  Even if the diagnostics sensor is disabled, you can always download a full diagnostics report:
 
+  Settings → Devices & Services → Solar AC Controller → Download Diagnostics
 
-### **Home Assistant Diagnostics Export**
-A dedicated diagnostics handler (`diagnostics.py`) provides a JSON‑safe snapshot of all internal state:
+  This export contains the same structured data as the diagnostics sensor, generated through the same internal helper. It includes:
 
-`Settings → Devices & Services → Solar AC Controller → Diagnostics`
+  - Timestamp
+  - Full configuration (merged data + options)
+  - Learning state and samples
+  - EMA values
+  - Decision engine outputs
+  - Zone activity and lockouts
+  - Panic state
+  - Master switch state
 
-Perfect for debugging or attaching to GitHub issues.
+  No personal or sensitive data is included.
+
+### 🧩 Unified Diagnostics Architecture
+  Both the diagnostics sensor and the HA diagnostics export use the same internal function:
+
+```Code
+build_diagnostics(coordinator)
+```
+This ensures:
+- Identical data in both places
+- No duplication of logic
+- No risk of the two drifting apart
+- Zero dependency between the sensor and the export
+
+Disabling the diagnostics sensor does not affect the JSON diagnostics export.
+
+### 🔐 Privacy
+The diagnostics system intentionally excludes:
+- User identity
+- Location
+- Energy usage history
+- Any personally identifiable information
+Only integration configuration and runtime controller state are included.
+
 
 ---
 
