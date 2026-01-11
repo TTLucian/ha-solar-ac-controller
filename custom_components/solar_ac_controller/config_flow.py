@@ -23,6 +23,7 @@ from .const import (
     CONF_ADD_CONFIDENCE,
     CONF_REMOVE_CONFIDENCE,
     CONF_INITIAL_LEARNED_POWER,
+    CONF_ENABLE_DIAGNOSTICS,
 )
 
 DEFAULT_ADD_CONFIDENCE = 25
@@ -212,9 +213,13 @@ class SolarACOptionsFlowHandler(config_entries.OptionsFlow):
                 # Confidence thresholds
                 vol.Optional(CONF_ADD_CONFIDENCE, default=data.get(CONF_ADD_CONFIDENCE, DEFAULT_ADD_CONFIDENCE)): int,
                 vol.Optional(CONF_REMOVE_CONFIDENCE, default=data.get(CONF_REMOVE_CONFIDENCE, DEFAULT_REMOVE_CONFIDENCE)): int,
-
+                
+                # Enable diagnostics sensor  ← MISSING
+                vol.Optional(CONF_ENABLE_DIAGNOSTICS, default=data.get(CONF_ENABLE_DIAGNOSTICS, False)): bool,
+                
                 # Initial learned power
                 vol.Optional(CONF_INITIAL_LEARNED_POWER, default=data.get(CONF_INITIAL_LEARNED_POWER, 1200)): int,
+
             }
         )
 
