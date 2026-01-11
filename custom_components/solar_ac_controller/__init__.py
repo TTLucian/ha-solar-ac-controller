@@ -141,17 +141,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     # PLATFORM SETUP
     # ---------------------------------------------------------------------
     import asyncio
-    from homeassistant.loader import async_get_integration
     
     # Preload platforms off the event loop to avoid blocking warnings
     integration = await async_get_integration(hass, DOMAIN)
     await asyncio.gather(
-        *[
-            asyncio.to_thread(integration.get_platform, platform)
-            for platform in PLATFORMS
-        ]
+        *(hass.async_add_executor_job(integration.get_platform, p) for p in PLATFORMS)
     )
-    
+
     # Now forward setups normally
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
