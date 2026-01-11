@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import logging
+import asyncio
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers import device_registry as dr
+from homeassistant.loader import async_get_integration
 
 from .const import (
     DOMAIN,
@@ -22,7 +24,6 @@ from .const import (
     CONF_ENABLE_DIAGNOSTICS,
 )
 from .coordinator import SolarACCoordinator
-from homeassistant.loader import async_get_integration
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -30,7 +31,7 @@ PLATFORMS = ["sensor", "binary_sensor"]
 
 
 def _short_name(entity_id: str) -> str:
-    """Return the trailing segment of an entity_id."""
+    """Return trailing segment of an entity_id."""
     if not isinstance(entity_id, str):
         return str(entity_id)
     return entity_id.rsplit(".", 1)[-1]
@@ -44,17 +45,23 @@ async def async_setup(hass: HomeAssistant, config: dict):
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     hass.data.setdefault(DOMAIN, {})
 
-    # Load integration version
+    # Load integration version from manifest
     integration = await async_get_integration(hass, DOMAIN)
-    hass.data[DOMAIN]["version"] = integration.version
+    version = integration.version
+    hass.data[DOMAIN]["version"] = version
 
     # Load persistent storage
     store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
     stored = await store.async_load() or {}
 
-    # Create coordinator ONCE
-    coordinator = SolarACCoordinator(hass, entry, store, stored)
-    coordinator.version = integration.version
+    # Create coordinator ONCE with version
+    coordinator = SolarACCoordinator(
+        hass,
+        entry,
+        store,
+        stored,
+        version=version,
+    )
 
     await coordinator.async_config_entry_first_refresh()
 
@@ -62,7 +69,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         "coordinator": coordinator,
         "store": store,
     }
-
 
     # ---------------------------------------------------------------------
     # OPTIONS UPDATE LISTENER
@@ -74,24 +80,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
         coordinator: SolarACCoordinator = data["coordinator"]
 
-        # Old value BEFORE applying new config
         old = bool(coordinator.config.get(CONF_ENABLE_DIAGNOSTICS, False))
-
-        # Merge options over original data
         merged = {**updated_entry.data, **updated_entry.options}
-
-        # New value AFTER merge
         new = bool(merged.get(CONF_ENABLE_DIAGNOSTICS, False))
 
-        # If toggle changed → reload integration to add/remove diagnostics sensor
+        # Diagnostics toggle changed → reload integration
         if old != new:
             await hass.config_entries.async_reload(updated_entry.entry_id)
-            return  # Reload will recreate coordinator and platforms
+            return
 
-        # Apply merged config only if not reloading
+        # Apply merged config
         coordinator.config = merged
 
-        # Update runtime parameters
         coordinator.manual_lock_seconds = merged.get(
             CONF_MANUAL_LOCK_SECONDS, coordinator.manual_lock_seconds
         )
@@ -133,24 +133,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         name="Solar AC Controller",
         manufacturer="TTLucian",
         model="Solar AC Smart Controller",
-        sw_version=hass.data[DOMAIN]["version"],
+        sw_version=version,
         configuration_url="https://github.com/TTLucian/ha-solar-ac-controller",
     )
 
     # ---------------------------------------------------------------------
     # PLATFORM SETUP
     # ---------------------------------------------------------------------
-    import asyncio
-    
     # Preload platforms off the event loop to avoid blocking warnings
-    integration = await async_get_integration(hass, DOMAIN)
     await asyncio.gather(
         *(hass.async_add_executor_job(integration.get_platform, p) for p in PLATFORMS)
     )
 
-    # Now forward setups normally
+    # Forward setups
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-
 
     # ---------------------------------------------------------------------
     # SERVICES
@@ -208,7 +204,6 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry):
     """Migrate old config entries to the new format."""
     data = dict(entry.data)
 
-    # Convert old comma-separated zone strings → list
     zones = data.get(CONF_ZONES)
     if isinstance(zones, str):
         data[CONF_ZONES] = [z.strip() for z in zones.split(",") if z.strip()]
