@@ -67,7 +67,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
         coordinator: SolarACCoordinator = data["coordinator"]
 
-        # Merge options over original data
         # Old value BEFORE applying new config
         old = bool(coordinator.config.get(CONF_ENABLE_DIAGNOSTICS, True))
         
