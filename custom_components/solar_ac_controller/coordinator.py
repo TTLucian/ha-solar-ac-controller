@@ -25,6 +25,7 @@ from .const import (
     CONF_ADD_CONFIDENCE,
     CONF_REMOVE_CONFIDENCE,
     CONF_INITIAL_LEARNED_POWER,
+    CONF_ACTION_DELAY_SECONDS,
 )
 
 _LOGGER = logging.getLogger(__name__)
