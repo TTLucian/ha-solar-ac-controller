@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import timedelta
+from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
@@ -26,6 +27,8 @@ from .const import (
     CONF_REMOVE_CONFIDENCE,
     CONF_INITIAL_LEARNED_POWER,
     CONF_ACTION_DELAY_SECONDS,
+    STORAGE_KEY,
+    STORAGE_VERSION,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -38,9 +41,19 @@ _DEFAULT_REMOVE_CONFIDENCE = 10
 
 
 class SolarACCoordinator(DataUpdateCoordinator):
-    """Main control loop for the Solar AC Controller."""
+    """Main control loop for the Solar AC Controller.
 
-    def __init__(self, hass: HomeAssistant, config_entry, store, stored, version: str):
+    This coordinator also handles migration of stored learned_power from the
+    legacy numeric-per-zone format to a per-mode structure:
+      legacy: { "living_room": 1200, "bedroom": 900 }
+      new:    { "living_room": {"default":1200, "heat":1200, "cool":1200}, ... }
+
+    The coordinator exposes helper methods `get_learned_power` and
+    `set_learned_power` so other modules (controller, sensors) can remain
+    agnostic to the underlying storage format.
+    """
+
+    def __init__(self, hass: HomeAssistant, config_entry, store, stored: dict[str, Any], version: str):
         super().__init__(
             hass,
             logger=_LOGGER,
@@ -50,20 +63,83 @@ class SolarACCoordinator(DataUpdateCoordinator):
 
         self.hass = hass
         self.config_entry = config_entry
-        self.config = config_entry.data
+        self.config = dict(config_entry.data)
         self.store = store
 
         # Integration version (first-class field)
         self.version = version
 
-        # Learned values
+        # Initial learned power (option or config)
         self.initial_learned_power = config_entry.options.get(
             CONF_INITIAL_LEARNED_POWER,
             config_entry.data.get(CONF_INITIAL_LEARNED_POWER, 1200),
         )
 
-        self.learned_power: dict[str, float] = dict(stored.get("learned_power", {}))
-        self.samples: int = int(stored.get("samples", 0))
+        # Load stored values and migrate if necessary
+        raw_learned = stored.get("learned_power", {}) or {}
+        raw_samples = stored.get("samples", 0) or 0
+
+        # Ensure types
+        self.learned_power: dict[str, dict[str, float]] = {}
+        self.samples: int = int(raw_samples)
+
+        # Perform migration if legacy format detected (values are numeric)
+        migrated = False
+        if isinstance(raw_learned, dict):
+            for zone_name, val in raw_learned.items():
+                # Legacy numeric value -> migrate to per-mode dict
+                if isinstance(val, (int, float)):
+                    migrated = True
+                    v = float(val)
+                    self.learned_power[zone_name] = {
+                        "default": v,
+                        "heat": v,
+                        "cool": v,
+                    }
+                elif isinstance(val, dict):
+                    # Already per-mode; normalize keys and ensure numeric values
+                    normalized = {}
+                    # Accept keys: default, heat, cool (case-insensitive)
+                    for k, vv in val.items():
+                        try:
+                            normalized[k.lower()] = float(vv)
+                        except Exception:
+                            # Skip non-numeric entries
+                            continue
+                    # Ensure default exists
+                    if "default" not in normalized:
+                        # Prefer heat, then cool, then initial_learned_power
+                        normalized["default"] = normalized.get("heat", normalized.get("cool", float(self.initial_learned_power)))
+                    if "heat" not in normalized:
+                        normalized["heat"] = normalized["default"]
+                    if "cool" not in normalized:
+                        normalized["cool"] = normalized["default"]
+                    self.learned_power[zone_name] = normalized
+                else:
+                    # Unknown type: ignore and fallback to initial value
+                    self.learned_power[zone_name] = {
+                        "default": float(self.initial_learned_power),
+                        "heat": float(self.initial_learned_power),
+                        "cool": float(self.initial_learned_power),
+                    }
+        else:
+            # No learned_power stored; initialize empty mapping
+            self.learned_power = {}
+
+        # If migration occurred, persist the new structure immediately
+        if migrated:
+            # Save migrated structure and samples back to storage
+            try:
+                # Build storage payload
+                payload = {
+                    "learned_power": dict(self.learned_power),
+                    "samples": int(self.samples),
+                }
+                # Use store to persist
+                hass.async_create_task(self.store.async_save(payload))
+                _LOGGER.info("Migrated legacy learned_power to per-mode structure and saved storage")
+            except Exception as exc:
+                _LOGGER.exception("Failed to persist migrated learned_power: %s", exc)
 
         # Internal state
         self.last_action: str | None = None
@@ -133,6 +209,78 @@ class SolarACCoordinator(DataUpdateCoordinator):
         self.last_zone: str | None = None
         self.required_export: float | None = None
         self.export_margin: float | None = None
+
+    # -------------------------------------------------------------------------
+    # Helper accessors for learned_power (abstracts storage format)
+    # -------------------------------------------------------------------------
+    def get_learned_power(self, zone_name: str, mode: str | None = None) -> float:
+        """Return the learned power for a zone.
+
+        If the stored value is per-mode, prefer the requested mode, then 'default'.
+        If nothing is stored, return initial_learned_power.
+        """
+        entry = self.learned_power.get(zone_name)
+        if entry is None:
+            return float(self.initial_learned_power)
+        if isinstance(entry, dict):
+            if mode and mode in entry:
+                return float(entry.get(mode))
+            if "default" in entry:
+                return float(entry.get("default"))
+            # Fallback to heat/cool if present
+            if "heat" in entry:
+                return float(entry.get("heat"))
+            if "cool" in entry:
+                return float(entry.get("cool"))
+            # Last resort
+            return float(self.initial_learned_power)
+        # Backwards compatibility: numeric value
+        try:
+            return float(entry)
+        except Exception:
+            return float(self.initial_learned_power)
+
+    def set_learned_power(self, zone_name: str, value: float, mode: str | None = None) -> None:
+        """Set learned power for a zone.
+
+        If the stored structure is per-mode (dict), update the requested mode and
+        the 'default' key. If legacy numeric mapping is present, convert it to
+        per-mode dict and then update.
+        """
+        if zone_name not in self.learned_power or not isinstance(self.learned_power.get(zone_name), dict):
+            # Initialize per-mode dict
+            base = float(self.learned_power.get(zone_name) if isinstance(self.learned_power.get(zone_name), (int, float)) else self.initial_learned_power)
+            self.learned_power[zone_name] = {
+                "default": base,
+                "heat": base,
+                "cool": base,
+            }
+
+        entry = self.learned_power[zone_name]
+        # Update requested mode and default
+        if mode:
+            entry[mode] = float(value)
+        entry["default"] = float(value)
+        # Keep heat/cool present
+        if "heat" not in entry:
+            entry["heat"] = entry["default"]
+        if "cool" not in entry:
+            entry["cool"] = entry["default"]
+
+    async def _persist_learned_values(self) -> None:
+        """Persist learned_power and samples to storage (async)."""
+        try:
+            payload = {
+                "learned_power": dict(self.learned_power),
+                "samples": int(self.samples),
+            }
+            await self.store.async_save(payload)
+        except Exception as exc:
+            _LOGGER.exception("Error saving learned values: %s", exc)
+            try:
+                await self._log(f"[STORAGE_ERROR] {exc}")
+            except Exception:
+                _LOGGER.exception("Failed to write storage error to coordinator log")
 
     # -------------------------------------------------------------------------
     # Main update loop
@@ -360,7 +508,8 @@ class SolarACCoordinator(DataUpdateCoordinator):
             return None
 
         zone_name = next_zone.split(".")[-1]
-        lp = self.learned_power.get(zone_name, self.initial_learned_power)
+        # We don't know the mode for a zone that is currently off; use 'default'
+        lp = self.get_learned_power(zone_name, mode="default")
         safety_mult = 1.15 if self.samples >= 10 else 1.30
         return lp * safety_mult
 
