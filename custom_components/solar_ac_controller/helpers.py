@@ -2,30 +2,37 @@ from __future__ import annotations
 
 from homeassistant.util import dt as dt_util
 
+from .const import CONF_ZONES
+
 
 def build_diagnostics(coordinator):
-    """Return a unified diagnostics structure for both sensor + HA diagnostics."""
+    """Return a unified diagnostics structure for both sensor and HA diagnostics.
 
+    Uses coordinator.version as the authoritative integration version and
+    converts mappingproxy config to a plain dict for JSON safety.
+    """
     now = dt_util.utcnow().timestamp()
 
-    # Active zones
+    # Active zones (heat/on)
     active_zones = [
-        z for z in coordinator.config.get("zones", [])
-        if (st := coordinator.hass.states.get(z)) and st.state in ("heat", "on")
+        z
+        for z in coordinator.config.get(CONF_ZONES, [])
+        if (st := coordinator.hass.states.get(z)) and st.state in ("heat", "cool", "on")
     ]
 
-    # Panic cooldown
+    # Panic cooldown state
     panic_cooldown_active = False
     if coordinator.last_panic_ts:
         panic_cooldown_active = (now - coordinator.last_panic_ts) < 120
 
     return {
-        # Clean, authoritative version source
+        # Authoritative integration version
         "version": coordinator.version,
 
+        # Timestamp for diagnostics snapshot
         "timestamp": dt_util.utcnow().isoformat(),
 
-        # JSON‑safe config (mappingproxy → dict)
+        # JSON-safe config
         "config": dict(coordinator.config),
 
         # Learning
