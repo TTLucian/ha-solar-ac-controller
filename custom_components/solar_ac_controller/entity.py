@@ -60,7 +60,7 @@ class SolarACDebugEntity(Entity):
             "last_remove_conf": getattr(c, "last_remove_conf", None),
             "last_action_start_ts": getattr(c, "last_action_start_ts", None),
             "last_action_duration": getattr(c, "last_action_duration", None),
-            "learned_power": dict(c.learned_power),
+            "learned_power": dict(c.learned_power) if c.learned_power is not None else {},
             "zone_last_changed": c.zone_last_changed,
             "zone_manual_lock_until": c.zone_manual_lock_until,
             "zone_modes": zone_modes,
