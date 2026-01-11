@@ -53,7 +53,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
         self.config = config_entry.data
         self.store = store
 
-        # Integration version (clean, first-class field)
+        # Integration version (first-class field)
         self.version = version
 
         # Learned values
@@ -131,8 +131,8 @@ class SolarACCoordinator(DataUpdateCoordinator):
         # Exposed fields for sensors
         self.next_zone: str | None = None
         self.last_zone: str | None = None
-        self.required_export: float = 0.0
-        self.export_margin: float = 0.0
+        self.required_export: float | None = None
+        self.export_margin: float | None = None
 
     # -------------------------------------------------------------------------
     # Main update loop
@@ -158,7 +158,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
             grid_raw = float(grid_state.state)
             solar = float(solar_state.state)
             ac_power = float(ac_state.state)
-        except ValueError:
+        except (ValueError, TypeError):
             _LOGGER.debug("Non-numeric sensor value, skipping cycle")
             return
 
@@ -354,7 +354,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
 
         return next_zone, last_zone
 
-    def _compute_required_export(self, next_zone: str | None) -> float:
+    def _compute_required_export(self, next_zone: str | None) -> float | None:
         if not next_zone:
             return None
 
@@ -392,9 +392,8 @@ class SolarACCoordinator(DataUpdateCoordinator):
 
         if required_export is None:
             return 0.0
-        
-        export_margin = export - required_export
 
+        export_margin = export - required_export
 
         base = min(40, max(0, export_margin / 25))
         sample_bonus = min(20, self.samples * 2)
@@ -468,7 +467,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
     # -------------------------------------------------------------------------
     # Add / remove decisions
     # -------------------------------------------------------------------------
-    def _should_add_zone(self, next_zone: str, required_export: float) -> bool:
+    def _should_add_zone(self, next_zone: str, required_export: float | None) -> bool:
         if self.learning_active:
             return False
 
