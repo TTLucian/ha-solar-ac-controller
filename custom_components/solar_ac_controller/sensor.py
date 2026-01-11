@@ -6,11 +6,12 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.config_entries import ConfigEntry
+    from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN
+from .const import DOMAIN, CONF_ENABLE_DIAGNOSTICS
+from .helpers import build_diagnostics
 
 
 async def async_setup_entry(
@@ -21,7 +22,7 @@ async def async_setup_entry(
     data = hass.data[DOMAIN][entry.entry_id]
     coordinator = data["coordinator"]
 
-    entities = [
+    entities: list[SensorEntity] = [
         SolarACActiveZonesSensor(coordinator),
         SolarACNextZoneSensor(coordinator),
         SolarACLastZoneSensor(coordinator),
@@ -46,6 +47,11 @@ async def async_setup_entry(
     for zone in coordinator.config["zones"]:
         zone_name = zone.split(".")[-1]
         entities.append(SolarACLearnedPowerSensor(coordinator, zone_name))
+
+    # Diagnostics sensor (optional, behind toggle)
+    effective = {**entry.data, **entry.options}
+    if effective.get(CONF_ENABLE_DIAGNOSTICS, False):
+        entities.append(SolarACDiagnosticEntity(coordinator, entry))
 
     async_add_entities(entities)
 
@@ -338,3 +344,30 @@ class SolarACLearnedPowerSensor(_NumericSolarACSensor):
             self.zone_name,
             self.coordinator.initial_learned_power,
         )
+
+
+# ---------------------------------------------------------------------------
+# DIAGNOSTICS SENSOR
+# ---------------------------------------------------------------------------
+
+class SolarACDiagnosticEntity(_BaseSolarACSensor):
+    """A single sensor exposing the entire controller state as JSON attributes."""
+
+    _attr_should_poll = False
+    _attr_name = "Solar AC Diagnostics"
+    _attr_icon = "mdi:brain"
+    _attr_device_class = "diagnostic"
+
+    def __init__(self, coordinator, entry: ConfigEntry):
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_diagnostics"
+
+    @property
+    def native_value(self):
+        """Expose last action as the main state."""
+        return self.coordinator.last_action or "idle"
+
+    @property
+    def extra_state_attributes(self):
+        """Expose unified diagnostics attributes."""
+        return build_diagnostics(self.coordinator)
