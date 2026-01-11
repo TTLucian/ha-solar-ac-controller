@@ -55,60 +55,9 @@ class SolarACDiagnosticEntity(SensorEntity):
         """Expose last action as the main state."""
         return self.coordinator.last_action or "idle"
 
-    @property
-    def extra_state_attributes(self):
-        """Expose the entire controller brain."""
-        c = self.coordinator
-        now_iso = dt_util.utcnow().isoformat()
+from .helpers import build_diagnostics
 
-        # Active zones based on coordinator logic
-        active_zones = [
-            z for z in c.config.get("zones", [])
-            if (st := c.hass.states.get(z)) and st.state in ("heat", "on")
-        ]
+@property
+def extra_state_attributes(self):
+    return build_diagnostics(self.coordinator)
 
-        # Panic cooldown
-        panic_cooldown_active = False
-        if c.last_panic_ts:
-            panic_cooldown_active = (dt_util.utcnow().timestamp() - c.last_panic_ts) < 120
-
-        return {
-            "timestamp": now_iso,
-
-            # Config
-            "config": c.config,
-
-            # Learning
-            "learning_active": c.learning_active,
-            "learning_zone": c.learning_zone,
-            "learning_start_time": c.learning_start_time,
-            "samples": c.samples,
-            "learned_power": c.learned_power,
-            "ac_power_before": c.ac_power_before,
-
-            # EMA metrics
-            "ema_30s": c.ema_30s,
-            "ema_5m": c.ema_5m,
-
-            # Decision state
-            "last_action": c.last_action,
-            "next_zone": c.next_zone,
-            "last_zone": c.last_zone,
-            "required_export": c.required_export,
-            "export_margin": c.export_margin,
-
-            # Zones
-            "active_zones": active_zones,
-            "zone_last_changed": c.zone_last_changed,
-            "zone_last_state": c.zone_last_state,
-            "zone_manual_lock_until": c.zone_manual_lock_until,
-
-            # Panic
-            "panic_threshold": c.panic_threshold,
-            "panic_delay": c.panic_delay,
-            "last_panic_ts": c.last_panic_ts,
-            "panic_cooldown_active": panic_cooldown_active,
-
-            # Master switch
-            "master_off_since": c.master_off_since,
-        }
