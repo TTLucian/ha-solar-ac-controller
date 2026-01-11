@@ -36,7 +36,7 @@ class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
-    async def async_step_user(self, user_input=None):
+    async def async_step_user(self, user_input: dict[str, Any] | None = None):
         """Initial configuration step."""
         errors: dict[str, str] = {}
 
@@ -103,7 +103,7 @@ class SolarACOptionsFlowHandler(config_entries.OptionsFlow):
     def _current(self) -> dict[str, Any]:
         return {**self.entry.data, **self.entry.options}
 
-    async def async_step_init(self, user_input=None):
+    async def async_step_init(self, user_input: dict[str, Any] | None = None):
         errors: dict[str, str] = {}
         current = self._current
 
@@ -137,7 +137,7 @@ class SolarACOptionsFlowHandler(config_entries.OptionsFlow):
                     CONF_ADD_CONFIDENCE: user_input.get(CONF_ADD_CONFIDENCE, DEFAULT_ADD_CONFIDENCE),
                     CONF_REMOVE_CONFIDENCE: user_input.get(CONF_REMOVE_CONFIDENCE, DEFAULT_REMOVE_CONFIDENCE),
 
-                    # ⭐ FIXED: diagnostics toggle is now saved
+                    # Diagnostics toggle is saved in options
                     CONF_ENABLE_DIAGNOSTICS: user_input.get(CONF_ENABLE_DIAGNOSTICS, False),
 
                     CONF_INITIAL_LEARNED_POWER: user_input.get(CONF_INITIAL_LEARNED_POWER, 1200),
@@ -174,7 +174,7 @@ class SolarACOptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Optional(CONF_ADD_CONFIDENCE, default=data.get(CONF_ADD_CONFIDENCE, DEFAULT_ADD_CONFIDENCE)): int,
                 vol.Optional(CONF_REMOVE_CONFIDENCE, default=data.get(CONF_REMOVE_CONFIDENCE, DEFAULT_REMOVE_CONFIDENCE)): int,
 
-                # ⭐ FIXED: diagnostics toggle included in options UI
+                # Diagnostics toggle included in options UI
                 vol.Optional(CONF_ENABLE_DIAGNOSTICS, default=data.get(CONF_ENABLE_DIAGNOSTICS, False)): bool,
 
                 vol.Optional(CONF_INITIAL_LEARNED_POWER, default=data.get(CONF_INITIAL_LEARNED_POWER, 1200)): int,
