@@ -6,7 +6,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.core import HomeAssistant
-    from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
@@ -27,24 +27,20 @@ async def async_setup_entry(
         SolarACNextZoneSensor(coordinator),
         SolarACLastZoneSensor(coordinator),
         SolarACLastActionSensor(coordinator),
-
         SolarACEma30Sensor(coordinator),
         SolarACEma5Sensor(coordinator),
-
         SolarACConfidenceSensor(coordinator),
         SolarACConfidenceThresholdSensor(coordinator),
-
         SolarACRequiredExportSensor(coordinator),
         SolarACExportMarginSensor(coordinator),
         SolarACImportPowerSensor(coordinator),
-
         SolarACMasterOffSinceSensor(coordinator),
         SolarACLastPanicSensor(coordinator),
         SolarACPanicCooldownSensor(coordinator),
     ]
 
     # Learned power sensors (one per zone)
-    for zone in coordinator.config["zones"]:
+    for zone in coordinator.config.get("zones", []):
         zone_name = zone.split(".")[-1]
         entities.append(SolarACLearnedPowerSensor(coordinator, zone_name))
 
@@ -97,9 +93,10 @@ class SolarACActiveZonesSensor(_BaseSolarACSensor):
     @property
     def state(self):
         zones = []
-        for z in self.coordinator.config["zones"]:
+        for z in self.coordinator.config.get("zones", []):
             st = self.coordinator.hass.states.get(z)
-            if st and st.state in ("heat", "on"):
+            # Treat heating, cooling and generic "on" as active
+            if st and st.state in ("heat", "cool", "on"):
                 zones.append(z)
         return ", ".join(zones) if zones else "none"
 
@@ -297,6 +294,11 @@ class SolarACMasterOffSinceSensor(_BaseSolarACSensor):
         ts = self.coordinator.master_off_since
         return int(ts or 0)
 
+    @property
+    def extra_state_attributes(self):
+        ts = self.coordinator.master_off_since
+        return {"utc_iso": dt_util.utc_from_timestamp(ts).isoformat() if ts else None}
+
 
 # ---------------------------------------------------------------------------
 # FIXED: LAST PANIC (seconds, not watts)
@@ -319,6 +321,11 @@ class SolarACLastPanicSensor(_BaseSolarACSensor):
     def state(self):
         ts = self.coordinator.last_panic_ts
         return int(ts or 0)
+
+    @property
+    def extra_state_attributes(self):
+        ts = self.coordinator.last_panic_ts
+        return {"utc_iso": dt_util.utc_from_timestamp(ts).isoformat() if ts else None}
 
 
 class SolarACPanicCooldownSensor(_BaseSolarACSensor):
