@@ -52,12 +52,66 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     version = integration.version
     hass.data[DOMAIN]["version"] = version
 
-    # Load persistent storage
-    store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
+    # -------------------------
+    # Storage and migration
+    # -------------------------
+    # Define a migrate function that Store can call (if supported by this HA version).
+    # It converts legacy learned_power values (zone -> numeric) into per-mode dicts:
+    # {"default": v, "heat": v, "cool": v}. If no migration is needed, return old_data.
+    def _migrate_func(old_version: int, old_minor_version: int, old_data: dict | None) -> dict | None:
+        if not old_data:
+            return old_data
+        try:
+            raw_lp = old_data.get("learned_power")
+            if isinstance(raw_lp, dict):
+                # If any value is numeric, treat as legacy format and migrate
+                if any(isinstance(v, (int, float)) for v in raw_lp.values()):
+                    migrated: dict[str, dict[str, float]] = {}
+                    # Fallback initial value (1200) if not present in entry
+                    initial_lp = float(
+                        entry.options.get(
+                            CONF_INITIAL_LEARNED_POWER,
+                            entry.data.get(CONF_INITIAL_LEARNED_POWER, 1200),
+                        )
+                    )
+                    for zone_name, val in raw_lp.items():
+                        if isinstance(val, (int, float)):
+                            v = float(val)
+                            migrated[zone_name] = {"default": v, "heat": v, "cool": v}
+                        elif isinstance(val, dict):
+                            normalized: dict[str, float] = {}
+                            for k, vv in val.items():
+                                try:
+                                    normalized[k.lower()] = float(vv)
+                                except Exception:
+                                    continue
+                            if "default" not in normalized:
+                                normalized["default"] = normalized.get("heat", normalized.get("cool", initial_lp))
+                            if "heat" not in normalized:
+                                normalized["heat"] = normalized["default"]
+                            if "cool" not in normalized:
+                                normalized["cool"] = normalized["default"]
+                            migrated[zone_name] = normalized
+                        else:
+                            migrated[zone_name] = {"default": initial_lp, "heat": initial_lp, "cool": initial_lp}
+
+                    old_data["learned_power"] = migrated
+                    old_data["samples"] = int(old_data.get("samples", 0) or 0)
+                    return old_data
+        except Exception:
+            # If migration fails, return old_data unchanged so HA can still load it
+            return old_data
+        return old_data
+
+    # Try to create Store with migrate_func if supported by this HA version.
+    # If not supported, fall back to creating Store without migrate_func and run explicit migration later.
     try:
-        # Some HA Store implementations may raise NotImplementedError during migration
-        # or when a migration callback is expected but not provided. Treat that as
-        # "no stored data" and continue with an empty payload.
+        store = Store(hass, STORAGE_VERSION, STORAGE_KEY, migrate_func=_migrate_func)
+    except TypeError:
+        store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
+
+    # Attempt to load; if Store.async_load raises NotImplementedError, fall back to empty store
+    try:
         stored: dict[str, Any] | None = await store.async_load()
     except NotImplementedError:
         _LOGGER.warning(
@@ -71,20 +125,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     stored = stored or {}
 
-    # -------------------------
-    # Explicit migration for legacy learned_power
-    # -------------------------
-    # If stored contains legacy numeric learned_power values (zone -> number),
-    # convert them to per-mode dicts: {"default": v, "heat": v, "cool": v}
+    # If migrate_func wasn't accepted by Store (older HA) or migrate_func didn't run,
+    # perform an explicit migration as a fallback to ensure legacy data is preserved.
     try:
         raw_lp = stored.get("learned_power")
         if isinstance(raw_lp, dict):
-            # Detect if any value is numeric (legacy format)
             has_legacy_numeric = any(isinstance(v, (int, float)) for v in raw_lp.values())
             if has_legacy_numeric:
                 _LOGGER.info("Detected legacy learned_power format; migrating to per-mode structure")
                 migrated: dict[str, dict[str, float]] = {}
-                # Determine initial fallback value from entry options/data
                 initial_lp = float(
                     entry.options.get(
                         CONF_INITIAL_LEARNED_POWER,
@@ -96,7 +145,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         v = float(val)
                         migrated[zone_name] = {"default": v, "heat": v, "cool": v}
                     elif isinstance(val, dict):
-                        # Normalize dict entries (case-insensitive keys) and ensure numeric
                         normalized: dict[str, float] = {}
                         for k, vv in val.items():
                             try:
@@ -111,11 +159,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             normalized["cool"] = normalized["default"]
                         migrated[zone_name] = normalized
                     else:
-                        # Unknown type -> fallback to initial value
                         migrated[zone_name] = {"default": initial_lp, "heat": initial_lp, "cool": initial_lp}
 
                 stored["learned_power"] = migrated
-                # Ensure samples is an int
                 stored["samples"] = int(stored.get("samples", 0) or 0)
                 try:
                     await store.async_save(stored)
