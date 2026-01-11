@@ -33,6 +33,9 @@ CONF_INITIAL_LEARNED_POWER = "initial_learned_power"
 # Enable diagnostics sensor toggle
 CONF_ENABLE_DIAGNOSTICS = "enable_diagnostics_sensor"
 
+# Default initial learned power used when no value is configured
+DEFAULT_INITIAL_LEARNED_POWER = 1200.0
+
 # Storage
 STORAGE_KEY = DOMAIN
 # Bumped storage version to support migration to per-mode learned_power structure

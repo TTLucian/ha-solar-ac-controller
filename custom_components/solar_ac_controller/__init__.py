@@ -1,364 +1,192 @@
 from __future__ import annotations
 
 import logging
-import asyncio
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.helpers.storage import Store
+from homeassistant.helpers.storage import Store, async_migrate
 from homeassistant.helpers import device_registry as dr
 from homeassistant.loader import async_get_integration
+from homeassistant.helpers.typing import ConfigType
 
-# Try to import async_migrate if available on this HA version
-try:
-    from homeassistant.helpers.storage import async_migrate as storage_async_migrate
-except Exception:
-    storage_async_migrate = None
-
+from .coordinator import SolarACCoordinator
 from .const import (
     DOMAIN,
     STORAGE_KEY,
     STORAGE_VERSION,
-    CONF_ZONES,
-    CONF_MANUAL_LOCK_SECONDS,
-    CONF_SHORT_CYCLE_ON_SECONDS,
-    CONF_SHORT_CYCLE_OFF_SECONDS,
-    CONF_PANIC_THRESHOLD,
-    CONF_PANIC_DELAY,
-    CONF_ACTION_DELAY_SECONDS,
     CONF_INITIAL_LEARNED_POWER,
-    CONF_ENABLE_DIAGNOSTICS,
+    DEFAULT_INITIAL_LEARNED_POWER,
 )
-from .coordinator import SolarACCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS = ["sensor", "binary_sensor"]
 
 
-def _short_name(entity_id: str) -> str:
-    """Return trailing segment of an entity_id."""
-    if not isinstance(entity_id, str):
-        return str(entity_id)
-    return entity_id.rsplit(".", 1)[-1]
+async def _async_migrate_data(
+    old_major: int,
+    old_minor: int,
+    old_data: dict | None,
+    initial_lp: float = DEFAULT_INITIAL_LEARNED_POWER,
+) -> dict:
+    """Standard migration callback for the HA Store helper.
+
+    Converts legacy numeric learned_power values into per-mode dicts and
+    ensures partially migrated dicts have default/heat/cool keys.
+    """
+    _LOGGER.info("Migrating storage from v%s.%s to v%s", old_major, old_minor, STORAGE_VERSION)
+
+    # 1. Handle None or non-dict root data
+    if not isinstance(old_data, dict):
+        _LOGGER.debug("Storage data is empty or not a dict; initializing fresh structure")
+        return {"learned_power": {}, "samples": 0}
+
+    # 2. Safely extract learned_power
+    learned_power = old_data.get("learned_power")
+    if learned_power is None:
+        learned_power = {}
+
+    if not isinstance(learned_power, dict):
+        _LOGGER.warning("learned_power in storage was not a dictionary; resetting it")
+        learned_power = {}
+
+    modified = False
+
+    # 3. Iterate with safe type checks
+    for zone, val in list(learned_power.items()):
+        if val is None:
+            # Clean up corrupted entries
+            learned_power[zone] = {"default": initial_lp, "heat": initial_lp, "cool": initial_lp}
+            modified = True
+        elif isinstance(val, (int, float)):
+            # Convert legacy flat values to mode-based dicts
+            learned_power[zone] = {"default": float(val), "heat": float(val), "cool": float(val)}
+            modified = True
+        elif isinstance(val, dict):
+            # Ensure all required keys exist in nested dictionaries
+            zone_modified = False
+            for mode in ("default", "heat", "cool"):
+                if val.get(mode) is None:
+                    # Prefer 'default' value if available, otherwise fallback to initial_lp
+                    val[mode] = val.get("default") if val.get("default") is not None else initial_lp
+                    zone_modified = True
+
+            if zone_modified:
+                learned_power[zone] = val
+                modified = True
+
+    # 4. Final payload reconstruction
+    if modified:
+        old_data["learned_power"] = learned_power
+        # Ensure samples is a valid integer, defaulting to 0
+        try:
+            old_data["samples"] = int(old_data.get("samples", 0) or 0)
+        except (TypeError, ValueError):
+            old_data["samples"] = 0
+
+    return old_data
 
 
-async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Register storage migration early so HA can call it during its migration step."""
-    # Migration function must not depend on ConfigEntry because HA may call it
-    # before entries are loaded. Use a safe default initial learned power (1200).
-    async def _early_migrate(old_version: int, old_minor_version: int, old_data: dict | None) -> dict | None:
-        if not old_data:
-            return old_data
-        try:
-            raw_lp = old_data.get("learned_power")
-            if isinstance(raw_lp, dict):
-                if any(isinstance(v, (int, float)) for v in raw_lp.values()):
-                    _LOGGER.info("early_migrate: detected legacy learned_power format; migrating")
-                    migrated: dict[str, dict[str, float]] = {}
-                    initial_lp = float(old_data.get("initial_learned_power", 1200))
-                    for zone_name, val in raw_lp.items():
-                        if isinstance(val, (int, float)):
-                            v = float(val)
-                            migrated[zone_name] = {"default": v, "heat": v, "cool": v}
-                        elif isinstance(val, dict):
-                            normalized: dict[str, float] = {}
-                            for k, vv in val.items():
-                                try:
-                                    normalized[k.lower()] = float(vv)
-                                except Exception:
-                                    continue
-                            if "default" not in normalized:
-                                normalized["default"] = normalized.get("heat", normalized.get("cool", initial_lp))
-                            if "heat" not in normalized:
-                                normalized["heat"] = normalized["default"]
-                            if "cool" not in normalized:
-                                normalized["cool"] = normalized["default"]
-                            migrated[zone_name] = normalized
-                        else:
-                            migrated[zone_name] = {"default": initial_lp, "heat": initial_lp, "cool": initial_lp}
-                    old_data["learned_power"] = migrated
-                    old_data["samples"] = int(old_data.get("samples", 0) or 0)
-                    _LOGGER.info("early_migrate: migration complete")
-                    return old_data
-        except Exception:
-            _LOGGER.exception("early_migrate: unexpected error during migration; returning original data")
-            return old_data
-        return old_data
+    async def migrate_wrapper(old_major: int, old_minor: int, data: dict | None) -> dict:
+        # data could be None if the file doesn't exist yet
+        data_payload = data if data is not None else {}
+        initial_lp = float(data_payload.get("initial_learned_power", DEFAULT_INITIAL_LEARNED_POWER))
+        return await _async_migrate_data(old_major, old_minor, data_payload, initial_lp)
 
-    if storage_async_migrate:
-        try:
-            # Register migration for this storage key so HA will call it during its migration step.
-            # We register from minor version 1 to the current STORAGE_VERSION (minor).
-            await storage_async_migrate(hass, STORAGE_KEY, 1, STORAGE_VERSION, _early_migrate)
-            _LOGGER.debug("Registered early storage migration for %s via async_migrate", STORAGE_KEY)
-        except Exception:
-            _LOGGER.exception("Failed to register early storage migration; explicit migration will run later")
+    try:
+        await async_migrate(hass, STORAGE_KEY, 1, STORAGE_VERSION, migrate_wrapper)
+        _LOGGER.debug("Registered async_migrate for %s", STORAGE_KEY)
+    except NotImplementedError:
+        _LOGGER.warning("Host storage does not support async_migrate; using fallback in setup_entry")
+    except Exception:
+        _LOGGER.exception("Failed to register async_migrate")
 
     return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up the integration and coordinator, preserving original behavior plus migration."""
+    """Set up Solar AC Controller from a config entry."""
     hass.data.setdefault(DOMAIN, {})
 
-    # Load integration version from manifest
     integration = await async_get_integration(hass, DOMAIN)
     version = integration.version
-    hass.data[DOMAIN]["version"] = version
+    initial_lp = float(entry.options.get(CONF_INITIAL_LEARNED_POWER, DEFAULT_INITIAL_LEARNED_POWER))
 
-    # -------------------------
-    # Storage and migration (explicit fallback)
-    # -------------------------
-    # Create Store (do not pass migrate_func to constructor for compatibility)
     store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
 
-    # Attempt to load; if Store.async_load raises NotImplementedError, fall back to empty store
     try:
-        stored: dict[str, Any] | None = await store.async_load()
-    except NotImplementedError:
-        _LOGGER.warning(
-            "Storage migration function not implemented for %s; starting with empty store",
-            STORAGE_KEY,
-        )
-        stored = {}
-    except Exception as exc:
-        _LOGGER.exception("Failed to load storage for %s: %s; starting with empty store", DOMAIN, exc)
-        stored = {}
-
-    stored = stored or {}
-
-    # Explicit migration fallback (if early registration didn't run or HA didn't call it)
-    try:
-        raw_lp = stored.get("learned_power")
-        if isinstance(raw_lp, dict):
-            has_legacy_numeric = any(isinstance(v, (int, float)) for v in raw_lp.values())
-            if has_legacy_numeric:
-                _LOGGER.info("Explicit migration: detected legacy learned_power format; migrating to per-mode structure")
-                migrated: dict[str, dict[str, float]] = {}
-                initial_lp = float(
-                    entry.options.get(
-                        CONF_INITIAL_LEARNED_POWER,
-                        entry.data.get(CONF_INITIAL_LEARNED_POWER, 1200),
-                    )
-                )
-                for zone_name, val in raw_lp.items():
-                    if isinstance(val, (int, float)):
-                        v = float(val)
-                        migrated[zone_name] = {"default": v, "heat": v, "cool": v}
-                    elif isinstance(val, dict):
-                        normalized: dict[str, float] = {}
-                        for k, vv in val.items():
-                            try:
-                                normalized[k.lower()] = float(vv)
-                            except Exception:
-                                continue
-                        if "default" not in normalized:
-                            normalized["default"] = normalized.get("heat", normalized.get("cool", initial_lp))
-                        if "heat" not in normalized:
-                            normalized["heat"] = normalized["default"]
-                        if "cool" not in normalized:
-                            normalized["cool"] = normalized["default"]
-                        migrated[zone_name] = normalized
-                    else:
-                        migrated[zone_name] = {"default": initial_lp, "heat": initial_lp, "cool": initial_lp}
-
-                stored["learned_power"] = migrated
-                stored["samples"] = int(stored.get("samples", 0) or 0)
-                try:
-                    await store.async_save(stored)
-                    _LOGGER.info("Explicit migration: migrated learned_power and saved storage")
-                except Exception:
-                    _LOGGER.exception("Explicit migration: failed to persist migrated learned_power to storage")
+        stored_data = await store.async_load()
     except Exception:
-        _LOGGER.exception("Unexpected error while attempting explicit storage migration; continuing with loaded store")
+        _LOGGER.exception("Critical error loading integration storage")
+        stored_data = None
 
-    # Create coordinator (it will perform migration if needed)
+    # Explicit fallback migration
+    try:
+        # _async_migrate_data now handles None internally
+        migrated = await _async_migrate_data(0, 0, stored_data, initial_lp)
+
+        if migrated != stored_data:
+            _LOGGER.debug("Data migration changed payload; saving to storage")
+            await store.async_save(migrated)
+            stored_data = migrated
+            _LOGGER.info("Storage migrated and saved for %s", STORAGE_KEY)
+    except Exception:
+        _LOGGER.exception("Error while attempting explicit migration fallback")
+        if stored_data is None:
+            stored_data = {"learned_power": {}, "samples": 0}
+
     coordinator = SolarACCoordinator(
         hass,
         entry,
         store,
-        stored,
+        stored_data,
         version=version,
     )
 
-    # First refresh to populate state
     await coordinator.async_config_entry_first_refresh()
 
     hass.data[DOMAIN][entry.entry_id] = {
         "coordinator": coordinator,
-        "store": store,
     }
 
-    # ---------------------------------------------------------------------
-    # OPTIONS UPDATE LISTENER (preserve original behavior)
-    # ---------------------------------------------------------------------
-    async def _async_options_updated(hass: HomeAssistant, updated_entry: ConfigEntry):
-        data = hass.data.get(DOMAIN, {}).get(updated_entry.entry_id)
-        if not data:
-            return
-
-        coordinator: SolarACCoordinator = data["coordinator"]
-
-        old = bool(coordinator.config.get(CONF_ENABLE_DIAGNOSTICS, False))
-        merged = {**updated_entry.data, **updated_entry.options}
-        new = bool(merged.get(CONF_ENABLE_DIAGNOSTICS, False))
-
-        # Diagnostics toggle changed → reload integration
-        if old != new:
-            await hass.config_entries.async_reload(updated_entry.entry_id)
-            return
-
-        # Apply merged config
-        coordinator.config = merged
-
-        coordinator.manual_lock_seconds = merged.get(
-            CONF_MANUAL_LOCK_SECONDS, coordinator.manual_lock_seconds
-        )
-        coordinator.short_cycle_on_seconds = merged.get(
-            CONF_SHORT_CYCLE_ON_SECONDS, coordinator.short_cycle_on_seconds
-        )
-        coordinator.short_cycle_off_seconds = merged.get(
-            CONF_SHORT_CYCLE_OFF_SECONDS, coordinator.short_cycle_off_seconds
-        )
-        coordinator.action_delay_seconds = merged.get(
-            CONF_ACTION_DELAY_SECONDS, coordinator.action_delay_seconds
-        )
-        coordinator.panic_threshold = merged.get(
-            CONF_PANIC_THRESHOLD, coordinator.panic_threshold
-        )
-        coordinator.panic_delay = merged.get(
-            CONF_PANIC_DELAY, coordinator.panic_delay
-        )
-        coordinator.initial_learned_power = merged.get(
-            CONF_INITIAL_LEARNED_POWER, coordinator.initial_learned_power
-        )
-
-        _LOGGER.info("Solar AC options updated; refreshing coordinator")
-
-        try:
-            await coordinator.async_refresh()
-        except Exception:
-            _LOGGER.exception("Coordinator refresh failed after options update")
-
-    entry.add_update_listener(_async_options_updated)
-
-    # ---------------------------------------------------------------------
-    # DEVICE REGISTRY
-    # ---------------------------------------------------------------------
-    registry = dr.async_get(hass)
-    registry.async_get_or_create(
+    device_registry = dr.async_get(hass)
+    device_registry.async_get_or_create(
         config_entry_id=entry.entry_id,
         identifiers={(DOMAIN, "solar_ac_controller")},
         name="Solar AC Controller",
         manufacturer="TTLucian",
         model="Solar AC Smart Controller",
         sw_version=version,
-        configuration_url="https://github.com/TTLucian/ha-solar-ac-controller",
-    )
-
-    # ---------------------------------------------------------------------
-    # PLATFORM SETUP (preload to avoid blocking warnings)
-    # ---------------------------------------------------------------------
-    await asyncio.gather(
-        *(hass.async_add_executor_job(integration.get_platform, p) for p in PLATFORMS)
     )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    entry.add_update_listener(async_reload_entry)
 
-    # ---------------------------------------------------------------------
-    # SERVICES (reset_learning, force_relearn) - preserve original semantics
-    # ---------------------------------------------------------------------
     async def handle_reset_learning(call: ServiceCall):
-        try:
-            # Controller should be present; guard just in case
-            if getattr(coordinator, "controller", None):
-                await coordinator.controller.reset_learning()
-            else:
-                _LOGGER.warning("reset_learning called but controller is not initialized")
-        except Exception as exc:
-            _LOGGER.exception("reset_learning service failed: %s", exc)
-            try:
-                await coordinator._log(f"[SERVICE_ERROR] reset_learning {exc}")
-            except Exception:
-                _LOGGER.exception("Failed to write service error to logbook")
+        if hasattr(coordinator, "controller"):
+            await coordinator.controller.reset_learning()
 
     hass.services.async_register(DOMAIN, "reset_learning", handle_reset_learning)
 
-    async def handle_force_relearn(call: ServiceCall):
-        zone = call.data.get("zone")
-
-        # Validate zone if provided
-        if zone and zone not in coordinator.config.get(CONF_ZONES, []):
-            await coordinator._log(f"[FORCE_RELEARN_INVALID_ZONE] {zone}")
-            return
-
-        # Reset one or all zones
-        if zone:
-            zn = _short_name(zone)
-            coordinator.set_learned_power(zn, float(coordinator.initial_learned_power), mode=None)
-            target = zn
-        else:
-            for z in coordinator.config.get(CONF_ZONES, []):
-                zn = _short_name(z)
-                coordinator.set_learned_power(zn, float(coordinator.initial_learned_power), mode=None)
-            target = "all"
-
-        # Reset learning state
-        coordinator.samples = 0
-        coordinator.learning_active = False
-        coordinator.learning_zone = None
-        coordinator.learning_start_time = None
-        coordinator.ac_power_before = None
-
-        await coordinator._log(f"[FORCE_RELEARN] target={target}")
-
-        try:
-            await coordinator._persist_learned_values()
-        except Exception as exc:
-            _LOGGER.exception("force_relearn save failed: %s", exc)
-            try:
-                await coordinator._log(f"[SERVICE_ERROR] force_relearn save {exc}")
-            except Exception:
-                _LOGGER.exception("Failed to write service error to logbook")
-
-    hass.services.async_register(DOMAIN, "force_relearn", handle_force_relearn)
-
     return True
 
 
-async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Migrate old config entries to the new format."""
-    data = dict(entry.data)
-
-    zones = data.get(CONF_ZONES)
-    if isinstance(zones, str):
-        data[CONF_ZONES] = [z.strip() for z in zones.split(",") if z.strip()]
-
-    hass.config_entries.async_update_entry(entry, data=data)
-    return True
+async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Reload config entry when options are updated."""
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload the integration and clean up resources."""
-    ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-    data = hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
-    if data:
-        coordinator: SolarACCoordinator | None = data.get("coordinator")
-        if coordinator:
-            # Cancel background tasks if running
-            if getattr(coordinator, "_panic_task", None) and not coordinator._panic_task.done():
-                coordinator._panic_task.cancel()
-            if getattr(coordinator, "_master_shutdown_task", None) and not coordinator._master_shutdown_task.done():
-                coordinator._master_shutdown_task.cancel()
+    """Unload a config entry."""
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if unload_ok:
+        hass.data[DOMAIN].pop(entry.entry_id, None)
 
-    # Unregister services if no entries remain
     if not hass.data.get(DOMAIN):
-        try:
+        if hass.services.has_service(DOMAIN, "reset_learning"):
             hass.services.async_remove(DOMAIN, "reset_learning")
-            hass.services.async_remove(DOMAIN, "force_relearn")
-        except Exception:
-            _LOGGER.debug("Failed to remove services for %s", DOMAIN)
 
-    return ok
+    return unload_ok
