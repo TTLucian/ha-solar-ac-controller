@@ -1,225 +1,397 @@
 from __future__ import annotations
 
-import logging
-from homeassistant.util import dt as dt_util
+from homeassistant.components.sensor import (
+    SensorEntity,
+    SensorDeviceClass,
+    SensorStateClass,
+)
 from homeassistant.core import HomeAssistant
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.util import dt as dt_util
 
-from .const import CONF_AC_POWER_SENSOR
+from .const import DOMAIN, CONF_ENABLE_DIAGNOSTICS, CONF_ZONES
+from .helpers import build_diagnostics
 
-_LOGGER = logging.getLogger(__name__)
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+):
+    data = hass.data[DOMAIN][entry.entry_id]
+    coordinator = data["coordinator"]
+
+    entities: list[SensorEntity] = [
+        SolarACActiveZonesSensor(coordinator),
+        SolarACNextZoneSensor(coordinator),
+        SolarACLastZoneSensor(coordinator),
+        SolarACLastActionSensor(coordinator),
+        SolarACEma30Sensor(coordinator),
+        SolarACEma5Sensor(coordinator),
+        SolarACConfidenceSensor(coordinator),
+        SolarACConfidenceThresholdSensor(coordinator),
+        SolarACRequiredExportSensor(coordinator),
+        SolarACExportMarginSensor(coordinator),
+        SolarACImportPowerSensor(coordinator),
+        SolarACMasterOffSinceSensor(coordinator),
+        SolarACLastPanicSensor(coordinator),
+        SolarACPanicCooldownSensor(coordinator),
+    ]
+
+    # Learned power sensors (one per zone)
+    for zone in coordinator.config.get(CONF_ZONES, []):
+        zone_name = zone.split(".")[-1]
+        entities.append(SolarACLearnedPowerSensor(coordinator, zone_name))
+
+    # Diagnostics sensor (optional, behind toggle)
+    effective = {**entry.data, **entry.options}
+    if effective.get(CONF_ENABLE_DIAGNOSTICS, False):
+        entities.append(SolarACDiagnosticEntity(coordinator))
+
+    async_add_entities(entities)
 
 
-class SolarACController:
-    """Learning engine + state transitions for Solar AC."""
+# ---------------------------------------------------------------------------
+# BASE CLASS
+# ---------------------------------------------------------------------------
 
-    def __init__(self, hass: HomeAssistant, coordinator, store):
-        self.hass = hass
+class _BaseSolarACSensor(SensorEntity):
+    """Base class for all Solar AC sensors."""
+
+    _attr_should_poll = False
+
+    def __init__(self, coordinator):
         self.coordinator = coordinator
-        self.store = store
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, "solar_ac_controller")},
+            "name": "Solar AC Controller",
+            "configuration_url": "https://github.com/TTLucian/ha-solar-ac-controller",
+        }
 
-    # -------------------------------------------------------------------------
-    # LEARNING START
-    # -------------------------------------------------------------------------
-    async def start_learning(self, zone: str, ac_power_before: float):
-        """Mark learning as active and store initial state."""
-        c = self.coordinator
+    @property
+    def available(self):
+        return True
 
-        c.learning_active = True
-        c.learning_start_time = dt_util.utcnow().timestamp()
-        c.ac_power_before = ac_power_before
-        c.learning_zone = zone
+    async def async_added_to_hass(self):
+        self.coordinator.async_add_listener(self.async_write_ha_state)
 
-    # -------------------------------------------------------------------------
-    # LEARNING FINISH
-    # -------------------------------------------------------------------------
-    async def finish_learning(self):
-        """Finish learning after stabilization delay."""
-        c = self.coordinator
 
-        # Guards
-        if not c.learning_active:
-            return
-        if not c.learning_zone:
-            return
+# ---------------------------------------------------------------------------
+# NON-NUMERIC SENSORS
+# ---------------------------------------------------------------------------
 
-        zone_entity = c.learning_zone
-        zone_state = self.hass.states.get(zone_entity)
+class SolarACActiveZonesSensor(_BaseSolarACSensor):
+    @property
+    def name(self):
+        return "Solar AC Active Zones"
 
-        # Determine mode: prefer explicit heat/cool, otherwise use default
-        mode = None
-        if zone_state and zone_state.state == "heat":
-            mode = "heat"
-        elif zone_state and zone_state.state == "cool":
-            mode = "cool"
-        else:
-            mode = "default"
+    @property
+    def unique_id(self):
+        return "solar_ac_active_zones"
 
-        # Abort if zone was manually turned off or changed mode to something unexpected
-        if not zone_state or zone_state.state not in ("heat", "cool", "on"):
-            await c._log(
-                f"[LEARNING_ABORT_MANUAL_INTERVENTION] zone={zone_entity} "
-                f"state={zone_state.state if zone_state else 'unknown'}"
-            )
-            self._reset_learning_state()
-            return
+    @property
+    def state(self):
+        zones = []
+        for z in self.coordinator.config.get(CONF_ZONES, []):
+            st = self.coordinator.hass.states.get(z)
+            # Treat heating, cooling and generic "on" as active
+            if st and st.state in ("heat", "cool", "on"):
+                zones.append(z)
+        return ", ".join(zones) if zones else "none"
 
-        # Abort if zone is locked due to manual override
-        lock_until = c.zone_manual_lock_until.get(zone_entity)
-        if lock_until and dt_util.utcnow().timestamp() < lock_until:
-            await c._log(
-                f"[LEARNING_ABORT_MANUAL_LOCK] zone={zone_entity} "
-                f"lock_until={int(lock_until)}"
-            )
-            self._reset_learning_state()
-            return
 
-        # Read AC power
-        ac_state = self.hass.states.get(c.config.get(CONF_AC_POWER_SENSOR))
-        if not ac_state:
-            await c._log("[LEARNING_ABORT] ac_power_sensor state missing")
-            self._reset_learning_state()
-            return
+class SolarACNextZoneSensor(_BaseSolarACSensor):
+    @property
+    def name(self):
+        return "Solar AC Next Zone"
 
-        if ac_state.state in ("unknown", "unavailable"):
-            await c._log("[LEARNING_ABORT] ac_power_sensor unavailable")
-            self._reset_learning_state()
-            return
+    @property
+    def unique_id(self):
+        return "solar_ac_next_zone"
 
-        try:
-            ac_power_now = float(ac_state.state)
-        except (ValueError, TypeError):
-            await c._log("[LEARNING_ABORT] ac_power_sensor non-numeric")
-            self._reset_learning_state()
-            return
+    @property
+    def state(self):
+        return self.coordinator.next_zone or "none"
 
-        delta = ac_power_now - (c.ac_power_before or 0.0)
-        zone_name = c.learning_zone.split(".")[-1]
 
-        # ---------------------------------------------------------------------
-        # BOOTSTRAP LEARNING (samples == 0)
-        # ---------------------------------------------------------------------
-        if c.samples == 0:
-            min_d = 80
-            max_d = 2500
+class SolarACLastZoneSensor(_BaseSolarACSensor):
+    @property
+    def name(self):
+        return "Solar AC Last Zone"
 
-            if min_d < delta < max_d:
-                prev = c.get_learned_power(zone_name, mode=mode)
-                new_value = round(delta)
+    @property
+    def unique_id(self):
+        return "solar_ac_last_zone"
 
-                # Store per-mode via coordinator helper
-                c.set_learned_power(zone_name, new_value, mode=mode)
-                c.samples = 1
+    @property
+    def state(self):
+        return self.coordinator.last_zone or "none"
 
-                await c._log(
-                    f"[LEARNING_BOOTSTRAP] zone={zone_name} mode={mode} delta={round(delta)} "
-                    f"prev={prev} new={new_value} samples={c.samples}"
-                )
 
-                # Persist via coordinator
-                try:
-                    await c._persist_learned_values()
-                except Exception as exc:
-                    _LOGGER.exception("Error saving learned values after bootstrap: %s", exc)
-                    try:
-                        await c._log(f"[STORAGE_ERROR] {exc}")
-                    except Exception:
-                        _LOGGER.exception("Failed to write storage error to coordinator log")
+class SolarACLastActionSensor(_BaseSolarACSensor):
+    @property
+    def name(self):
+        return "Solar AC Last Action"
 
-                self._reset_learning_state()
-                return
+    @property
+    def unique_id(self):
+        return "solar_ac_last_action"
 
-            else:
-                await c._log(
-                    f"[LEARNING_SKIP_BOOTSTRAP] zone={zone_name} mode={mode} delta={round(delta)} "
-                    f"expected_range=[{min_d},{max_d}]"
-                )
-                self._reset_learning_state()
-                return
+    @property
+    def state(self):
+        return self.coordinator.last_action or "none"
 
-        # ---------------------------------------------------------------------
-        # NORMAL LEARNING (samples >= 1)
-        # ---------------------------------------------------------------------
-        min_d = 250
-        max_d = 2500
 
-        if min_d < delta < max_d:
-            prev = c.get_learned_power(zone_name, mode=mode)
+# ---------------------------------------------------------------------------
+# NUMERIC SENSOR BASE CLASS
+# ---------------------------------------------------------------------------
 
-            # EMA-style update
-            alpha = 0.3 if c.samples < 10 else 0.2
-            new_value = round(prev * (1 - alpha) + delta * alpha)
+class _NumericSolarACSensor(_BaseSolarACSensor):
+    """Base class for numeric sensors with proper metadata."""
 
-            # Store per-mode via coordinator helper
-            c.set_learned_power(zone_name, new_value, mode=mode)
-            c.samples += 1
+    _attr_device_class = SensorDeviceClass.POWER
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "W"
 
-            await c._log(
-                f"[LEARNING_FINISHED] zone={zone_name} mode={mode} delta={round(delta)} "
-                f"prev={prev} new={new_value} samples={c.samples}"
-            )
 
-            # Persist via coordinator
-            try:
-                await c._persist_learned_values()
-            except Exception as exc:
-                _LOGGER.exception("Error saving learned values after finish: %s", exc)
-                try:
-                    await c._log(f"[STORAGE_ERROR] {exc}")
-                except Exception:
-                    _LOGGER.exception("Failed to write storage error to coordinator log")
+# ---------------------------------------------------------------------------
+# NUMERIC SENSORS
+# ---------------------------------------------------------------------------
 
-        else:
-            await c._log(
-                f"[LEARNING_SKIP] zone={zone_name} mode={mode} delta={round(delta)} "
-                f"expected_range=[{min_d},{max_d}]"
-            )
+class SolarACEma30Sensor(_NumericSolarACSensor):
+    @property
+    def name(self):
+        return "Solar AC EMA 30s"
 
-        self._reset_learning_state()
+    @property
+    def unique_id(self):
+        return "solar_ac_ema_30s"
 
-    # -------------------------------------------------------------------------
-    # RESET LEARNING STATE
-    # -------------------------------------------------------------------------
-    def _reset_learning_state(self):
-        c = self.coordinator
-        c.learning_active = False
-        c.learning_zone = None
-        c.learning_start_time = None
-        c.ac_power_before = None
+    @property
+    def state(self):
+        return round(self.coordinator.ema_30s, 2)
 
-    # -------------------------------------------------------------------------
-    # SAVE LEARNED VALUES (deprecated here; coordinator persists)
-    # -------------------------------------------------------------------------
-    async def _save(self):
-        """Backward-compatible save wrapper that delegates to coordinator persistence."""
-        try:
-            await self.coordinator._persist_learned_values()
-        except Exception as e:
-            _LOGGER.exception("Error delegating save to coordinator: %s", e)
-            try:
-                await self.coordinator._log(f"[STORAGE_ERROR] {e}")
-            except Exception:
-                _LOGGER.exception("Failed to write storage error to coordinator log")
 
-    # -------------------------------------------------------------------------
-    # RESET ALL LEARNING
-    # -------------------------------------------------------------------------
-    async def reset_learning(self):
-        """Reset all learned values."""
-        c = self.coordinator
+class SolarACEma5Sensor(_NumericSolarACSensor):
+    @property
+    def name(self):
+        return "Solar AC EMA 5m"
 
-        for zone in c.config.get("zones", []):
-            zone_name = zone.split(".")[-1]
-            # Use coordinator helper to set per-mode defaults
-            c.set_learned_power(zone_name, float(c.initial_learned_power), mode=None)
+    @property
+    def unique_id(self):
+        return "solar_ac_ema_5m"
 
-        c.samples = 0
+    @property
+    def state(self):
+        return round(self.coordinator.ema_5m, 2)
 
-        await c._log("[LEARNING_RESET] all_zones")
-        try:
-            await c._persist_learned_values()
-        except Exception as exc:
-            _LOGGER.exception("Error saving learned values after reset: %s", exc)
-            try:
-                await c._log(f"[STORAGE_ERROR] {exc}")
-            except Exception:
-                _LOGGER.exception("Failed to write storage error to coordinator log")
+
+class SolarACConfidenceSensor(_BaseSolarACSensor):
+    """Dimensionless numeric confidence value."""
+
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "pts"
+    _attr_device_class = None
+
+    @property
+    def name(self):
+        return "Solar AC Confidence"
+
+    @property
+    def unique_id(self):
+        return "solar_ac_confidence"
+
+    @property
+    def state(self):
+        return round(self.coordinator.confidence, 2)
+
+
+class SolarACConfidenceThresholdSensor(_BaseSolarACSensor):
+    @property
+    def name(self):
+        return "Solar AC Confidence Thresholds"
+
+    @property
+    def unique_id(self):
+        return "solar_ac_conf_thresholds"
+
+    @property
+    def state(self):
+        return "ok"
+
+    @property
+    def extra_state_attributes(self):
+        return {
+            "add_threshold": self.coordinator.add_confidence_threshold,
+            "remove_threshold": self.coordinator.remove_confidence_threshold,
+        }
+
+
+class SolarACRequiredExportSensor(_NumericSolarACSensor):
+    @property
+    def name(self):
+        return "Solar AC Required Export"
+
+    @property
+    def unique_id(self):
+        return "solar_ac_required_export"
+
+    @property
+    def state(self):
+        val = self.coordinator.required_export
+        return None if val is None else round(val, 2)
+
+
+class SolarACExportMarginSensor(_NumericSolarACSensor):
+    @property
+    def name(self):
+        return "Solar AC Export Margin"
+
+    @property
+    def unique_id(self):
+        return "solar_ac_export_margin"
+
+    @property
+    def state(self):
+        val = self.coordinator.export_margin
+        return None if val is None else round(val, 2)
+
+
+class SolarACImportPowerSensor(_NumericSolarACSensor):
+    @property
+    def name(self):
+        return "Solar AC Import Power"
+
+    @property
+    def unique_id(self):
+        return "solar_ac_import_power"
+
+    @property
+    def state(self):
+        return round(self.coordinator.ema_5m, 2)
+
+
+# ---------------------------------------------------------------------------
+# FIXED: MASTER OFF SINCE (seconds, not watts)
+# ---------------------------------------------------------------------------
+
+class SolarACMasterOffSinceSensor(_BaseSolarACSensor):
+    _attr_device_class = None
+    _attr_native_unit_of_measurement = "s"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    @property
+    def name(self):
+        return "Solar AC Master Off Since"
+
+    @property
+    def unique_id(self):
+        return "solar_ac_master_off_since"
+
+    @property
+    def state(self):
+        ts = self.coordinator.master_off_since
+        return int(ts or 0)
+
+    @property
+    def extra_state_attributes(self):
+        ts = self.coordinator.master_off_since
+        return {"utc_iso": dt_util.utc_from_timestamp(ts).isoformat() if ts else None}
+
+
+# ---------------------------------------------------------------------------
+# FIXED: LAST PANIC (seconds, not watts)
+# ---------------------------------------------------------------------------
+
+class SolarACLastPanicSensor(_BaseSolarACSensor):
+    _attr_device_class = None
+    _attr_native_unit_of_measurement = "s"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    @property
+    def name(self):
+        return "Solar AC Last Panic"
+
+    @property
+    def unique_id(self):
+        return "solar_ac_last_panic"
+
+    @property
+    def state(self):
+        ts = self.coordinator.last_panic_ts
+        return int(ts or 0)
+
+    @property
+    def extra_state_attributes(self):
+        ts = self.coordinator.last_panic_ts
+        return {"utc_iso": dt_util.utc_from_timestamp(ts).isoformat() if ts else None}
+
+
+class SolarACPanicCooldownSensor(_BaseSolarACSensor):
+    @property
+    def name(self):
+        return "Solar AC Panic Cooldown Active"
+
+    @property
+    def unique_id(self):
+        return "solar_ac_panic_cooldown"
+
+    @property
+    def state(self):
+        now = dt_util.utcnow().timestamp()
+        ts = self.coordinator.last_panic_ts
+        if not ts:
+            return "no"
+        return "yes" if (now - ts) < 120 else "no"
+
+
+# ---------------------------------------------------------------------------
+# LEARNED POWER SENSOR
+# ---------------------------------------------------------------------------
+
+class SolarACLearnedPowerSensor(_NumericSolarACSensor):
+    def __init__(self, coordinator, zone_name):
+        super().__init__(coordinator)
+        self.zone_name = zone_name
+
+    @property
+    def name(self):
+        return f"Solar AC Learned Power {self.zone_name}"
+
+    @property
+    def unique_id(self):
+        return f"solar_ac_learned_power_{self.zone_name}"
+
+    @property
+    def state(self):
+        # Use coordinator accessor to remain compatible with legacy and per-mode storage.
+        return self.coordinator.get_learned_power(
+            self.zone_name,
+            mode="default",
+        )
+
+
+# ---------------------------------------------------------------------------
+# DIAGNOSTICS SENSOR
+# ---------------------------------------------------------------------------
+
+class SolarACDiagnosticEntity(_BaseSolarACSensor):
+    """A single sensor exposing the entire controller state as JSON attributes."""
+
+    _attr_should_poll = False
+    _attr_name = "Solar AC Diagnostics"
+    _attr_icon = "mdi:brain"
+    _attr_device_class = "diagnostic"
+
+    def __init__(self, coordinator):
+        super().__init__(coordinator)
+        self._attr_unique_id = "solar_ac_diagnostics"
+
+    @property
+    def native_value(self):
+        return self.coordinator.last_action or "idle"
+
+    @property
+    def extra_state_attributes(self):
+        return build_diagnostics(self.coordinator)
