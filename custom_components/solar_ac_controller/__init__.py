@@ -42,10 +42,9 @@ async def async_setup(hass: HomeAssistant, config: dict):
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
-    """Initialize the integration from a config entry."""
     hass.data.setdefault(DOMAIN, {})
 
-    # Load integration version from manifest
+    # Load integration version
     integration = await async_get_integration(hass, DOMAIN)
     hass.data[DOMAIN]["version"] = integration.version
 
@@ -53,14 +52,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
     stored = await store.async_load() or {}
 
-    # Coordinator handles all runtime logic
+    # Create coordinator ONCE
     coordinator = SolarACCoordinator(hass, entry, store, stored)
+    coordinator.version = integration.version
+
     await coordinator.async_config_entry_first_refresh()
 
     hass.data[DOMAIN][entry.entry_id] = {
         "coordinator": coordinator,
         "store": store,
     }
+
 
     # ---------------------------------------------------------------------
     # OPTIONS UPDATE LISTENER
@@ -131,7 +133,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         name="Solar AC Controller",
         manufacturer="TTLucian",
         model="Solar AC Smart Controller",
-        sw_version=entry.data.get("version", "0.1.3"),
+        sw_version=hass.data[DOMAIN]["version"],
         hw_version="virtual",
         configuration_url="https://github.com/TTLucian/ha-solar-ac-controller",
     )
