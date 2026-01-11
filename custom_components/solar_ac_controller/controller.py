@@ -1,397 +1,178 @@
 from __future__ import annotations
 
-from homeassistant.components.sensor import (
-    SensorEntity,
-    SensorDeviceClass,
-    SensorStateClass,
-)
-from homeassistant.core import HomeAssistant
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+import logging
+from typing import Any
+
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, CONF_ENABLE_DIAGNOSTICS, CONF_ZONES
-from .helpers import build_diagnostics
+_LOGGER = logging.getLogger(__name__)
 
 
-async def async_setup_entry(
-    hass: HomeAssistant,
-    entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
-):
-    data = hass.data[DOMAIN][entry.entry_id]
-    coordinator = data["coordinator"]
+class SolarACController:
+    """Controller helper that encapsulates learning operations.
 
-    entities: list[SensorEntity] = [
-        SolarACActiveZonesSensor(coordinator),
-        SolarACNextZoneSensor(coordinator),
-        SolarACLastZoneSensor(coordinator),
-        SolarACLastActionSensor(coordinator),
-        SolarACEma30Sensor(coordinator),
-        SolarACEma5Sensor(coordinator),
-        SolarACConfidenceSensor(coordinator),
-        SolarACConfidenceThresholdSensor(coordinator),
-        SolarACRequiredExportSensor(coordinator),
-        SolarACExportMarginSensor(coordinator),
-        SolarACImportPowerSensor(coordinator),
-        SolarACMasterOffSinceSensor(coordinator),
-        SolarACLastPanicSensor(coordinator),
-        SolarACPanicCooldownSensor(coordinator),
-    ]
+    This class is intentionally lightweight: it manipulates the coordinator's
+    learning-related fields and persists learned values via the coordinator's
+    persistence helper. Keeping the controller separate avoids putting all
+    learning logic directly in the coordinator and also breaks circular
+    import issues when the coordinator is imported during integration setup.
+    """
 
-    # Learned power sensors (one per zone)
-    for zone in coordinator.config.get(CONF_ZONES, []):
-        zone_name = zone.split(".")[-1]
-        entities.append(SolarACLearnedPowerSensor(coordinator, zone_name))
-
-    # Diagnostics sensor (optional, behind toggle)
-    effective = {**entry.data, **entry.options}
-    if effective.get(CONF_ENABLE_DIAGNOSTICS, False):
-        entities.append(SolarACDiagnosticEntity(coordinator))
-
-    async_add_entities(entities)
-
-
-# ---------------------------------------------------------------------------
-# BASE CLASS
-# ---------------------------------------------------------------------------
-
-class _BaseSolarACSensor(SensorEntity):
-    """Base class for all Solar AC sensors."""
-
-    _attr_should_poll = False
-
-    def __init__(self, coordinator):
+    def __init__(self, hass, coordinator, store: Any | None = None) -> None:
+        self.hass = hass
         self.coordinator = coordinator
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, "solar_ac_controller")},
-            "name": "Solar AC Controller",
-            "configuration_url": "https://github.com/TTLucian/ha-solar-ac-controller",
-        }
-
-    @property
-    def available(self):
-        return True
-
-    async def async_added_to_hass(self):
-        self.coordinator.async_add_listener(self.async_write_ha_state)
-
-
-# ---------------------------------------------------------------------------
-# NON-NUMERIC SENSORS
-# ---------------------------------------------------------------------------
-
-class SolarACActiveZonesSensor(_BaseSolarACSensor):
-    @property
-    def name(self):
-        return "Solar AC Active Zones"
-
-    @property
-    def unique_id(self):
-        return "solar_ac_active_zones"
-
-    @property
-    def state(self):
-        zones = []
-        for z in self.coordinator.config.get(CONF_ZONES, []):
-            st = self.coordinator.hass.states.get(z)
-            # Treat heating, cooling and generic "on" as active
-            if st and st.state in ("heat", "cool", "on"):
-                zones.append(z)
-        return ", ".join(zones) if zones else "none"
-
-
-class SolarACNextZoneSensor(_BaseSolarACSensor):
-    @property
-    def name(self):
-        return "Solar AC Next Zone"
-
-    @property
-    def unique_id(self):
-        return "solar_ac_next_zone"
-
-    @property
-    def state(self):
-        return self.coordinator.next_zone or "none"
-
-
-class SolarACLastZoneSensor(_BaseSolarACSensor):
-    @property
-    def name(self):
-        return "Solar AC Last Zone"
-
-    @property
-    def unique_id(self):
-        return "solar_ac_last_zone"
-
-    @property
-    def state(self):
-        return self.coordinator.last_zone or "none"
-
-
-class SolarACLastActionSensor(_BaseSolarACSensor):
-    @property
-    def name(self):
-        return "Solar AC Last Action"
-
-    @property
-    def unique_id(self):
-        return "solar_ac_last_action"
-
-    @property
-    def state(self):
-        return self.coordinator.last_action or "none"
-
-
-# ---------------------------------------------------------------------------
-# NUMERIC SENSOR BASE CLASS
-# ---------------------------------------------------------------------------
-
-class _NumericSolarACSensor(_BaseSolarACSensor):
-    """Base class for numeric sensors with proper metadata."""
-
-    _attr_device_class = SensorDeviceClass.POWER
-    _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_native_unit_of_measurement = "W"
-
-
-# ---------------------------------------------------------------------------
-# NUMERIC SENSORS
-# ---------------------------------------------------------------------------
-
-class SolarACEma30Sensor(_NumericSolarACSensor):
-    @property
-    def name(self):
-        return "Solar AC EMA 30s"
-
-    @property
-    def unique_id(self):
-        return "solar_ac_ema_30s"
-
-    @property
-    def state(self):
-        return round(self.coordinator.ema_30s, 2)
-
-
-class SolarACEma5Sensor(_NumericSolarACSensor):
-    @property
-    def name(self):
-        return "Solar AC EMA 5m"
-
-    @property
-    def unique_id(self):
-        return "solar_ac_ema_5m"
-
-    @property
-    def state(self):
-        return round(self.coordinator.ema_5m, 2)
-
-
-class SolarACConfidenceSensor(_BaseSolarACSensor):
-    """Dimensionless numeric confidence value."""
-
-    _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_native_unit_of_measurement = "pts"
-    _attr_device_class = None
-
-    @property
-    def name(self):
-        return "Solar AC Confidence"
-
-    @property
-    def unique_id(self):
-        return "solar_ac_confidence"
-
-    @property
-    def state(self):
-        return round(self.coordinator.confidence, 2)
-
-
-class SolarACConfidenceThresholdSensor(_BaseSolarACSensor):
-    @property
-    def name(self):
-        return "Solar AC Confidence Thresholds"
-
-    @property
-    def unique_id(self):
-        return "solar_ac_conf_thresholds"
-
-    @property
-    def state(self):
-        return "ok"
-
-    @property
-    def extra_state_attributes(self):
-        return {
-            "add_threshold": self.coordinator.add_confidence_threshold,
-            "remove_threshold": self.coordinator.remove_confidence_threshold,
-        }
-
-
-class SolarACRequiredExportSensor(_NumericSolarACSensor):
-    @property
-    def name(self):
-        return "Solar AC Required Export"
-
-    @property
-    def unique_id(self):
-        return "solar_ac_required_export"
-
-    @property
-    def state(self):
-        val = self.coordinator.required_export
-        return None if val is None else round(val, 2)
-
-
-class SolarACExportMarginSensor(_NumericSolarACSensor):
-    @property
-    def name(self):
-        return "Solar AC Export Margin"
-
-    @property
-    def unique_id(self):
-        return "solar_ac_export_margin"
-
-    @property
-    def state(self):
-        val = self.coordinator.export_margin
-        return None if val is None else round(val, 2)
-
-
-class SolarACImportPowerSensor(_NumericSolarACSensor):
-    @property
-    def name(self):
-        return "Solar AC Import Power"
-
-    @property
-    def unique_id(self):
-        return "solar_ac_import_power"
-
-    @property
-    def state(self):
-        return round(self.coordinator.ema_5m, 2)
-
-
-# ---------------------------------------------------------------------------
-# FIXED: MASTER OFF SINCE (seconds, not watts)
-# ---------------------------------------------------------------------------
-
-class SolarACMasterOffSinceSensor(_BaseSolarACSensor):
-    _attr_device_class = None
-    _attr_native_unit_of_measurement = "s"
-    _attr_state_class = SensorStateClass.MEASUREMENT
-
-    @property
-    def name(self):
-        return "Solar AC Master Off Since"
-
-    @property
-    def unique_id(self):
-        return "solar_ac_master_off_since"
-
-    @property
-    def state(self):
-        ts = self.coordinator.master_off_since
-        return int(ts or 0)
-
-    @property
-    def extra_state_attributes(self):
-        ts = self.coordinator.master_off_since
-        return {"utc_iso": dt_util.utc_from_timestamp(ts).isoformat() if ts else None}
-
-
-# ---------------------------------------------------------------------------
-# FIXED: LAST PANIC (seconds, not watts)
-# ---------------------------------------------------------------------------
-
-class SolarACLastPanicSensor(_BaseSolarACSensor):
-    _attr_device_class = None
-    _attr_native_unit_of_measurement = "s"
-    _attr_state_class = SensorStateClass.MEASUREMENT
-
-    @property
-    def name(self):
-        return "Solar AC Last Panic"
-
-    @property
-    def unique_id(self):
-        return "solar_ac_last_panic"
-
-    @property
-    def state(self):
-        ts = self.coordinator.last_panic_ts
-        return int(ts or 0)
-
-    @property
-    def extra_state_attributes(self):
-        ts = self.coordinator.last_panic_ts
-        return {"utc_iso": dt_util.utc_from_timestamp(ts).isoformat() if ts else None}
-
-
-class SolarACPanicCooldownSensor(_BaseSolarACSensor):
-    @property
-    def name(self):
-        return "Solar AC Panic Cooldown Active"
-
-    @property
-    def unique_id(self):
-        return "solar_ac_panic_cooldown"
-
-    @property
-    def state(self):
-        now = dt_util.utcnow().timestamp()
-        ts = self.coordinator.last_panic_ts
-        if not ts:
-            return "no"
-        return "yes" if (now - ts) < 120 else "no"
-
-
-# ---------------------------------------------------------------------------
-# LEARNED POWER SENSOR
-# ---------------------------------------------------------------------------
-
-class SolarACLearnedPowerSensor(_NumericSolarACSensor):
-    def __init__(self, coordinator, zone_name):
-        super().__init__(coordinator)
-        self.zone_name = zone_name
-
-    @property
-    def name(self):
-        return f"Solar AC Learned Power {self.zone_name}"
-
-    @property
-    def unique_id(self):
-        return f"solar_ac_learned_power_{self.zone_name}"
-
-    @property
-    def state(self):
-        # Use coordinator accessor to remain compatible with legacy and per-mode storage.
-        return self.coordinator.get_learned_power(
-            self.zone_name,
-            mode="default",
+        self.store = store
+
+    # -------------------------
+    # Public async API (awaited by coordinator / services)
+    # -------------------------
+    async def start_learning(self, zone_entity_id: str, ac_power_before: float) -> None:
+        """Begin a learning session for a zone.
+
+        Marks the coordinator as actively learning and records the baseline AC
+        power reading. This method is async to match coordinator usage but
+        performs only in-memory updates.
+        """
+        self.coordinator.learning_active = True
+        self.coordinator.learning_zone = zone_entity_id
+        self.coordinator.learning_start_time = dt_util.utcnow().timestamp()
+        self.coordinator.ac_power_before = float(ac_power_before) if ac_power_before is not None else None
+
+        _LOGGER.debug(
+            "Start learning: zone=%s ac_before=%s",
+            zone_entity_id,
+            self.coordinator.ac_power_before,
         )
 
+    async def finish_learning(self) -> None:
+        """Complete the current learning session.
 
-# ---------------------------------------------------------------------------
-# DIAGNOSTICS SENSOR
-# ---------------------------------------------------------------------------
+        Reads the current AC power sensor, computes the delta vs the baseline,
+        updates the coordinator's learned_power via set_learned_power, increments
+        samples, and persists the new learned values.
+        """
+        zone = self.coordinator.learning_zone
+        if not zone:
+            _LOGGER.debug("finish_learning called but no learning_zone set")
+            return
 
-class SolarACDiagnosticEntity(_BaseSolarACSensor):
-    """A single sensor exposing the entire controller state as JSON attributes."""
+        ac_sensor = self.coordinator.config.get("ac_power_sensor") or self.coordinator.config.get(
+            "ac_power_sensor".upper()
+        )
+        # Prefer the configured constant if present in consts; fall back to config key
+        ac_sensor = self.coordinator.config.get("ac_power_sensor", self.coordinator.config.get("ac_power_sensor"))
 
-    _attr_should_poll = False
-    _attr_name = "Solar AC Diagnostics"
-    _attr_icon = "mdi:brain"
-    _attr_device_class = "diagnostic"
+        # Try to read the AC power sensor from coordinator config (use the same key as coordinator)
+        ac_sensor_entity = self.coordinator.config.get("ac_power_sensor") or self.coordinator.config.get(
+            "ac_power_sensor"
+        )
+        # More robust: use the CONF_AC_POWER_SENSOR constant name if present in config
+        ac_sensor_entity = self.coordinator.config.get("ac_power_sensor", self.coordinator.config.get("ac_power_sensor"))
 
-    def __init__(self, coordinator):
-        super().__init__(coordinator)
-        self._attr_unique_id = "solar_ac_diagnostics"
+        # Best-effort: use the same key the coordinator used earlier (CONF_AC_POWER_SENSOR)
+        ac_sensor_entity = self.coordinator.config.get("ac_power_sensor", self.coordinator.config.get("ac_power_sensor"))
 
-    @property
-    def native_value(self):
-        return self.coordinator.last_action or "idle"
+        # Fallback: try to read the sensor entity id from coordinator.config using common keys
+        possible_keys = ["ac_power_sensor", "AC_POWER_SENSOR", "ac_sensor"]
+        ac_entity_id = None
+        for k in possible_keys:
+            if k in self.coordinator.config and self.coordinator.config.get(k):
+                ac_entity_id = self.coordinator.config.get(k)
+                break
 
-    @property
-    def extra_state_attributes(self):
-        return build_diagnostics(self.coordinator)
+        # If still not found, try the explicit CONF name used in the coordinator module
+        if not ac_entity_id:
+            ac_entity_id = self.coordinator.config.get("ac_power_sensor")
+
+        # Read current AC power
+        ac_power_now = None
+        if ac_entity_id:
+            st = self.hass.states.get(ac_entity_id)
+            if st:
+                try:
+                    ac_power_now = float(st.state)
+                except (ValueError, TypeError):
+                    ac_power_now = None
+
+        # If we couldn't read the sensor, try to use coordinator's last known EMA as a fallback
+        if ac_power_now is None:
+            ac_power_now = getattr(self.coordinator, "ema_30s", None)
+            _LOGGER.debug("AC power sensor unreadable; falling back to coordinator.ema_30s=%s", ac_power_now)
+
+        ac_before = self.coordinator.ac_power_before
+        if ac_before is None or ac_power_now is None:
+            _LOGGER.debug("Insufficient data to finish learning (ac_before=%s ac_now=%s)", ac_before, ac_power_now)
+            # Reset learning state but do not persist a learned value
+            self._reset_learning_state()
+            return
+
+        # Compute absolute delta (compressor delta)
+        delta = abs(ac_power_now - float(ac_before))
+
+        # Determine mode for the zone (heat/cool/default)
+        zone_name = zone.split(".")[-1]
+        zone_state_obj = self.hass.states.get(zone)
+        mode = None
+        if zone_state_obj:
+            if zone_state_obj.state == "heat":
+                mode = "heat"
+            elif zone_state_obj.state == "cool":
+                mode = "cool"
+            else:
+                mode = None
+
+        # Update coordinator learned values
+        try:
+            # Use coordinator accessor to remain compatible with storage format
+            self.coordinator.set_learned_power(zone_name, float(delta), mode=mode)
+            # Increment samples (bootstrap/learning sample)
+            self.coordinator.samples = int(self.coordinator.samples or 0) + 1
+            await self.coordinator._persist_learned_values()
+            _LOGGER.info(
+                "Finished learning: zone=%s mode=%s delta=%s samples=%s",
+                zone,
+                mode or "default",
+                round(delta, 2),
+                self.coordinator.samples,
+            )
+        except Exception as exc:
+            _LOGGER.exception("Error finishing learning for %s: %s", zone, exc)
+            try:
+                await self.coordinator._log(f"[LEARNING_SAVE_ERROR] zone={zone} err={exc}")
+            except Exception:
+                _LOGGER.exception("Failed to write learning error to coordinator log")
+
+        # Clear learning state
+        self._reset_learning_state()
+
+    async def reset_learning(self) -> None:
+        """Reset all learned values and persist an empty structure.
+
+        This is intended to be called from the integration service handler.
+        """
+        self.coordinator.learned_power = {}
+        self.coordinator.samples = 0
+        try:
+            await self.coordinator._persist_learned_values()
+            _LOGGER.info("Controller: reset learning and persisted empty learned_power")
+        except Exception as exc:
+            _LOGGER.exception("Controller: failed to persist reset learning: %s", exc)
+            try:
+                await self.coordinator._log(f"[SERVICE_ERROR] reset_learning {exc}")
+            except Exception:
+                _LOGGER.exception("Failed to write service error to coordinator log")
+
+    async def _save(self) -> None:
+        """Persist learned values (convenience wrapper)."""
+        await self.coordinator._persist_learned_values()
+
+    # -------------------------
+    # Synchronous helpers (used by coordinator without await)
+    # -------------------------
+    def _reset_learning_state(self) -> None:
+        """Clear in-memory learning state without persisting."""
+        self.coordinator.learning_active = False
+        self.coordinator.learning_zone = None
+        self.coordinator.learning_start_time = None
+        self.coordinator.ac_power_before = None
+        _LOGGER.debug("Controller: cleared learning state")
