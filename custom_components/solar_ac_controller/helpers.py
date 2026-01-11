@@ -4,6 +4,8 @@ from homeassistant.util import dt as dt_util
 
 from .const import CONF_ZONES
 
+_PANIC_COOLDOWN_SECONDS = 120
+
 
 def build_diagnostics(coordinator):
     """Return a unified diagnostics structure for both sensor and HA diagnostics.
@@ -11,34 +13,45 @@ def build_diagnostics(coordinator):
     Uses coordinator.version as the authoritative integration version and
     converts mappingproxy config to a plain dict for JSON safety.
     """
-    now = dt_util.utcnow().timestamp()
+    now_ts = dt_util.utcnow().timestamp()
 
-    # Active zones (heat/on)
+    # Active zones (heat/cool/on)
+    zones = coordinator.config.get(CONF_ZONES, [])
     active_zones = [
         z
-        for z in coordinator.config.get(CONF_ZONES, [])
+        for z in zones
         if (st := coordinator.hass.states.get(z)) and st.state in ("heat", "cool", "on")
     ]
+
+    # Per-zone mode snapshot
+    zone_modes = {
+        z: (coordinator.hass.states.get(z).state if coordinator.hass.states.get(z) else None)
+        for z in zones
+    }
 
     # Panic cooldown state
     panic_cooldown_active = False
     if coordinator.last_panic_ts:
-        panic_cooldown_active = (now - coordinator.last_panic_ts) < 120
+        panic_cooldown_active = (now_ts - coordinator.last_panic_ts) < _PANIC_COOLDOWN_SECONDS
+
+    # JSON-safe learned_power copy
+    learned_power = dict(coordinator.learned_power) if coordinator.learned_power is not None else {}
 
     return {
         # Authoritative integration version
         "version": coordinator.version,
 
-        # Timestamp for diagnostics snapshot
+        # Timestamp for diagnostics snapshot (ISO + epoch)
         "timestamp": dt_util.utcnow().isoformat(),
+        "timestamp_epoch": int(now_ts),
 
         # JSON-safe config
         "config": dict(coordinator.config),
 
         # Learning
-        "samples": coordinator.samples,
-        "learned_power": coordinator.learned_power,
-        "learning_active": coordinator.learning_active,
+        "samples": int(coordinator.samples or 0),
+        "learned_power": learned_power,
+        "learning_active": bool(coordinator.learning_active),
         "learning_zone": coordinator.learning_zone,
         "learning_start_time": coordinator.learning_start_time,
         "ac_power_before": coordinator.ac_power_before,
@@ -56,6 +69,7 @@ def build_diagnostics(coordinator):
 
         # Zones
         "active_zones": active_zones,
+        "zone_modes": zone_modes,
         "zone_last_changed": coordinator.zone_last_changed,
         "zone_last_state": coordinator.zone_last_state,
         "zone_manual_lock_until": coordinator.zone_manual_lock_until,
@@ -63,9 +77,15 @@ def build_diagnostics(coordinator):
         # Panic
         "panic_threshold": coordinator.panic_threshold,
         "panic_delay": coordinator.panic_delay,
-        "last_panic_ts": coordinator.last_panic_ts,
+        "last_panic_ts": int(coordinator.last_panic_ts) if coordinator.last_panic_ts else None,
+        "last_panic_iso": dt_util.utc_from_timestamp(coordinator.last_panic_ts).isoformat()
+        if coordinator.last_panic_ts
+        else None,
         "panic_cooldown_active": panic_cooldown_active,
 
         # Master switch
-        "master_off_since": coordinator.master_off_since,
+        "master_off_since": int(coordinator.master_off_since) if coordinator.master_off_since else None,
+        "master_off_since_iso": dt_util.utc_from_timestamp(coordinator.master_off_since).isoformat()
+        if coordinator.master_off_since
+        else None,
     }
