@@ -91,7 +91,7 @@ class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Optional(CONF_REMOVE_CONFIDENCE, default=DEFAULT_REMOVE_CONFIDENCE): int,
 
                 # Enable diagnostics sensor
-                vol.Optional(CONF_ENABLE_DIAGNOSTICS, default=True): bool,
+                vol.Optional(CONF_ENABLE_DIAGNOSTICS, default=False): bool,
 
                 # Initial learned power
                 vol.Required(CONF_INITIAL_LEARNED_POWER, default=1200): vol.Coerce(int),
