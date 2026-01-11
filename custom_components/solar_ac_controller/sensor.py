@@ -358,9 +358,10 @@ class SolarACDiagnosticEntity(_BaseSolarACSensor):
     _attr_icon = "mdi:brain"
     _attr_device_class = "diagnostic"
 
-    def __init__(self, coordinator, entry: ConfigEntry):
+    def __init__(self, coordinator):
         super().__init__(coordinator)
-        self._attr_unique_id = f"{entry.entry_id}_diagnostics"
+        # Unique ID no longer tied to config entry
+        self._attr_unique_id = "solar_ac_diagnostics"
 
     @property
     def native_value(self):
