@@ -10,7 +10,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, CONF_ENABLE_DIAGNOSTICS
+from .const import DOMAIN, CONF_ENABLE_DIAGNOSTICS, CONF_ZONES
 from .helpers import build_diagnostics
 
 
@@ -40,7 +40,7 @@ async def async_setup_entry(
     ]
 
     # Learned power sensors (one per zone)
-    for zone in coordinator.config.get("zones", []):
+    for zone in coordinator.config.get(CONF_ZONES, []):
         zone_name = zone.split(".")[-1]
         entities.append(SolarACLearnedPowerSensor(coordinator, zone_name))
 
@@ -93,7 +93,7 @@ class SolarACActiveZonesSensor(_BaseSolarACSensor):
     @property
     def state(self):
         zones = []
-        for z in self.coordinator.config.get("zones", []):
+        for z in self.coordinator.config.get(CONF_ZONES, []):
             st = self.coordinator.hass.states.get(z)
             # Treat heating, cooling and generic "on" as active
             if st and st.state in ("heat", "cool", "on"):
@@ -365,9 +365,10 @@ class SolarACLearnedPowerSensor(_NumericSolarACSensor):
 
     @property
     def state(self):
-        return self.coordinator.learned_power.get(
+        # Use coordinator accessor to remain compatible with legacy and per-mode storage.
+        return self.coordinator.get_learned_power(
             self.zone_name,
-            self.coordinator.initial_learned_power,
+            mode="default",
         )
 
 
