@@ -290,7 +290,6 @@ class SolarACImportPowerSensor(_NumericSolarACSensor):
 
 class SolarACMasterOffSinceSensor(_BaseSolarACSensor):
     _attr_device_class = SensorDeviceClass.TIMESTAMP
-    _attr_state_class = SensorStateClass.MEASUREMENT
 
     @property
     def name(self) -> str:
@@ -316,7 +315,6 @@ class SolarACMasterOffSinceSensor(_BaseSolarACSensor):
 
 class SolarACLastPanicSensor(_BaseSolarACSensor):
     _attr_device_class = SensorDeviceClass.TIMESTAMP
-    _attr_state_class = SensorStateClass.MEASUREMENT
 
     @property
     def name(self) -> str:
