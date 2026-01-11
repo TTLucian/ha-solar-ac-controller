@@ -37,12 +37,12 @@ def _short_name(entity_id: str) -> str:
     return entity_id.rsplit(".", 1)[-1]
 
 
-async def async_setup(hass: HomeAssistant, config: dict):
+async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """YAML setup is intentionally unsupported."""
     return True
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})
 
     # Load integration version from manifest
@@ -172,12 +172,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         # Reset one or all zones
         if zone:
             zn = _short_name(zone)
-            coordinator.learned_power[zn] = 1200
+            coordinator.learned_power[zn] = coordinator.initial_learned_power
             target = zn
         else:
             for z in coordinator.config.get(CONF_ZONES, []):
                 zn = _short_name(z)
-                coordinator.learned_power[zn] = 1200
+                coordinator.learned_power[zn] = coordinator.initial_learned_power
             target = "all"
 
         # Reset learning state
@@ -200,7 +200,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     return True
 
 
-async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry):
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Migrate old config entries to the new format."""
     data = dict(entry.data)
 
@@ -212,7 +212,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry):
     return True
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload the integration."""
     ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     hass.data[DOMAIN].pop(entry.entry_id, None)
