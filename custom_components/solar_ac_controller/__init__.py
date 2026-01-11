@@ -71,6 +71,60 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     stored = stored or {}
 
+    # -------------------------
+    # Explicit migration for legacy learned_power
+    # -------------------------
+    # If stored contains legacy numeric learned_power values (zone -> number),
+    # convert them to per-mode dicts: {"default": v, "heat": v, "cool": v}
+    try:
+        raw_lp = stored.get("learned_power")
+        if isinstance(raw_lp, dict):
+            # Detect if any value is numeric (legacy format)
+            has_legacy_numeric = any(isinstance(v, (int, float)) for v in raw_lp.values())
+            if has_legacy_numeric:
+                _LOGGER.info("Detected legacy learned_power format; migrating to per-mode structure")
+                migrated: dict[str, dict[str, float]] = {}
+                # Determine initial fallback value from entry options/data
+                initial_lp = float(
+                    entry.options.get(
+                        CONF_INITIAL_LEARNED_POWER,
+                        entry.data.get(CONF_INITIAL_LEARNED_POWER, 1200),
+                    )
+                )
+                for zone_name, val in raw_lp.items():
+                    if isinstance(val, (int, float)):
+                        v = float(val)
+                        migrated[zone_name] = {"default": v, "heat": v, "cool": v}
+                    elif isinstance(val, dict):
+                        # Normalize dict entries (case-insensitive keys) and ensure numeric
+                        normalized: dict[str, float] = {}
+                        for k, vv in val.items():
+                            try:
+                                normalized[k.lower()] = float(vv)
+                            except Exception:
+                                continue
+                        if "default" not in normalized:
+                            normalized["default"] = normalized.get("heat", normalized.get("cool", initial_lp))
+                        if "heat" not in normalized:
+                            normalized["heat"] = normalized["default"]
+                        if "cool" not in normalized:
+                            normalized["cool"] = normalized["default"]
+                        migrated[zone_name] = normalized
+                    else:
+                        # Unknown type -> fallback to initial value
+                        migrated[zone_name] = {"default": initial_lp, "heat": initial_lp, "cool": initial_lp}
+
+                stored["learned_power"] = migrated
+                # Ensure samples is an int
+                stored["samples"] = int(stored.get("samples", 0) or 0)
+                try:
+                    await store.async_save(stored)
+                    _LOGGER.info("Migrated legacy learned_power to per-mode structure and saved storage")
+                except Exception:
+                    _LOGGER.exception("Failed to persist migrated learned_power to storage")
+    except Exception:
+        _LOGGER.exception("Unexpected error while attempting explicit storage migration; continuing with loaded store")
+
     # Create coordinator (it will perform migration if needed)
     coordinator = SolarACCoordinator(
         hass,
