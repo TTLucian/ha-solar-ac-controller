@@ -7,7 +7,7 @@ Big picture
 - The integration is a Home Assistant "service" integration. Main pieces:
   - `custom_components/solar_ac_controller/coordinator.py` — the central DataUpdateCoordinator. Runs every 5s, reads sensors, computes EMAs, decides add/remove/panic actions.
   - `custom_components/solar_ac_controller/controller.py` — encapsulates learning and persistent logic (start/finish learning, reset, storage writes).
-  - `custom_components/solar_ac_controller/sensor.py`, `binary_sensor.py`, `diagnostics.py`, `entity.py` — entity factories and debug/diagnostic exposures. Entities register listeners with `coordinator.async_add_listener` and are non-polling.
+  - `custom_components/solar_ac_controller/sensor.py`, `binary_sensor.py`, `diagnostics.py` — entity factories and debug/diagnostic exposures. Entities register listeners with `coordinator.async_add_listener` and are non-polling.
   - `custom_components/solar_ac_controller/__init__.py` — config entry setup, `Store` usage, shared `coordinator` instance, service registration (`reset_learning`, `force_relearn`), and device registration.
 
 Data & control flow (concrete):
