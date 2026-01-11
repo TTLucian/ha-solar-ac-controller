@@ -35,4 +35,5 @@ CONF_ENABLE_DIAGNOSTICS = "enable_diagnostics_sensor"
 
 # Storage
 STORAGE_KEY = DOMAIN
-STORAGE_VERSION = 1
+# Bumped storage version to support migration to per-mode learned_power structure
+STORAGE_VERSION = 2
