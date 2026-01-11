@@ -15,8 +15,10 @@ def build_diagnostics(coordinator):
     """
     now_ts = dt_util.utcnow().timestamp()
 
-    # Active zones (heat/cool/on)
+    # Zones list from config (JSON-safe)
     zones = coordinator.config.get(CONF_ZONES, [])
+
+    # Active zones (heat/cool/on)
     active_zones = [
         z
         for z in zones
@@ -34,7 +36,7 @@ def build_diagnostics(coordinator):
     if coordinator.last_panic_ts:
         panic_cooldown_active = (now_ts - coordinator.last_panic_ts) < _PANIC_COOLDOWN_SECONDS
 
-    # JSON-safe learned_power copy
+    # JSON-safe learned_power copy (normalize to dict)
     learned_power = dict(coordinator.learned_power) if coordinator.learned_power is not None else {}
 
     return {
