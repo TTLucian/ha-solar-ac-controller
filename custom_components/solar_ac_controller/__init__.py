@@ -68,19 +68,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         coordinator: SolarACCoordinator = data["coordinator"]
 
         # Old value BEFORE applying new config
-        old = bool(coordinator.config.get(CONF_ENABLE_DIAGNOSTICS, True))
-        
+        old = bool(coordinator.config.get(CONF_ENABLE_DIAGNOSTICS, False))
+
         # Merge options over original data
         merged = {**updated_entry.data, **updated_entry.options}
-        
+
         # New value AFTER merge
-        new = bool(merged.get(CONF_ENABLE_DIAGNOSTICS, True))
-        
+        new = bool(merged.get(CONF_ENABLE_DIAGNOSTICS, False))
+
         # If toggle changed → reload integration to add/remove diagnostics sensor
         if old != new:
             await hass.config_entries.async_reload(updated_entry.entry_id)
             return  # Reload will recreate coordinator and platforms
-        
+
         # Apply merged config only if not reloading
         coordinator.config = merged
 
@@ -197,10 +197,8 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry):
     if isinstance(zones, str):
         data[CONF_ZONES] = [z.strip() for z in zones.split(",") if z.strip()]
 
-
     hass.config_entries.async_update_entry(entry, data=data)
     return True
-
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
