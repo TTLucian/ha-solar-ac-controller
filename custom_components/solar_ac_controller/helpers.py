@@ -20,8 +20,12 @@ def build_diagnostics(coordinator):
         panic_cooldown_active = (now - coordinator.last_panic_ts) < 120
 
     return {
-        "version": coordinator.config_entry.data.get("version"),
+        # Clean, authoritative version source
+        "version": coordinator.version,
+
         "timestamp": dt_util.utcnow().isoformat(),
+
+        # JSON‑safe config (mappingproxy → dict)
         "config": dict(coordinator.config),
 
         # Learning
