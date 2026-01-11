@@ -22,6 +22,7 @@
           "short_cycle_off_seconds": "Short Cycle OFF Protection (seconds)",
           "action_delay_seconds": "Action Delay (seconds)",
           "add_confidence": "Add Confidence Threshold",
+          "enable_diagnostics_sensor": "Enable Diagnostics Sensor (advanced)",
           "remove_confidence": "Remove Confidence Threshold"
         },
         "data_description": {
@@ -67,7 +68,8 @@
           "short_cycle_off_seconds": "Short Cycle OFF Protection (seconds)",
           "action_delay_seconds": "Action Delay (seconds)",
           "add_confidence": "Add Confidence Threshold",
-          "remove_confidence": "Remove Confidence Threshold"
+          "remove_confidence": "Remove Confidence Threshold",
+          "enable_diagnostics_sensor": "Enable Diagnostics Sensor (advanced)"
         },
         "data_description": {
           "solar_threshold_on": "Solar must exceed this value to enable the AC master switch.",
