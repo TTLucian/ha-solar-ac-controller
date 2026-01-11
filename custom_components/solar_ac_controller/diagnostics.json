@@ -3,6 +3,7 @@
     "description": "Provides a complete snapshot of the Solar AC Controller internal state, including configuration, learned power values, EMA metrics, zone activity, panic state, master switch state, and decision engine outputs.",
     "privacy": "No sensitive personal data is collected. Only integration configuration and runtime controller state are included.",
     "included": [
+      "version",
       "timestamp",
       "config",
 
