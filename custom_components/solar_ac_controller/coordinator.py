@@ -30,7 +30,6 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-# Internal behavioral constants
 _PANIC_COOLDOWN_SECONDS = 120
 _EMA_RESET_AFTER_OFF_SECONDS = 600
 
@@ -41,7 +40,7 @@ _DEFAULT_REMOVE_CONFIDENCE = 10
 class SolarACCoordinator(DataUpdateCoordinator):
     """Main control loop for the Solar AC Controller."""
 
-    def __init__(self, hass: HomeAssistant, config_entry, store, stored):
+    def __init__(self, hass: HomeAssistant, config_entry, store, stored, version: str):
         super().__init__(
             hass,
             logger=_LOGGER,
@@ -53,6 +52,9 @@ class SolarACCoordinator(DataUpdateCoordinator):
         self.config_entry = config_entry
         self.config = config_entry.data
         self.store = store
+
+        # Integration version (clean, first-class field)
+        self.version = version
 
         # Learned values
         self.initial_learned_power = config_entry.options.get(
