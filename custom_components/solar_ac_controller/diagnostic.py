@@ -59,4 +59,5 @@ class SolarACDiagnosticEntity(SensorEntity):
 
     @property
     def extra_state_attributes(self):
+        """Expose unified diagnostics attributes."""
         return build_diagnostics(self.coordinator)
