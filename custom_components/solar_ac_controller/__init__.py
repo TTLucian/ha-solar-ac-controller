@@ -134,7 +134,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         manufacturer="TTLucian",
         model="Solar AC Smart Controller",
         sw_version=hass.data[DOMAIN]["version"],
-        hw_version="virtual",
         configuration_url="https://github.com/TTLucian/ha-solar-ac-controller",
     )
 
