@@ -107,13 +107,17 @@ Add the integration via:
 
 You will configure:
 
-- Solar sensor  
-- Grid sensor  
-- AC power sensor  
-- Master AC switch  
-- Zones (comma‑separated, in activation priority order)  
-- Panic threshold  
-- Panic delay  
+- Solar sensor
+- Grid sensor
+- AC power sensor
+- Master AC switch (optional)
+- Zones (multi‑select)
+- Solar ON threshold
+- Solar OFF threshold
+- Panic threshold
+- Panic delay
+- Initial learned power
+- Confidence thresholds
 
 ---
 
@@ -121,12 +125,17 @@ You will configure:
 
 All key behavioral parameters can be changed at runtime:
 
-- `manual_lock_seconds` — how long to respect manual overrides  
-- `short_cycle_on_seconds` — cooldown after turning a zone ON  
-- `short_cycle_off_seconds` — cooldown after turning a zone OFF  
-- `action_delay_seconds` — delay between HA service calls  
-- `panic_threshold` — grid import threshold for panic shed  
-- `panic_delay` — how long the panic condition must persist  
+- `manual_lock_seconds` — Duration (in seconds) for which a zone is locked after a manual user override. During this time, the controller will not modify that zone.
+- `short_cycle_on_seconds` — Minimum time a zone must remain ON before the controller is allowed to turn it OFF. Prevents compressor short‑cycling.
+- `short_cycle_off_seconds` — Minimum time a zone must remain OFF before the controller is allowed to turn it ON. Also protects against short‑cycling.
+- `action_delay_seconds` — Delay between Home Assistant service calls when switching zones. Ensures clean sequencing and avoids overwhelming devices.
+- `panic_threshold` — Grid import level (in watts) that triggers panic shedding. If import exceeds this threshold, zones are shut down to protect the inverter.
+- `panic_delay` — How long the panic condition must persist before shedding begins. Prevents false positives during brief spikes.
+- `solar_threshold_on` - The minimum solar production (in watts) required before the controller is allowed to turn ON the master AC switch. When solar stays above this value, the system considers solar “strong enough” to run AC.
+- `solar_threshold_off` - The solar production level (in watts) below which the controller will schedule a master AC shutdown. This forms the lower half of the solar hysteresis band and prevents rapid toggling during cloud fluctuations.
+- `add_confidence` - The minimum confidence score required before the controller is allowed to add (enable) the next zone.Confidence is derived from export margin, learned compressor power, EMA trends, and short‑cycle penalties.
+- `remove_confidence` - The negative confidence threshold that triggers zone removal (turning off the last active zone). High import, low export, or short‑cycling conditions increase the likelihood of removal.
+- `initial_learned_power` - The starting estimate (in watts) for each zone’s compressor delta before the learning engine has collected enough samples. This value is used during the bootstrap phase and gradually replaced with learned data.
 
 Changes apply immediately without restarting the integration.
 
