@@ -67,7 +67,7 @@ class SolarACLearningBinarySensor(_BaseSolarACBinary):
 
     @property
     def is_on(self):
-        return self.coordinator.learning_active
+        return bool(self.coordinator.learning_active)
 
 
 class SolarACPanicBinarySensor(_BaseSolarACBinary):
@@ -117,7 +117,7 @@ class SolarACShortCycleBinarySensor(_BaseSolarACBinary):
         c = self.coordinator
         now = dt_util.utcnow().timestamp()
 
-        for z in c.config["zones"]:
+        for z in c.config.get("zones", []):
             last = c.zone_last_changed.get(z)
             if not last:
                 continue
@@ -163,7 +163,7 @@ class SolarACExportingBinarySensor(_BaseSolarACBinary):
 
     @property
     def is_on(self):
-        return self.coordinator.ema_30s < 0
+        return bool(self.coordinator.ema_30s < 0)
 
 
 class SolarACImportingBinarySensor(_BaseSolarACBinary):
@@ -177,7 +177,7 @@ class SolarACImportingBinarySensor(_BaseSolarACBinary):
 
     @property
     def is_on(self):
-        return self.coordinator.ema_30s > 0
+        return bool(self.coordinator.ema_30s > 0)
 
 
 class SolarACMasterOffBinarySensor(_BaseSolarACBinary):
