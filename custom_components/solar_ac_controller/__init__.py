@@ -10,6 +10,12 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers import device_registry as dr
 from homeassistant.loader import async_get_integration
 
+# Try to import async_migrate if available on this HA version
+try:
+    from homeassistant.helpers.storage import async_migrate as storage_async_migrate
+except Exception:
+    storage_async_migrate = None
+
 from .const import (
     DOMAIN,
     STORAGE_KEY,
@@ -55,7 +61,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # -------------------------
     # Storage and migration
     # -------------------------
-    # Use an async migrate function because newer HA expects an async callable.
     async def _migrate_func(old_version: int, old_minor_version: int, old_data: dict | None) -> dict | None:
         """Async migration function for Store.
 
@@ -111,14 +116,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Nothing to migrate
         return old_data
 
-    # Try to create Store with migrate_func if supported by this HA version.
-    # If not supported, fall back to creating Store without migrate_func and run explicit migration later.
-    try:
-        store = Store(hass, STORAGE_VERSION, STORAGE_KEY, migrate_func=_migrate_func)
-        _LOGGER.debug("Created Store with migrate_func for %s", STORAGE_KEY)
-    except TypeError:
-        store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
-        _LOGGER.debug("Store does not accept migrate_func; will run explicit migration after load")
+    # If HA exposes storage_async_migrate, register our migration so HA will call it during its migration step.
+    if storage_async_migrate:
+        try:
+            # Register migration from minor_version 1 to STORAGE_VERSION's minor (if applicable).
+            # We pass the storage key and the migrate function; HA will call it during its migration.
+            await storage_async_migrate(hass, STORAGE_KEY, 1, STORAGE_VERSION, _migrate_func)
+            _LOGGER.debug("Registered storage migration via async_migrate for %s", STORAGE_KEY)
+        except Exception:
+            _LOGGER.exception("Failed to register storage migration via async_migrate; will attempt explicit migration after load")
+
+    # Create Store (we do not pass migrate_func to constructor to remain compatible across HA versions)
+    store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
 
     # Attempt to load; if Store.async_load raises NotImplementedError, fall back to empty store
     try:
