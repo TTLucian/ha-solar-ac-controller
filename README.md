@@ -189,10 +189,10 @@ Changes apply immediately without restarting the integration.
 
 ## 🧩 Services
 
-### `solar_ac_controller.reset_learning`
+### - `solar_ac_controller.reset_learning`
 Cancels any active learning cycle and resets runtime learning state.
 
-### `solar_ac_controller.force_relearn`
+### - `solar_ac_controller.force_relearn`
 Forces relearning for:
 
 - A specific zone (`zone:` provided)  
