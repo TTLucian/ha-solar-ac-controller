@@ -32,7 +32,8 @@ async def async_get_config_entry_diagnostics(
         panic_cooldown_active = (now - coordinator.last_panic_ts) < 120
 
     return {
-        "timestamp": now,
+        "version": entry.data.get("version"),
+        "timestamp": dt_util.utcnow().isoformat(),
         "config": coordinator.config,
 
         # Learning state
