@@ -83,7 +83,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
 
         # Panic config
         self.panic_threshold: float = self.config.get(CONF_PANIC_THRESHOLD, 1500)
-        self.panic_delay: int = self.config.get(CONF_PANIC_DELAY, 10)
+        self.panic_delay = self.config.get(CONF_PANIC_DELAY, 30)
 
         # Manual lock duration
         self.manual_lock_seconds: int = self.config.get(CONF_MANUAL_LOCK_SECONDS, 1200)
@@ -97,7 +97,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
         )
 
         # Delay between actions
-        self.action_delay_seconds: int = self.config.get("action_delay_seconds", 3)
+        self.action_delay_seconds = self.config.get(CONF_ACTION_DELAY_SECONDS, 3)
 
         # Confidence thresholds
         self.add_confidence_threshold: float = self.config.get(
@@ -612,7 +612,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
     # -------------------------------------------------------------------------
     async def _handle_master_switch(self, solar: float, ac_power: float):
         """Master relay control based on solar availability and compressor safety."""
-        ac_switch = self.config[CONF_AC_SWITCH]
+        ac_switch = self.config.get(CONF_AC_SWITCH)
         if not ac_switch:
             return
 
