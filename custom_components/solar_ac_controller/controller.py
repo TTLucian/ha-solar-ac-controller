@@ -45,8 +45,16 @@ class SolarACController:
         zone_entity = c.learning_zone
         zone_state = self.hass.states.get(zone_entity)
 
-        # Abort if zone was manually turned off or changed mode
-        # Treat cooling the same as heating
+        # Determine mode: prefer explicit heat/cool, otherwise use default
+        mode = None
+        if zone_state and zone_state.state == "heat":
+            mode = "heat"
+        elif zone_state and zone_state.state == "cool":
+            mode = "cool"
+        else:
+            mode = "default"
+
+        # Abort if zone was manually turned off or changed mode to something unexpected
         if not zone_state or zone_state.state not in ("heat", "cool", "on"):
             await c._log(
                 f"[LEARNING_ABORT_MANUAL_INTERVENTION] zone={zone_entity} "
@@ -95,24 +103,34 @@ class SolarACController:
             max_d = 2500
 
             if min_d < delta < max_d:
-                prev = c.learned_power.get(zone_name, c.initial_learned_power)
+                prev = c.get_learned_power(zone_name, mode=mode)
                 new_value = round(delta)
 
-                c.learned_power[zone_name] = new_value
+                # Store per-mode via coordinator helper
+                c.set_learned_power(zone_name, new_value, mode=mode)
                 c.samples = 1
 
                 await c._log(
-                    f"[LEARNING_BOOTSTRAP] zone={zone_name} delta={round(delta)} "
+                    f"[LEARNING_BOOTSTRAP] zone={zone_name} mode={mode} delta={round(delta)} "
                     f"prev={prev} new={new_value} samples={c.samples}"
                 )
 
-                await self._save()
+                # Persist via coordinator
+                try:
+                    await c._persist_learned_values()
+                except Exception as exc:
+                    _LOGGER.exception("Error saving learned values after bootstrap: %s", exc)
+                    try:
+                        await c._log(f"[STORAGE_ERROR] {exc}")
+                    except Exception:
+                        _LOGGER.exception("Failed to write storage error to coordinator log")
+
                 self._reset_learning_state()
                 return
 
             else:
                 await c._log(
-                    f"[LEARNING_SKIP_BOOTSTRAP] zone={zone_name} delta={round(delta)} "
+                    f"[LEARNING_SKIP_BOOTSTRAP] zone={zone_name} mode={mode} delta={round(delta)} "
                     f"expected_range=[{min_d},{max_d}]"
                 )
                 self._reset_learning_state()
@@ -125,25 +143,34 @@ class SolarACController:
         max_d = 2500
 
         if min_d < delta < max_d:
-            prev = c.learned_power.get(zone_name, c.initial_learned_power)
+            prev = c.get_learned_power(zone_name, mode=mode)
 
             # EMA-style update
             alpha = 0.3 if c.samples < 10 else 0.2
             new_value = round(prev * (1 - alpha) + delta * alpha)
 
-            c.learned_power[zone_name] = new_value
+            # Store per-mode via coordinator helper
+            c.set_learned_power(zone_name, new_value, mode=mode)
             c.samples += 1
 
             await c._log(
-                f"[LEARNING_FINISHED] zone={zone_name} delta={round(delta)} "
+                f"[LEARNING_FINISHED] zone={zone_name} mode={mode} delta={round(delta)} "
                 f"prev={prev} new={new_value} samples={c.samples}"
             )
 
-            await self._save()
+            # Persist via coordinator
+            try:
+                await c._persist_learned_values()
+            except Exception as exc:
+                _LOGGER.exception("Error saving learned values after finish: %s", exc)
+                try:
+                    await c._log(f"[STORAGE_ERROR] {exc}")
+                except Exception:
+                    _LOGGER.exception("Failed to write storage error to coordinator log")
 
         else:
             await c._log(
-                f"[LEARNING_SKIP] zone={zone_name} delta={round(delta)} "
+                f"[LEARNING_SKIP] zone={zone_name} mode={mode} delta={round(delta)} "
                 f"expected_range=[{min_d},{max_d}]"
             )
 
@@ -160,18 +187,14 @@ class SolarACController:
         c.ac_power_before = None
 
     # -------------------------------------------------------------------------
-    # SAVE LEARNED VALUES
+    # SAVE LEARNED VALUES (deprecated here; coordinator persists)
     # -------------------------------------------------------------------------
     async def _save(self):
+        """Backward-compatible save wrapper that delegates to coordinator persistence."""
         try:
-            await self.store.async_save(
-                {
-                    "learned_power": dict(self.coordinator.learned_power),
-                    "samples": int(self.coordinator.samples),
-                }
-            )
+            await self.coordinator._persist_learned_values()
         except Exception as e:
-            _LOGGER.exception("Error saving learned values: %s", e)
+            _LOGGER.exception("Error delegating save to coordinator: %s", e)
             try:
                 await self.coordinator._log(f"[STORAGE_ERROR] {e}")
             except Exception:
@@ -186,9 +209,17 @@ class SolarACController:
 
         for zone in c.config.get("zones", []):
             zone_name = zone.split(".")[-1]
-            c.learned_power[zone_name] = c.initial_learned_power
+            # Use coordinator helper to set per-mode defaults
+            c.set_learned_power(zone_name, float(c.initial_learned_power), mode=None)
 
         c.samples = 0
 
         await c._log("[LEARNING_RESET] all_zones")
-        await self._save()
+        try:
+            await c._persist_learned_values()
+        except Exception as exc:
+            _LOGGER.exception("Error saving learned values after reset: %s", exc)
+            try:
+                await c._log(f"[STORAGE_ERROR] {exc}")
+            except Exception:
+                _LOGGER.exception("Failed to write storage error to coordinator log")
