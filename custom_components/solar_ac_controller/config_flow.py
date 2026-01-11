@@ -5,6 +5,7 @@ from typing import Any
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
+from homeassistant.helpers.selector import selector
 
 from .const import (
     DOMAIN,
@@ -30,15 +31,6 @@ DEFAULT_ADD_CONFIDENCE = 25
 DEFAULT_REMOVE_CONFIDENCE = 10
 
 
-def _ensure_list(value: Any) -> list[str]:
-    """Ensure zones are stored as a list of strings."""
-    if isinstance(value, list):
-        return [str(v) for v in value]
-    if isinstance(value, str):
-        return [v.strip() for v in value.split(",") if v.strip()]
-    return []
-
-
 class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle the initial setup of the Solar AC Controller."""
 
@@ -49,27 +41,40 @@ class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            zones = _ensure_list(user_input.get(CONF_ZONES, []))
+            zones = user_input.get(CONF_ZONES, [])
             if not zones:
                 errors["base"] = "no_zones"
             else:
-                data = dict(user_input)
-                data[CONF_ZONES] = zones
                 return self.async_create_entry(
                     title="Solar AC Controller",
-                    data=data,
+                    data=user_input,
                 )
 
         schema = vol.Schema(
             {
                 # Core sensors
-                vol.Required(CONF_SOLAR_SENSOR): str,
-                vol.Required(CONF_GRID_SENSOR): str,
-                vol.Required(CONF_AC_POWER_SENSOR): str,
-                vol.Required(CONF_AC_SWITCH): str,
+                vol.Required(CONF_SOLAR_SENSOR): selector({
+                    "entity": {"domain": "sensor"}
+                }),
+                vol.Required(CONF_GRID_SENSOR): selector({
+                    "entity": {"domain": "sensor"}
+                }),
+                vol.Required(CONF_AC_POWER_SENSOR): selector({
+                    "entity": {"domain": "sensor"}
+                }),
 
-                # Zones (comma-separated)
-                vol.Required(CONF_ZONES): str,
+                # Optional master AC switch
+                vol.Optional(CONF_AC_SWITCH, default=""): selector({
+                    "entity": {"domain": "switch"}
+                }),
+
+                # Zones (ordered multi-select)
+                vol.Required(CONF_ZONES): selector({
+                    "entity": {
+                        "domain": ["climate", "switch"],
+                        "multiple": True
+                    }
+                }),
 
                 # Thresholds
                 vol.Optional(CONF_SOLAR_THRESHOLD_ON, default=1200): int,
@@ -83,7 +88,7 @@ class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Optional(CONF_SHORT_CYCLE_OFF_SECONDS, default=1200): int,
                 vol.Optional(CONF_ACTION_DELAY_SECONDS, default=3): int,
 
-                # Unified confidence thresholds
+                # Confidence thresholds
                 vol.Optional(CONF_ADD_CONFIDENCE, default=DEFAULT_ADD_CONFIDENCE): int,
                 vol.Optional(CONF_REMOVE_CONFIDENCE, default=DEFAULT_REMOVE_CONFIDENCE): int,
 
@@ -129,7 +134,7 @@ class SolarACOptionsFlowHandler(config_entries.OptionsFlow):
             solar_on = user_input.get(CONF_SOLAR_THRESHOLD_ON, 1200)
             solar_off = user_input.get(CONF_SOLAR_THRESHOLD_OFF, 800)
             panic_th = user_input.get(CONF_PANIC_THRESHOLD, 2500)
-            zones = _ensure_list(user_input.get(CONF_ZONES, []))
+            zones = user_input.get(CONF_ZONES, [])
 
             if not zones:
                 errors["base"] = "no_zones"
@@ -142,7 +147,7 @@ class SolarACOptionsFlowHandler(config_entries.OptionsFlow):
                     CONF_SOLAR_SENSOR: user_input[CONF_SOLAR_SENSOR],
                     CONF_GRID_SENSOR: user_input[CONF_GRID_SENSOR],
                     CONF_AC_POWER_SENSOR: user_input[CONF_AC_POWER_SENSOR],
-                    CONF_AC_SWITCH: user_input[CONF_AC_SWITCH],
+                    CONF_AC_SWITCH: user_input.get(CONF_AC_SWITCH, ""),
                     CONF_ZONES: zones,
                     CONF_SOLAR_THRESHOLD_ON: solar_on,
                     CONF_SOLAR_THRESHOLD_OFF: solar_off,
@@ -152,12 +157,8 @@ class SolarACOptionsFlowHandler(config_entries.OptionsFlow):
                     CONF_SHORT_CYCLE_ON_SECONDS: user_input.get(CONF_SHORT_CYCLE_ON_SECONDS, 1200),
                     CONF_SHORT_CYCLE_OFF_SECONDS: user_input.get(CONF_SHORT_CYCLE_OFF_SECONDS, 1200),
                     CONF_ACTION_DELAY_SECONDS: user_input.get(CONF_ACTION_DELAY_SECONDS, 3),
-
-                    # Unified confidence thresholds
                     CONF_ADD_CONFIDENCE: user_input.get(CONF_ADD_CONFIDENCE, DEFAULT_ADD_CONFIDENCE),
                     CONF_REMOVE_CONFIDENCE: user_input.get(CONF_REMOVE_CONFIDENCE, DEFAULT_REMOVE_CONFIDENCE),
-
-                    # Initial learned power (now editable)
                     CONF_INITIAL_LEARNED_POWER: user_input.get(CONF_INITIAL_LEARNED_POWER, 1200),
                 }
                 return self.async_create_entry(title="", data=new_options)
@@ -168,22 +169,32 @@ class SolarACOptionsFlowHandler(config_entries.OptionsFlow):
 
     def _show_main_form(self, data: dict[str, Any], errors: dict[str, str]):
         """Render main options form."""
-        zones = data.get(CONF_ZONES, [])
-        if isinstance(zones, list):
-            zones_str = ", ".join(zones)
-        else:
-            zones_str = str(zones) if zones else ""
 
         schema = vol.Schema(
             {
                 # Sensors
-                vol.Required(CONF_SOLAR_SENSOR, default=data.get(CONF_SOLAR_SENSOR, "")): str,
-                vol.Required(CONF_GRID_SENSOR, default=data.get(CONF_GRID_SENSOR, "")): str,
-                vol.Required(CONF_AC_POWER_SENSOR, default=data.get(CONF_AC_POWER_SENSOR, "")): str,
-                vol.Required(CONF_AC_SWITCH, default=data.get(CONF_AC_SWITCH, "")): str,
+                vol.Required(CONF_SOLAR_SENSOR, default=data.get(CONF_SOLAR_SENSOR)): selector({
+                    "entity": {"domain": "sensor"}
+                }),
+                vol.Required(CONF_GRID_SENSOR, default=data.get(CONF_GRID_SENSOR)): selector({
+                    "entity": {"domain": "sensor"}
+                }),
+                vol.Required(CONF_AC_POWER_SENSOR, default=data.get(CONF_AC_POWER_SENSOR)): selector({
+                    "entity": {"domain": "sensor"}
+                }),
 
-                # Zones
-                vol.Required(CONF_ZONES, default=zones_str): str,
+                # Optional master switch
+                vol.Optional(CONF_AC_SWITCH, default=data.get(CONF_AC_SWITCH, "")): selector({
+                    "entity": {"domain": "switch"}
+                }),
+
+                # Ordered multi-select for zones
+                vol.Required(CONF_ZONES, default=data.get(CONF_ZONES, [])): selector({
+                    "entity": {
+                        "domain": ["climate", "switch"],
+                        "multiple": True
+                    }
+                }),
 
                 # Thresholds
                 vol.Optional(CONF_SOLAR_THRESHOLD_ON, default=data.get(CONF_SOLAR_THRESHOLD_ON, 1200)): int,
@@ -197,11 +208,11 @@ class SolarACOptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Optional(CONF_SHORT_CYCLE_OFF_SECONDS, default=data.get(CONF_SHORT_CYCLE_OFF_SECONDS, 1200)): int,
                 vol.Optional(CONF_ACTION_DELAY_SECONDS, default=data.get(CONF_ACTION_DELAY_SECONDS, 3)): int,
 
-                # Unified confidence thresholds
+                # Confidence thresholds
                 vol.Optional(CONF_ADD_CONFIDENCE, default=data.get(CONF_ADD_CONFIDENCE, DEFAULT_ADD_CONFIDENCE)): int,
                 vol.Optional(CONF_REMOVE_CONFIDENCE, default=data.get(CONF_REMOVE_CONFIDENCE, DEFAULT_REMOVE_CONFIDENCE)): int,
 
-                # Initial learned power (editable)
+                # Initial learned power
                 vol.Optional(CONF_INITIAL_LEARNED_POWER, default=data.get(CONF_INITIAL_LEARNED_POWER, 1200)): int,
             }
         )
