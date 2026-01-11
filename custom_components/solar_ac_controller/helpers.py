@@ -22,7 +22,7 @@ def build_diagnostics(coordinator):
     return {
         "version": coordinator.config_entry.data.get("version"),
         "timestamp": dt_util.utcnow().isoformat(),
-        "config": coordinator.config,
+        "config": dict(coordinator.config),
 
         # Learning
         "samples": coordinator.samples,
