@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from homeassistant.components.sensor import (
     SensorEntity,
     SensorDeviceClass,
@@ -18,7 +20,7 @@ async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
-):
+) -> None:
     data = hass.data[DOMAIN][entry.entry_id]
     coordinator = data["coordinator"]
 
@@ -70,10 +72,10 @@ class _BaseSolarACSensor(SensorEntity):
         }
 
     @property
-    def available(self):
+    def available(self) -> bool:
         return True
 
-    async def async_added_to_hass(self):
+    async def async_added_to_hass(self) -> None:
         self.coordinator.async_add_listener(self.async_write_ha_state)
 
 
@@ -83,15 +85,15 @@ class _BaseSolarACSensor(SensorEntity):
 
 class SolarACActiveZonesSensor(_BaseSolarACSensor):
     @property
-    def name(self):
+    def name(self) -> str:
         return "Solar AC Active Zones"
 
     @property
-    def unique_id(self):
+    def unique_id(self) -> str:
         return "solar_ac_active_zones"
 
     @property
-    def state(self):
+    def state(self) -> str:
         zones = []
         for z in self.coordinator.config.get(CONF_ZONES, []):
             st = self.coordinator.hass.states.get(z)
@@ -103,43 +105,43 @@ class SolarACActiveZonesSensor(_BaseSolarACSensor):
 
 class SolarACNextZoneSensor(_BaseSolarACSensor):
     @property
-    def name(self):
+    def name(self) -> str:
         return "Solar AC Next Zone"
 
     @property
-    def unique_id(self):
+    def unique_id(self) -> str:
         return "solar_ac_next_zone"
 
     @property
-    def state(self):
+    def state(self) -> str:
         return self.coordinator.next_zone or "none"
 
 
 class SolarACLastZoneSensor(_BaseSolarACSensor):
     @property
-    def name(self):
+    def name(self) -> str:
         return "Solar AC Last Zone"
 
     @property
-    def unique_id(self):
+    def unique_id(self) -> str:
         return "solar_ac_last_zone"
 
     @property
-    def state(self):
+    def state(self) -> str:
         return self.coordinator.last_zone or "none"
 
 
 class SolarACLastActionSensor(_BaseSolarACSensor):
     @property
-    def name(self):
+    def name(self) -> str:
         return "Solar AC Last Action"
 
     @property
-    def unique_id(self):
+    def unique_id(self) -> str:
         return "solar_ac_last_action"
 
     @property
-    def state(self):
+    def state(self) -> str:
         return self.coordinator.last_action or "none"
 
 
@@ -161,29 +163,29 @@ class _NumericSolarACSensor(_BaseSolarACSensor):
 
 class SolarACEma30Sensor(_NumericSolarACSensor):
     @property
-    def name(self):
+    def name(self) -> str:
         return "Solar AC EMA 30s"
 
     @property
-    def unique_id(self):
+    def unique_id(self) -> str:
         return "solar_ac_ema_30s"
 
     @property
-    def state(self):
+    def state(self) -> float:
         return round(self.coordinator.ema_30s, 2)
 
 
 class SolarACEma5Sensor(_NumericSolarACSensor):
     @property
-    def name(self):
+    def name(self) -> str:
         return "Solar AC EMA 5m"
 
     @property
-    def unique_id(self):
+    def unique_id(self) -> str:
         return "solar_ac_ema_5m"
 
     @property
-    def state(self):
+    def state(self) -> float:
         return round(self.coordinator.ema_5m, 2)
 
 
@@ -195,33 +197,33 @@ class SolarACConfidenceSensor(_BaseSolarACSensor):
     _attr_device_class = None
 
     @property
-    def name(self):
+    def name(self) -> str:
         return "Solar AC Confidence"
 
     @property
-    def unique_id(self):
+    def unique_id(self) -> str:
         return "solar_ac_confidence"
 
     @property
-    def state(self):
+    def state(self) -> float:
         return round(self.coordinator.confidence, 2)
 
 
 class SolarACConfidenceThresholdSensor(_BaseSolarACSensor):
     @property
-    def name(self):
+    def name(self) -> str:
         return "Solar AC Confidence Thresholds"
 
     @property
-    def unique_id(self):
+    def unique_id(self) -> str:
         return "solar_ac_conf_thresholds"
 
     @property
-    def state(self):
+    def state(self) -> str:
         return "ok"
 
     @property
-    def extra_state_attributes(self):
+    def extra_state_attributes(self) -> dict[str, Any]:
         return {
             "add_threshold": self.coordinator.add_confidence_threshold,
             "remove_threshold": self.coordinator.remove_confidence_threshold,
@@ -230,115 +232,114 @@ class SolarACConfidenceThresholdSensor(_BaseSolarACSensor):
 
 class SolarACRequiredExportSensor(_NumericSolarACSensor):
     @property
-    def name(self):
+    def name(self) -> str:
         return "Solar AC Required Export"
 
     @property
-    def unique_id(self):
+    def unique_id(self) -> str:
         return "solar_ac_required_export"
 
     @property
-    def state(self):
+    def state(self) -> float | None:
         val = self.coordinator.required_export
         return None if val is None else round(val, 2)
 
 
 class SolarACExportMarginSensor(_NumericSolarACSensor):
     @property
-    def name(self):
+    def name(self) -> str:
         return "Solar AC Export Margin"
 
     @property
-    def unique_id(self):
+    def unique_id(self) -> str:
         return "solar_ac_export_margin"
 
     @property
-    def state(self):
+    def state(self) -> float | None:
         val = self.coordinator.export_margin
         return None if val is None else round(val, 2)
 
 
 class SolarACImportPowerSensor(_NumericSolarACSensor):
     @property
-    def name(self):
+    def name(self) -> str:
         return "Solar AC Import Power"
 
     @property
-    def unique_id(self):
+    def unique_id(self) -> str:
         return "solar_ac_import_power"
 
     @property
-    def state(self):
+    def state(self) -> float:
         return round(self.coordinator.ema_5m, 2)
 
 
 # ---------------------------------------------------------------------------
-# FIXED: MASTER OFF SINCE (seconds, not watts)
+# TIMESTAMP SENSORS
 # ---------------------------------------------------------------------------
 
 class SolarACMasterOffSinceSensor(_BaseSolarACSensor):
-    _attr_device_class = None
-    _attr_native_unit_of_measurement = "s"
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
     _attr_state_class = SensorStateClass.MEASUREMENT
 
     @property
-    def name(self):
+    def name(self) -> str:
         return "Solar AC Master Off Since"
 
     @property
-    def unique_id(self):
+    def unique_id(self) -> str:
         return "solar_ac_master_off_since"
 
     @property
-    def state(self):
+    def state(self) -> str | None:
         ts = self.coordinator.master_off_since
-        return int(ts or 0)
+        if not ts:
+            return None
+        # Return localized ISO 8601 timestamp (Home Assistant timezone)
+        return dt_util.as_local(dt_util.utc_from_timestamp(ts)).isoformat()
 
     @property
-    def extra_state_attributes(self):
+    def extra_state_attributes(self) -> dict[str, Any]:
         ts = self.coordinator.master_off_since
         return {"utc_iso": dt_util.utc_from_timestamp(ts).isoformat() if ts else None}
 
 
-# ---------------------------------------------------------------------------
-# FIXED: LAST PANIC (seconds, not watts)
-# ---------------------------------------------------------------------------
-
 class SolarACLastPanicSensor(_BaseSolarACSensor):
-    _attr_device_class = None
-    _attr_native_unit_of_measurement = "s"
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
     _attr_state_class = SensorStateClass.MEASUREMENT
 
     @property
-    def name(self):
+    def name(self) -> str:
         return "Solar AC Last Panic"
 
     @property
-    def unique_id(self):
+    def unique_id(self) -> str:
         return "solar_ac_last_panic"
 
     @property
-    def state(self):
+    def state(self) -> str | None:
         ts = self.coordinator.last_panic_ts
-        return int(ts or 0)
+        if not ts:
+            return None
+        return dt_util.as_local(dt_util.utc_from_timestamp(ts)).isoformat()
 
     @property
-    def extra_state_attributes(self):
+    def extra_state_attributes(self) -> dict[str, Any]:
         ts = self.coordinator.last_panic_ts
         return {"utc_iso": dt_util.utc_from_timestamp(ts).isoformat() if ts else None}
 
 
 class SolarACPanicCooldownSensor(_BaseSolarACSensor):
     @property
-    def name(self):
+    def name(self) -> str:
         return "Solar AC Panic Cooldown Active"
 
     @property
-    def unique_id(self):
+    def unique_id(self) -> str:
         return "solar_ac_panic_cooldown"
 
     @property
-    def state(self):
+    def state(self) -> str:
         now = dt_util.utcnow().timestamp()
         ts = self.coordinator.last_panic_ts
         if not ts:
@@ -351,25 +352,22 @@ class SolarACPanicCooldownSensor(_BaseSolarACSensor):
 # ---------------------------------------------------------------------------
 
 class SolarACLearnedPowerSensor(_NumericSolarACSensor):
-    def __init__(self, coordinator, zone_name):
+    def __init__(self, coordinator, zone_name: str):
         super().__init__(coordinator)
         self.zone_name = zone_name
 
     @property
-    def name(self):
+    def name(self) -> str:
         return f"Solar AC Learned Power {self.zone_name}"
 
     @property
-    def unique_id(self):
+    def unique_id(self) -> str:
         return f"solar_ac_learned_power_{self.zone_name}"
 
     @property
-    def state(self):
+    def state(self) -> float:
         # Use coordinator accessor to remain compatible with legacy and per-mode storage.
-        return self.coordinator.get_learned_power(
-            self.zone_name,
-            mode="default",
-        )
+        return self.coordinator.get_learned_power(self.zone_name, mode="default")
 
 
 # ---------------------------------------------------------------------------
@@ -389,9 +387,9 @@ class SolarACDiagnosticEntity(_BaseSolarACSensor):
         self._attr_unique_id = "solar_ac_diagnostics"
 
     @property
-    def native_value(self):
+    def native_value(self) -> str:
         return self.coordinator.last_action or "idle"
 
     @property
-    def extra_state_attributes(self):
+    def extra_state_attributes(self) -> dict[str, Any]:
         return build_diagnostics(self.coordinator)
