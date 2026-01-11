@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+"""Constants for the Solar AC Controller integration."""
+
 DOMAIN = "solar_ac_controller"
 
-# Core configuration
+# Core configuration keys
 CONF_SOLAR_SENSOR = "solar_sensor"
 CONF_GRID_SENSOR = "grid_sensor"
 CONF_AC_POWER_SENSOR = "ac_power_sensor"
 CONF_AC_SWITCH = "ac_switch"
 CONF_ZONES = "zones"
 
-# Solar thresholds
+# Solar thresholds (W)
 CONF_SOLAR_THRESHOLD_ON = "solar_threshold_on"
 CONF_SOLAR_THRESHOLD_OFF = "solar_threshold_off"
 
@@ -21,14 +23,14 @@ CONF_SHORT_CYCLE_ON_SECONDS = "short_cycle_on_seconds"
 CONF_SHORT_CYCLE_OFF_SECONDS = "short_cycle_off_seconds"
 CONF_ACTION_DELAY_SECONDS = "action_delay_seconds"
 
-# Unified confidence thresholds
+# Unified confidence thresholds (points)
 CONF_ADD_CONFIDENCE = "add_confidence"
 CONF_REMOVE_CONFIDENCE = "remove_confidence"
 
 # Learning system
 CONF_INITIAL_LEARNED_POWER = "initial_learned_power"
 
-# Enable diagnostics sensor
+# Enable diagnostics sensor toggle
 CONF_ENABLE_DIAGNOSTICS = "enable_diagnostics_sensor"
 
 # Storage
