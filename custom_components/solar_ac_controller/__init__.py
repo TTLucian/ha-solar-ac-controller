@@ -55,17 +55,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # -------------------------
     # Storage and migration
     # -------------------------
-    # Define a migrate function that Store can call (if supported by this HA version).
-    # It converts legacy learned_power values (zone -> numeric) into per-mode dicts:
-    # {"default": v, "heat": v, "cool": v}. If no migration is needed, return old_data.
-    def _migrate_func(old_version: int, old_minor_version: int, old_data: dict | None) -> dict | None:
+    # Use an async migrate function because newer HA expects an async callable.
+    async def _migrate_func(old_version: int, old_minor_version: int, old_data: dict | None) -> dict | None:
+        """Async migration function for Store.
+
+        Convert legacy learned_power values (zone -> numeric) into per-mode dicts:
+        {"default": v, "heat": v, "cool": v}. Return migrated payload or old_data.
+        """
         if not old_data:
             return old_data
+
         try:
             raw_lp = old_data.get("learned_power")
             if isinstance(raw_lp, dict):
                 # If any value is numeric, treat as legacy format and migrate
                 if any(isinstance(v, (int, float)) for v in raw_lp.values()):
+                    _LOGGER.info("Store migrate_func: detected legacy learned_power format; migrating")
                     migrated: dict[str, dict[str, float]] = {}
                     # Fallback initial value (1200) if not present in entry
                     initial_lp = float(
@@ -97,23 +102,30 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
                     old_data["learned_power"] = migrated
                     old_data["samples"] = int(old_data.get("samples", 0) or 0)
+                    _LOGGER.info("Store migrate_func: migration complete")
                     return old_data
         except Exception:
-            # If migration fails, return old_data unchanged so HA can still load it
+            _LOGGER.exception("Store migrate_func: unexpected error during migration; returning original data")
             return old_data
+
+        # Nothing to migrate
         return old_data
 
     # Try to create Store with migrate_func if supported by this HA version.
     # If not supported, fall back to creating Store without migrate_func and run explicit migration later.
     try:
         store = Store(hass, STORAGE_VERSION, STORAGE_KEY, migrate_func=_migrate_func)
+        _LOGGER.debug("Created Store with migrate_func for %s", STORAGE_KEY)
     except TypeError:
         store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
+        _LOGGER.debug("Store does not accept migrate_func; will run explicit migration after load")
 
     # Attempt to load; if Store.async_load raises NotImplementedError, fall back to empty store
     try:
         stored: dict[str, Any] | None = await store.async_load()
     except NotImplementedError:
+        # This can happen if the storage layer expected a migration callback but couldn't run it.
+        # We fall back to an empty store to avoid blocking integration load.
         _LOGGER.warning(
             "Storage migration function not implemented for %s; starting with empty store",
             STORAGE_KEY,
@@ -132,7 +144,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if isinstance(raw_lp, dict):
             has_legacy_numeric = any(isinstance(v, (int, float)) for v in raw_lp.values())
             if has_legacy_numeric:
-                _LOGGER.info("Detected legacy learned_power format; migrating to per-mode structure")
+                _LOGGER.info("Explicit migration: detected legacy learned_power format; migrating to per-mode structure")
                 migrated: dict[str, dict[str, float]] = {}
                 initial_lp = float(
                     entry.options.get(
@@ -165,9 +177,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 stored["samples"] = int(stored.get("samples", 0) or 0)
                 try:
                     await store.async_save(stored)
-                    _LOGGER.info("Migrated legacy learned_power to per-mode structure and saved storage")
+                    _LOGGER.info("Explicit migration: migrated learned_power and saved storage")
                 except Exception:
-                    _LOGGER.exception("Failed to persist migrated learned_power to storage")
+                    _LOGGER.exception("Explicit migration: failed to persist migrated learned_power to storage")
     except Exception:
         _LOGGER.exception("Unexpected error while attempting explicit storage migration; continuing with loaded store")
 
