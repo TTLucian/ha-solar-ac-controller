@@ -5,22 +5,24 @@
     "step": {
       "user": {
         "title": "Solar AC Controller setup",
-        "description": "Configure how the controller manages your AC zones based on solar production and grid usage.\n\nTip: Define zones in the order you want them to be activated. All settings can be adjusted later from the Options menu.",
+        "description": "Configure how the controller manages your AC zones based on solar production and grid usage.\n\nTip: Select zones in the order you want them to be activated. All settings can be adjusted later from the Options menu.",
         "data": {
           "ac_power_sensor": "AC Power Sensor",
           "grid_sensor": "Grid Import/Export Sensor",
           "solar_sensor": "Solar Production Sensor",
-          "ac_switch": "Master AC Switch",
-          "zones": "AC Zones",
-          "initial_learned_power": "Initial Learned Power (W)"
-        },
-        "data_description": {
-          "ac_power_sensor": "Sensor that reports the AC unit's current power draw.",
-          "grid_sensor": "Sensor showing grid import/export (negative = export).",
-          "solar_sensor": "Sensor showing solar production.",
-          "ac_switch": "Main switch that powers the AC system.",
-          "zones": "List of entities to control. Order determines activation priority.",
-          "initial_learned_power": "Starting estimate of zone power usage before learning kicks in."
+          "ac_switch": "Master AC Switch (optional)",
+          "zones": "AC Zones (ordered)",
+          "initial_learned_power": "Initial Learned Power (W)",
+          "solar_threshold_on": "Solar ON Threshold (W)",
+          "solar_threshold_off": "Solar OFF Threshold (W)",
+          "panic_threshold": "Panic Threshold (W)",
+          "panic_delay": "Panic Delay (seconds)",
+          "manual_lock_seconds": "Manual Override Lock Duration (seconds)",
+          "short_cycle_on_seconds": "Short Cycle ON Protection (seconds)",
+          "short_cycle_off_seconds": "Short Cycle OFF Protection (seconds)",
+          "action_delay_seconds": "Action Delay (seconds)",
+          "add_confidence": "Add Confidence Threshold",
+          "remove_confidence": "Remove Confidence Threshold"
         }
       }
     }
@@ -35,8 +37,8 @@
           "ac_power_sensor": "AC Power Sensor",
           "grid_sensor": "Grid Import/Export Sensor",
           "solar_sensor": "Solar Production Sensor",
-          "ac_switch": "Master AC Switch",
-          "zones": "AC Zones",
+          "ac_switch": "Master AC Switch (optional)",
+          "zones": "AC Zones (ordered)",
           "initial_learned_power": "Initial Learned Power (W)",
           "solar_threshold_on": "Solar ON Threshold (W)",
           "solar_threshold_off": "Solar OFF Threshold (W)",
@@ -45,27 +47,15 @@
           "manual_lock_seconds": "Manual Override Lock Duration (seconds)",
           "short_cycle_on_seconds": "Short Cycle ON Protection (seconds)",
           "short_cycle_off_seconds": "Short Cycle OFF Protection (seconds)",
-          "action_delay_seconds": "Action delay (seconds)",
+          "action_delay_seconds": "Action Delay (seconds)",
           "add_confidence": "Add Confidence Threshold",
           "remove_confidence": "Remove Confidence Threshold"
-        },
-        "data_description": {
-          "solar_threshold_on": "Solar must exceed this value to enable the AC master switch.",
-          "solar_threshold_off": "Solar must fall below this value to disable the AC master switch.",
-          "panic_threshold": "If grid import exceeds this value, zones are shed to protect the inverter.",
-          "panic_delay": "Delay before panic shedding is executed.",
-          "manual_lock_seconds": "When a user manually changes a zone, it is locked for this duration.",
-          "short_cycle_on_seconds": "Minimum time a zone must stay ON before it can be turned OFF.",
-          "short_cycle_off_seconds": "Minimum time a zone must stay OFF before it can be turned ON.",
-          "action_delay_seconds": "Minimum time between sending zone actions or commands.",
-          "add_confidence": "Minimum confidence required to add a new zone.",
-          "remove_confidence": "Minimum negative confidence required to remove a zone."
         }
       }
     },
 
     "error": {
-      "no_zones": "You must define at least one climate zone.",
+      "no_zones": "You must define at least one zone.",
       "invalid_solar_hysteresis": "Solar OFF threshold must be lower than Solar ON threshold.",
       "panic_too_low": "Panic threshold should be safely above the Solar ON threshold."
     }
