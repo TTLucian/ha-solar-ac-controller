@@ -1,26 +1,10 @@
 from __future__ import annotations
 
 from homeassistant.components.sensor import SensorEntity
-from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from .const import DOMAIN, CONF_ENABLE_DIAGNOSTICS
+
+from .const import DOMAIN
 from .helpers import build_diagnostics
-
-
-async def async_setup_entry(
-    hass: HomeAssistant,
-    entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
-):
-    # Respect the diagnostics toggle
-    if not entry.options.get(CONF_ENABLE_DIAGNOSTICS, True):
-        return
-
-    data = hass.data[DOMAIN][entry.entry_id]
-    coordinator = data["coordinator"]
-
-    async_add_entities([SolarACDiagnosticEntity(coordinator, entry)])
 
 
 class SolarACDiagnosticEntity(SensorEntity):
