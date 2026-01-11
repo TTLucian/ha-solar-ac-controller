@@ -28,6 +28,9 @@ CONF_REMOVE_CONFIDENCE = "remove_confidence"
 # Learning system
 CONF_INITIAL_LEARNED_POWER = "initial_learned_power"
 
+# Enable diagnostics sensor
+CONF_ENABLE_DIAGNOSTICS = "enable_diagnostics_sensor"
+
 # Storage
 STORAGE_KEY = DOMAIN
 STORAGE_VERSION = 1
