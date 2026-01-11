@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from homeassistant.components.sensor import SensorEntity
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN
 from .helpers import build_diagnostics
@@ -15,9 +15,10 @@ class SolarACDiagnosticEntity(SensorEntity):
     _attr_icon = "mdi:brain"
     _attr_device_class = "diagnostic"
 
-    def __init__(self, coordinator, entry: ConfigEntry):
+    def __init__(self, coordinator):
         self.coordinator = coordinator
-        self._attr_unique_id = f"{entry.entry_id}_diagnostics"
+        # Stable unique id not tied to config entry
+        self._attr_unique_id = "solar_ac_diagnostics"
 
         self._attr_device_info = {
             "identifiers": {(DOMAIN, "solar_ac_controller")},
@@ -25,16 +26,21 @@ class SolarACDiagnosticEntity(SensorEntity):
             "manufacturer": "TTLucian",
             "model": "Solar AC Smart Controller",
             "configuration_url": "https://github.com/TTLucian/ha-solar-ac-controller",
+            "sw_version": getattr(coordinator, "version", None),
         }
 
     async def async_added_to_hass(self):
-        """Register for coordinator updates."""
+        """Register for coordinator updates and keep unsubscribe handle."""
         self._unsub = self.coordinator.async_add_listener(self.async_write_ha_state)
 
     async def async_will_remove_from_hass(self):
         """Clean up listener."""
-        if hasattr(self, "_unsub"):
-            self._unsub()
+        if hasattr(self, "_unsub") and callable(self._unsub):
+            try:
+                self._unsub()
+            except Exception:
+                # Best-effort cleanup; don't raise during unload
+                pass
 
     @property
     def native_value(self):
