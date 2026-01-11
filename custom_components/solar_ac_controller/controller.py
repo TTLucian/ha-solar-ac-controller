@@ -3,7 +3,10 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
+
+from .const import CONF_AC_POWER_SENSOR
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -18,25 +21,38 @@ class SolarACController:
     import issues when the coordinator is imported during integration setup.
     """
 
-    def __init__(self, hass, coordinator, store: Any | None = None) -> None:
+    def __init__(self, hass: HomeAssistant, coordinator: Any, store: Any | None = None) -> None:
         self.hass = hass
         self.coordinator = coordinator
+        # store is kept for compatibility but persistence should go through coordinator
         self.store = store
 
     # -------------------------
     # Public async API (awaited by coordinator / services)
     # -------------------------
-    async def start_learning(self, zone_entity_id: str, ac_power_before: float) -> None:
+    async def start_learning(self, zone_entity_id: str, ac_power_before: float | None) -> None:
         """Begin a learning session for a zone.
 
         Marks the coordinator as actively learning and records the baseline AC
         power reading. This method is async to match coordinator usage but
         performs only in-memory updates.
         """
+        # Prevent overlapping learning sessions
+        if self.coordinator.learning_active:
+            _LOGGER.debug("start_learning called but learning already active for zone=%s", self.coordinator.learning_zone)
+            return
+
+        # Validate and coerce baseline
+        try:
+            baseline = float(ac_power_before) if ac_power_before is not None else None
+        except (TypeError, ValueError):
+            baseline = None
+            _LOGGER.debug("start_learning: invalid ac_power_before=%s", ac_power_before)
+
         self.coordinator.learning_active = True
         self.coordinator.learning_zone = zone_entity_id
         self.coordinator.learning_start_time = dt_util.utcnow().timestamp()
-        self.coordinator.ac_power_before = float(ac_power_before) if ac_power_before is not None else None
+        self.coordinator.ac_power_before = baseline
 
         _LOGGER.debug(
             "Start learning: zone=%s ac_before=%s",
@@ -56,47 +72,27 @@ class SolarACController:
             _LOGGER.debug("finish_learning called but no learning_zone set")
             return
 
-        ac_sensor = self.coordinator.config.get("ac_power_sensor") or self.coordinator.config.get(
-            "ac_power_sensor".upper()
-        )
-        # Prefer the configured constant if present in consts; fall back to config key
-        ac_sensor = self.coordinator.config.get("ac_power_sensor", self.coordinator.config.get("ac_power_sensor"))
-
-        # Try to read the AC power sensor from coordinator config (use the same key as coordinator)
-        ac_sensor_entity = self.coordinator.config.get("ac_power_sensor") or self.coordinator.config.get(
-            "ac_power_sensor"
-        )
-        # More robust: use the CONF_AC_POWER_SENSOR constant name if present in config
-        ac_sensor_entity = self.coordinator.config.get("ac_power_sensor", self.coordinator.config.get("ac_power_sensor"))
-
-        # Best-effort: use the same key the coordinator used earlier (CONF_AC_POWER_SENSOR)
-        ac_sensor_entity = self.coordinator.config.get("ac_power_sensor", self.coordinator.config.get("ac_power_sensor"))
-
-        # Fallback: try to read the sensor entity id from coordinator.config using common keys
-        possible_keys = ["ac_power_sensor", "AC_POWER_SENSOR", "ac_sensor"]
-        ac_entity_id = None
-        for k in possible_keys:
-            if k in self.coordinator.config and self.coordinator.config.get(k):
-                ac_entity_id = self.coordinator.config.get(k)
-                break
-
-        # If still not found, try the explicit CONF name used in the coordinator module
-        if not ac_entity_id:
-            ac_entity_id = self.coordinator.config.get("ac_power_sensor")
+        # Use a single, deterministic config lookup for the AC power sensor
+        cfg = self.coordinator.config or {}
+        ac_entity_id = cfg.get(CONF_AC_POWER_SENSOR) or cfg.get("ac_power_sensor") or cfg.get("ac_sensor")
 
         # Read current AC power
-        ac_power_now = None
+        ac_power_now: float | None = None
         if ac_entity_id:
             st = self.hass.states.get(ac_entity_id)
             if st:
                 try:
                     ac_power_now = float(st.state)
                 except (ValueError, TypeError):
-                    ac_power_now = None
+                    _LOGGER.debug("AC sensor %s returned non-numeric state %s", ac_entity_id, st.state)
 
-        # If we couldn't read the sensor, try to use coordinator's last known EMA as a fallback
+        # Fallback: use coordinator's EMA if sensor unreadable
         if ac_power_now is None:
-            ac_power_now = getattr(self.coordinator, "ema_30s", None)
+            ema = getattr(self.coordinator, "ema_30s", None)
+            try:
+                ac_power_now = float(ema) if ema is not None else None
+            except (TypeError, ValueError):
+                ac_power_now = None
             _LOGGER.debug("AC power sensor unreadable; falling back to coordinator.ema_30s=%s", ac_power_now)
 
         ac_before = self.coordinator.ac_power_before
@@ -107,7 +103,12 @@ class SolarACController:
             return
 
         # Compute absolute delta (compressor delta)
-        delta = abs(ac_power_now - float(ac_before))
+        try:
+            delta = abs(float(ac_power_now) - float(ac_before))
+        except Exception:
+            _LOGGER.debug("Failed to compute delta (ac_before=%s ac_now=%s)", ac_before, ac_power_now)
+            self._reset_learning_state()
+            return
 
         # Determine mode for the zone (heat/cool/default)
         zone_name = zone.split(".")[-1]
@@ -118,8 +119,6 @@ class SolarACController:
                 mode = "heat"
             elif zone_state_obj.state == "cool":
                 mode = "cool"
-            else:
-                mode = None
 
         # Update coordinator learned values
         try:

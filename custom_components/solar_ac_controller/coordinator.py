@@ -28,10 +28,10 @@ from .const import (
     CONF_ACTION_DELAY_SECONDS,
     STORAGE_KEY,
     STORAGE_VERSION,
+    DEFAULT_INITIAL_LEARNED_POWER,
 )
 
 if TYPE_CHECKING:
-    # For typing only — avoids runtime circular import
     from .controller import SolarACController
 
 _LOGGER = logging.getLogger(__name__)
@@ -44,19 +44,16 @@ _DEFAULT_REMOVE_CONFIDENCE = 10
 
 
 class SolarACCoordinator(DataUpdateCoordinator):
-    """Main control loop for the Solar AC Controller.
+    """Main control loop for the Solar AC Controller."""
 
-    This coordinator also handles migration of stored learned_power from the
-    legacy numeric-per-zone format to a per-mode structure:
-      legacy: { "living_room": 1200, "bedroom": 900 }
-      new:    { "living_room": {"default":1200, "heat":1200, "cool":1200}, ... }
-
-    The coordinator exposes helper methods `get_learned_power` and
-    `set_learned_power` so other modules (controller, sensors) can remain
-    agnostic to the underlying storage format.
-    """
-
-    def __init__(self, hass: HomeAssistant, config_entry, store, stored: dict[str, Any], version: str):
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        config_entry,
+        store,
+        stored: dict[str, Any] | None,
+        version: str,
+    ):
         super().__init__(
             hass,
             logger=_LOGGER,
@@ -68,81 +65,68 @@ class SolarACCoordinator(DataUpdateCoordinator):
         self.config_entry = config_entry
         self.config = dict(config_entry.data)
         self.store = store
-
-        # Integration version (first-class field)
         self.version = version
 
-        # Initial learned power (option or config)
+        # Initial learned power: prefer option, then config, then default constant
         self.initial_learned_power = config_entry.options.get(
             CONF_INITIAL_LEARNED_POWER,
-            config_entry.data.get(CONF_INITIAL_LEARNED_POWER, 1200),
+            config_entry.data.get(CONF_INITIAL_LEARNED_POWER, DEFAULT_INITIAL_LEARNED_POWER),
         )
 
-        # Load stored values and migrate if necessary
+        # Defensive: stored may be None
+        stored = stored or {}
         raw_learned = stored.get("learned_power", {}) or {}
         raw_samples = stored.get("samples", 0) or 0
 
-        # Ensure types
         self.learned_power: dict[str, dict[str, float]] = {}
         self.samples: int = int(raw_samples)
 
-        # Perform migration if legacy format detected (values are numeric)
         migrated = False
         if isinstance(raw_learned, dict):
             for zone_name, val in raw_learned.items():
-                # Legacy numeric value -> migrate to per-mode dict
                 if isinstance(val, (int, float)):
                     migrated = True
                     v = float(val)
-                    self.learned_power[zone_name] = {
-                        "default": v,
-                        "heat": v,
-                        "cool": v,
-                    }
+                    self.learned_power[zone_name] = {"default": v, "heat": v, "cool": v}
                 elif isinstance(val, dict):
-                    # Already per-mode; normalize keys and ensure numeric values
-                    normalized = {}
-                    # Accept keys: default, heat, cool (case-insensitive)
+                    normalized: dict[str, float] = {}
                     for k, vv in val.items():
                         try:
                             normalized[k.lower()] = float(vv)
                         except Exception:
-                            # Skip non-numeric entries
                             continue
-                    # Ensure default exists
                     if "default" not in normalized:
-                        # Prefer heat, then cool, then initial_learned_power
-                        normalized["default"] = normalized.get("heat", normalized.get("cool", float(self.initial_learned_power)))
+                        normalized["default"] = normalized.get(
+                            "heat", normalized.get("cool", float(self.initial_learned_power))
+                        )
                     if "heat" not in normalized:
                         normalized["heat"] = normalized["default"]
                     if "cool" not in normalized:
                         normalized["cool"] = normalized["default"]
                     self.learned_power[zone_name] = normalized
                 else:
-                    # Unknown type: ignore and fallback to initial value
                     self.learned_power[zone_name] = {
                         "default": float(self.initial_learned_power),
                         "heat": float(self.initial_learned_power),
                         "cool": float(self.initial_learned_power),
                     }
         else:
-            # No learned_power stored; initialize empty mapping
             self.learned_power = {}
 
-        # If migration occurred, persist the new structure immediately
         if migrated:
-            # Save migrated structure and samples back to storage
             try:
-                # Build storage payload
-                payload = {
-                    "learned_power": dict(self.learned_power),
-                    "samples": int(self.samples),
-                }
-                # Use store to persist (schedule on the event loop)
-                hass.async_create_task(self.store.async_save(payload))
-                _LOGGER.info("Migrated legacy learned_power to per-mode structure and saved storage")
+                payload = {"learned_power": dict(self.learned_power), "samples": int(self.samples)}
+
+                async def _save_payload():
+                    try:
+                        await self.store.async_save(payload)
+                        _LOGGER.info("Migrated legacy learned_power to per-mode structure and saved storage")
+                    except Exception as exc:
+                        _LOGGER.exception("Failed to persist migrated learned_power: %s", exc)
+
+                hass.async_create_task(_save_payload())
             except Exception as exc:
-                _LOGGER.exception("Failed to persist migrated learned_power: %s", exc)
+                _LOGGER.exception("Failed to schedule persist of migrated learned_power: %s", exc)
 
         # Internal state
         self.last_action: str | None = None
@@ -151,66 +135,43 @@ class SolarACCoordinator(DataUpdateCoordinator):
         self.ac_power_before: float | None = None
         self.learning_zone: str | None = None
 
-        # EMA state
         self.ema_30s: float = 0.0
         self.ema_5m: float = 0.0
 
-        # Short cycle memory
         self.zone_last_changed: dict[str, float] = {}
         self.zone_last_changed_type: dict[str, str] = {}
-
-        # Manual override detection
         self.zone_last_state: dict[str, str | None] = {}
         self.zone_manual_lock_until: dict[str, float] = {}
 
-        # Panic config
         self.panic_threshold: float = float(self.config.get(CONF_PANIC_THRESHOLD, 1500))
         self.panic_delay: int = int(self.config.get(CONF_PANIC_DELAY, 30))
-
-        # Manual lock duration
         self.manual_lock_seconds: int = int(self.config.get(CONF_MANUAL_LOCK_SECONDS, 1200))
-
-        # Short-cycle thresholds
-        self.short_cycle_on_seconds: int = int(self.config.get(
-            CONF_SHORT_CYCLE_ON_SECONDS, 1200
-        ))
-        self.short_cycle_off_seconds: int = int(self.config.get(
-            CONF_SHORT_CYCLE_OFF_SECONDS, 1200
-        ))
-
-        # Delay between actions
+        self.short_cycle_on_seconds: int = int(self.config.get(CONF_SHORT_CYCLE_ON_SECONDS, 1200))
+        self.short_cycle_off_seconds: int = int(self.config.get(CONF_SHORT_CYCLE_OFF_SECONDS, 1200))
         self.action_delay_seconds: int = int(self.config.get(CONF_ACTION_DELAY_SECONDS, 3))
 
-        # Confidence thresholds
-        self.add_confidence_threshold: float = float(self.config.get(
-            CONF_ADD_CONFIDENCE, _DEFAULT_ADD_CONFIDENCE
-        ))
-        self.remove_confidence_threshold: float = float(self.config.get(
-            CONF_REMOVE_CONFIDENCE, _DEFAULT_REMOVE_CONFIDENCE
-        ))
+        self.add_confidence_threshold: float = float(
+            self.config.get(CONF_ADD_CONFIDENCE, _DEFAULT_ADD_CONFIDENCE)
+        )
+        self.remove_confidence_threshold: float = float(
+            self.config.get(CONF_REMOVE_CONFIDENCE, _DEFAULT_REMOVE_CONFIDENCE)
+        )
 
-        # Controller
-        # Import controller lazily to avoid circular import during package initialization
-        from .controller import SolarACController  # local import
-
+        from .controller import SolarACController
         self.controller: "SolarACController" = SolarACController(hass, self, store)
 
-        # Observability
         self.last_add_conf: float = 0.0
         self.last_remove_conf: float = 0.0
         self.confidence: float = 0.0
         self.last_action_start_ts: float | None = None
         self.last_action_duration: float | None = None
 
-        # Background tasks
         self._panic_task: asyncio.Task | None = None
         self._master_shutdown_task: asyncio.Task | None = None
 
-        # Master OFF tracking and panic cooldown
         self.master_off_since: float | None = None
         self.last_panic_ts: float | None = None
 
-        # Exposed fields for sensors
         self.next_zone: str | None = None
         self.last_zone: str | None = None
         self.required_export: float | None = None

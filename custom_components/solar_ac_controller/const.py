@@ -2,6 +2,15 @@ from __future__ import annotations
 
 """Constants for the Solar AC Controller integration."""
 
+# When changing the on-disk schema, increment STORAGE_VERSION and add a migration.
+# Bump STORAGE_VERSION whenever the structure of the stored payload changes
+# (for example: renaming keys, changing types, or moving from numeric to dict shapes).
+# Keep a short note in the migration function describing the change and the target version.
+# If you want the on-disk filename to remain stable across domain renames, keep STORAGE_KEY
+# as a literal string (below) rather than deriving it from DOMAIN.
+# Number of backup files to retain for storage (optional).
+STORAGE_BACKUP_KEEP = 5
+
 DOMAIN = "solar_ac_controller"
 
 # Core configuration keys
@@ -37,6 +46,8 @@ CONF_ENABLE_DIAGNOSTICS = "enable_diagnostics_sensor"
 DEFAULT_INITIAL_LEARNED_POWER = 1200.0
 
 # Storage
-STORAGE_KEY = DOMAIN
-# Bumped storage version to support migration to per-mode learned_power structure
+# Use a literal storage key so the on-disk filename remains stable even if DOMAIN changes.
+STORAGE_KEY = "solar_ac_controller"
+# Bumped storage version to support migration to per-mode learned_power structure.
+# Increment this integer whenever the on-disk schema changes and implement a corresponding migration.
 STORAGE_VERSION = 2
