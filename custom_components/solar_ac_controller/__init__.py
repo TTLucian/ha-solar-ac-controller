@@ -175,7 +175,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry):
-    """Migrate older config entries to the new format."""
+    """Migrate old config entries to the new format."""
     data = dict(entry.data)
 
     # Convert old comma-separated zone strings → list
@@ -183,8 +183,10 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry):
     if isinstance(zones, str):
         data[CONF_ZONES] = [z.strip() for z in zones.split(",") if z.strip()]
 
+
     hass.config_entries.async_update_entry(entry, data=data)
     return True
+
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
