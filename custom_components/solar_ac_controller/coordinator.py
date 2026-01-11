@@ -62,8 +62,8 @@ class SolarACCoordinator(DataUpdateCoordinator):
             config_entry.data.get(CONF_INITIAL_LEARNED_POWER, 1200),
         )
 
-        self.learned_power: dict[str, float] = stored.get("learned_power", {})
-        self.samples: int = stored.get("samples", 0)
+        self.learned_power: dict[str, float] = dict(stored.get("learned_power", {}))
+        self.samples: int = int(stored.get("samples", 0))
 
         # Internal state
         self.last_action: str | None = None
@@ -85,30 +85,30 @@ class SolarACCoordinator(DataUpdateCoordinator):
         self.zone_manual_lock_until: dict[str, float] = {}
 
         # Panic config
-        self.panic_threshold: float = self.config.get(CONF_PANIC_THRESHOLD, 1500)
-        self.panic_delay = self.config.get(CONF_PANIC_DELAY, 30)
+        self.panic_threshold: float = float(self.config.get(CONF_PANIC_THRESHOLD, 1500))
+        self.panic_delay: int = int(self.config.get(CONF_PANIC_DELAY, 30))
 
         # Manual lock duration
-        self.manual_lock_seconds: int = self.config.get(CONF_MANUAL_LOCK_SECONDS, 1200)
+        self.manual_lock_seconds: int = int(self.config.get(CONF_MANUAL_LOCK_SECONDS, 1200))
 
         # Short-cycle thresholds
-        self.short_cycle_on_seconds: int = self.config.get(
+        self.short_cycle_on_seconds: int = int(self.config.get(
             CONF_SHORT_CYCLE_ON_SECONDS, 1200
-        )
-        self.short_cycle_off_seconds: int = self.config.get(
+        ))
+        self.short_cycle_off_seconds: int = int(self.config.get(
             CONF_SHORT_CYCLE_OFF_SECONDS, 1200
-        )
+        ))
 
         # Delay between actions
-        self.action_delay_seconds = self.config.get(CONF_ACTION_DELAY_SECONDS, 3)
+        self.action_delay_seconds: int = int(self.config.get(CONF_ACTION_DELAY_SECONDS, 3))
 
         # Confidence thresholds
-        self.add_confidence_threshold: float = self.config.get(
+        self.add_confidence_threshold: float = float(self.config.get(
             CONF_ADD_CONFIDENCE, _DEFAULT_ADD_CONFIDENCE
-        )
-        self.remove_confidence_threshold: float = self.config.get(
+        ))
+        self.remove_confidence_threshold: float = float(self.config.get(
             CONF_REMOVE_CONFIDENCE, _DEFAULT_REMOVE_CONFIDENCE
-        )
+        ))
 
         # Controller
         self.controller = SolarACController(hass, self, store)
@@ -141,9 +141,9 @@ class SolarACCoordinator(DataUpdateCoordinator):
         """Main loop executed every 5 seconds."""
 
         # 1. Read sensors
-        grid_state = self.hass.states.get(self.config[CONF_GRID_SENSOR])
-        solar_state = self.hass.states.get(self.config[CONF_SOLAR_SENSOR])
-        ac_state = self.hass.states.get(self.config[CONF_AC_POWER_SENSOR])
+        grid_state = self.hass.states.get(self.config.get(CONF_GRID_SENSOR))
+        solar_state = self.hass.states.get(self.config.get(CONF_SOLAR_SENSOR))
+        ac_state = self.hass.states.get(self.config.get(CONF_AC_POWER_SENSOR))
 
         if not grid_state or not solar_state or not ac_state:
             _LOGGER.debug("Missing sensor state, skipping cycle")
@@ -297,7 +297,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
     async def _update_zone_states_and_overrides(self) -> list[str]:
         active_zones: list[str] = []
 
-        for zone in self.config[CONF_ZONES]:
+        for zone in self.config.get(CONF_ZONES, []):
             state_obj = self.hass.states.get(zone)
             if not state_obj:
                 continue
@@ -325,7 +325,8 @@ class SolarACCoordinator(DataUpdateCoordinator):
 
             self.zone_last_state[zone] = state
 
-            if state in ("heat", "on"):
+            # Treat heating, cooling and generic "on" as active
+            if state in ("heat", "cool", "on"):
                 active_zones.append(zone)
 
         return active_zones
@@ -341,7 +342,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
         next_zone = next(
             (
                 z
-                for z in self.config[CONF_ZONES]
+                for z in self.config.get(CONF_ZONES, [])
                 if z not in active_zones and not self._is_locked(z)
             ),
             None,
@@ -386,7 +387,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
     def _compute_add_conf(
         self,
         export: float,
-        required_export: float,
+        required_export: float | None,
         last_zone: str | None,
     ) -> float:
 
@@ -660,7 +661,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
         try:
             await asyncio.sleep(600)
 
-            ac_state = self.hass.states.get(self.config[CONF_AC_POWER_SENSOR])
+            ac_state = self.hass.states.get(self.config.get(CONF_AC_POWER_SENSOR))
             try:
                 ac_now = float(ac_state.state) if ac_state else 0.0
             except (ValueError, TypeError):
