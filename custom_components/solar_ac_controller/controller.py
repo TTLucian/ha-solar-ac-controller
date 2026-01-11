@@ -4,9 +4,7 @@ import logging
 from homeassistant.util import dt as dt_util
 from homeassistant.core import HomeAssistant
 
-from .const import (
-    CONF_AC_POWER_SENSOR,
-)
+from .const import CONF_AC_POWER_SENSOR
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -48,7 +46,8 @@ class SolarACController:
         zone_state = self.hass.states.get(zone_entity)
 
         # Abort if zone was manually turned off or changed mode
-        if not zone_state or zone_state.state not in ("heat", "on"):
+        # Treat cooling the same as heating
+        if not zone_state or zone_state.state not in ("heat", "cool", "on"):
             await c._log(
                 f"[LEARNING_ABORT_MANUAL_INTERVENTION] zone={zone_entity} "
                 f"state={zone_state.state if zone_state else 'unknown'}"
@@ -67,7 +66,7 @@ class SolarACController:
             return
 
         # Read AC power
-        ac_state = self.hass.states.get(c.config[CONF_AC_POWER_SENSOR])
+        ac_state = self.hass.states.get(c.config.get(CONF_AC_POWER_SENSOR))
         if not ac_state:
             await c._log("[LEARNING_ABORT] ac_power_sensor state missing")
             self._reset_learning_state()
@@ -80,7 +79,7 @@ class SolarACController:
 
         try:
             ac_power_now = float(ac_state.state)
-        except ValueError:
+        except (ValueError, TypeError):
             await c._log("[LEARNING_ABORT] ac_power_sensor non-numeric")
             self._reset_learning_state()
             return
@@ -167,8 +166,8 @@ class SolarACController:
         try:
             await self.store.async_save(
                 {
-                    "learned_power": self.coordinator.learned_power,
-                    "samples": self.coordinator.samples,
+                    "learned_power": dict(self.coordinator.learned_power),
+                    "samples": int(self.coordinator.samples),
                 }
             )
         except Exception as e:
@@ -185,7 +184,7 @@ class SolarACController:
         """Reset all learned values."""
         c = self.coordinator
 
-        for zone in c.config["zones"]:
+        for zone in c.config.get("zones", []):
             zone_name = zone.split(".")[-1]
             c.learned_power[zone_name] = c.initial_learned_power
 
