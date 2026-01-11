@@ -45,45 +45,19 @@ def _short_name(entity_id: str) -> str:
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
-    """YAML setup is intentionally unsupported."""
-    return True
-
-
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up the integration and coordinator, preserving original behavior plus migration."""
-    hass.data.setdefault(DOMAIN, {})
-
-    # Load integration version from manifest
-    integration = await async_get_integration(hass, DOMAIN)
-    version = integration.version
-    hass.data[DOMAIN]["version"] = version
-
-    # -------------------------
-    # Storage and migration
-    # -------------------------
-    async def _migrate_func(old_version: int, old_minor_version: int, old_data: dict | None) -> dict | None:
-        """Async migration function for Store.
-
-        Convert legacy learned_power values (zone -> numeric) into per-mode dicts:
-        {"default": v, "heat": v, "cool": v}. Return migrated payload or old_data.
-        """
+    """Register storage migration early so HA can call it during its migration step."""
+    # Migration function must not depend on ConfigEntry because HA may call it
+    # before entries are loaded. Use a safe default initial learned power (1200).
+    async def _early_migrate(old_version: int, old_minor_version: int, old_data: dict | None) -> dict | None:
         if not old_data:
             return old_data
-
         try:
             raw_lp = old_data.get("learned_power")
             if isinstance(raw_lp, dict):
-                # If any value is numeric, treat as legacy format and migrate
                 if any(isinstance(v, (int, float)) for v in raw_lp.values()):
-                    _LOGGER.info("Store migrate_func: detected legacy learned_power format; migrating")
+                    _LOGGER.info("early_migrate: detected legacy learned_power format; migrating")
                     migrated: dict[str, dict[str, float]] = {}
-                    # Fallback initial value (1200) if not present in entry
-                    initial_lp = float(
-                        entry.options.get(
-                            CONF_INITIAL_LEARNED_POWER,
-                            entry.data.get(CONF_INITIAL_LEARNED_POWER, 1200),
-                        )
-                    )
+                    initial_lp = float(old_data.get("initial_learned_power", 1200))
                     for zone_name, val in raw_lp.items():
                         if isinstance(val, (int, float)):
                             v = float(val)
@@ -104,37 +78,46 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             migrated[zone_name] = normalized
                         else:
                             migrated[zone_name] = {"default": initial_lp, "heat": initial_lp, "cool": initial_lp}
-
                     old_data["learned_power"] = migrated
                     old_data["samples"] = int(old_data.get("samples", 0) or 0)
-                    _LOGGER.info("Store migrate_func: migration complete")
+                    _LOGGER.info("early_migrate: migration complete")
                     return old_data
         except Exception:
-            _LOGGER.exception("Store migrate_func: unexpected error during migration; returning original data")
+            _LOGGER.exception("early_migrate: unexpected error during migration; returning original data")
             return old_data
-
-        # Nothing to migrate
         return old_data
 
-    # If HA exposes storage_async_migrate, register our migration so HA will call it during its migration step.
     if storage_async_migrate:
         try:
-            # Register migration from minor_version 1 to STORAGE_VERSION's minor (if applicable).
-            # We pass the storage key and the migrate function; HA will call it during its migration.
-            await storage_async_migrate(hass, STORAGE_KEY, 1, STORAGE_VERSION, _migrate_func)
-            _LOGGER.debug("Registered storage migration via async_migrate for %s", STORAGE_KEY)
+            # Register migration for this storage key so HA will call it during its migration step.
+            # We register from minor version 1 to the current STORAGE_VERSION (minor).
+            await storage_async_migrate(hass, STORAGE_KEY, 1, STORAGE_VERSION, _early_migrate)
+            _LOGGER.debug("Registered early storage migration for %s via async_migrate", STORAGE_KEY)
         except Exception:
-            _LOGGER.exception("Failed to register storage migration via async_migrate; will attempt explicit migration after load")
+            _LOGGER.exception("Failed to register early storage migration; explicit migration will run later")
 
-    # Create Store (we do not pass migrate_func to constructor to remain compatible across HA versions)
+    return True
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Set up the integration and coordinator, preserving original behavior plus migration."""
+    hass.data.setdefault(DOMAIN, {})
+
+    # Load integration version from manifest
+    integration = await async_get_integration(hass, DOMAIN)
+    version = integration.version
+    hass.data[DOMAIN]["version"] = version
+
+    # -------------------------
+    # Storage and migration (explicit fallback)
+    # -------------------------
+    # Create Store (do not pass migrate_func to constructor for compatibility)
     store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
 
     # Attempt to load; if Store.async_load raises NotImplementedError, fall back to empty store
     try:
         stored: dict[str, Any] | None = await store.async_load()
     except NotImplementedError:
-        # This can happen if the storage layer expected a migration callback but couldn't run it.
-        # We fall back to an empty store to avoid blocking integration load.
         _LOGGER.warning(
             "Storage migration function not implemented for %s; starting with empty store",
             STORAGE_KEY,
@@ -146,8 +129,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     stored = stored or {}
 
-    # If migrate_func wasn't accepted by Store (older HA) or migrate_func didn't run,
-    # perform an explicit migration as a fallback to ensure legacy data is preserved.
+    # Explicit migration fallback (if early registration didn't run or HA didn't call it)
     try:
         raw_lp = stored.get("learned_power")
         if isinstance(raw_lp, dict):
