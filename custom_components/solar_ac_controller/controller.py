@@ -175,3 +175,17 @@ class SolarACController:
         self.coordinator.learning_start_time = None
         self.coordinator.ac_power_before = None
         _LOGGER.debug("Controller: cleared learning state")
+
+    # -------------------------
+    # Async helper for safe cancellation from coordinator
+    # -------------------------
+    async def _reset_learning_state_async(self) -> None:
+        """Async wrapper to clear learning state safely from async contexts.
+
+        Coordinator can await this to ensure learning flags are cleared when
+        master switch turns off or when tasks must be cancelled.
+        """
+        # No heavy work here; keep behavior identical to synchronous reset
+        self._reset_learning_state()
+        # allow event loop to settle if caller expects immediate cancellation
+        await self.hass.async_add_executor_job(lambda: None)

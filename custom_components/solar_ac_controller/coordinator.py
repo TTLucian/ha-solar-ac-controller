@@ -26,9 +26,17 @@ from .const import (
     CONF_REMOVE_CONFIDENCE,
     CONF_INITIAL_LEARNED_POWER,
     CONF_ACTION_DELAY_SECONDS,
-    STORAGE_KEY,
-    STORAGE_VERSION,
     DEFAULT_INITIAL_LEARNED_POWER,
+    DEFAULT_SOLAR_THRESHOLD_ON,
+    DEFAULT_SOLAR_THRESHOLD_OFF,
+    DEFAULT_PANIC_THRESHOLD,
+    DEFAULT_PANIC_DELAY,
+    DEFAULT_MANUAL_LOCK_SECONDS,
+    DEFAULT_SHORT_CYCLE_ON_SECONDS,
+    DEFAULT_SHORT_CYCLE_OFF_SECONDS,
+    DEFAULT_ACTION_DELAY_SECONDS,
+    DEFAULT_ADD_CONFIDENCE,
+    DEFAULT_REMOVE_CONFIDENCE,
 )
 
 if TYPE_CHECKING:
@@ -38,9 +46,6 @@ _LOGGER = logging.getLogger(__name__)
 
 _PANIC_COOLDOWN_SECONDS = 120
 _EMA_RESET_AFTER_OFF_SECONDS = 600
-
-_DEFAULT_ADD_CONFIDENCE = 25
-_DEFAULT_REMOVE_CONFIDENCE = 10
 
 
 class SolarACCoordinator(DataUpdateCoordinator):
@@ -67,13 +72,13 @@ class SolarACCoordinator(DataUpdateCoordinator):
         self.store = store
         self.version = version
 
-        # Initial learned power: prefer option, then config, then default constant
+        # Initial learned power
         self.initial_learned_power = config_entry.options.get(
             CONF_INITIAL_LEARNED_POWER,
             config_entry.data.get(CONF_INITIAL_LEARNED_POWER, DEFAULT_INITIAL_LEARNED_POWER),
         )
 
-        # Defensive: stored may be None
+        # Stored migration
         stored = stored or {}
         raw_learned = stored.get("learned_power", {}) or {}
         raw_samples = stored.get("samples", 0) or 0
@@ -143,18 +148,19 @@ class SolarACCoordinator(DataUpdateCoordinator):
         self.zone_last_state: dict[str, str | None] = {}
         self.zone_manual_lock_until: dict[str, float] = {}
 
-        self.panic_threshold: float = float(self.config.get(CONF_PANIC_THRESHOLD, 1500))
-        self.panic_delay: int = int(self.config.get(CONF_PANIC_DELAY, 30))
-        self.manual_lock_seconds: int = int(self.config.get(CONF_MANUAL_LOCK_SECONDS, 1200))
-        self.short_cycle_on_seconds: int = int(self.config.get(CONF_SHORT_CYCLE_ON_SECONDS, 1200))
-        self.short_cycle_off_seconds: int = int(self.config.get(CONF_SHORT_CYCLE_OFF_SECONDS, 1200))
-        self.action_delay_seconds: int = int(self.config.get(CONF_ACTION_DELAY_SECONDS, 3))
+        # Use centralized defaults from const.py
+        self.panic_threshold: float = float(self.config.get(CONF_PANIC_THRESHOLD, DEFAULT_PANIC_THRESHOLD))
+        self.panic_delay: int = int(self.config.get(CONF_PANIC_DELAY, DEFAULT_PANIC_DELAY))
+        self.manual_lock_seconds: int = int(self.config.get(CONF_MANUAL_LOCK_SECONDS, DEFAULT_MANUAL_LOCK_SECONDS))
+        self.short_cycle_on_seconds: int = int(self.config.get(CONF_SHORT_CYCLE_ON_SECONDS, DEFAULT_SHORT_CYCLE_ON_SECONDS))
+        self.short_cycle_off_seconds: int = int(self.config.get(CONF_SHORT_CYCLE_OFF_SECONDS, DEFAULT_SHORT_CYCLE_OFF_SECONDS))
+        self.action_delay_seconds: int = int(self.config.get(CONF_ACTION_DELAY_SECONDS, DEFAULT_ACTION_DELAY_SECONDS))
 
         self.add_confidence_threshold: float = float(
-            self.config.get(CONF_ADD_CONFIDENCE, _DEFAULT_ADD_CONFIDENCE)
+            self.config.get(CONF_ADD_CONFIDENCE, DEFAULT_ADD_CONFIDENCE)
         )
         self.remove_confidence_threshold: float = float(
-            self.config.get(CONF_REMOVE_CONFIDENCE, _DEFAULT_REMOVE_CONFIDENCE)
+            self.config.get(CONF_REMOVE_CONFIDENCE, DEFAULT_REMOVE_CONFIDENCE)
         )
 
         from .controller import SolarACController
@@ -167,9 +173,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
         self.last_action_duration: float | None = None
 
         self._panic_task: asyncio.Task | None = None
-        self._master_shutdown_task: asyncio.Task | None = None
 
-        self.master_off_since: float | None = None
         self.last_panic_ts: float | None = None
 
         self.next_zone: str | None = None
@@ -177,15 +181,13 @@ class SolarACCoordinator(DataUpdateCoordinator):
         self.required_export: float | None = None
         self.export_margin: float | None = None
 
+        # Track when master was turned off for EMA reset
+        self.master_off_since: float | None = None
+
     # -------------------------------------------------------------------------
     # Helper accessors for learned_power (abstracts storage format)
     # -------------------------------------------------------------------------
     def get_learned_power(self, zone_name: str, mode: str | None = None) -> float:
-        """Return the learned power for a zone.
-
-        If the stored value is per-mode, prefer the requested mode, then 'default'.
-        If nothing is stored, return initial_learned_power.
-        """
         entry = self.learned_power.get(zone_name)
         if entry is None:
             return float(self.initial_learned_power)
@@ -194,29 +196,23 @@ class SolarACCoordinator(DataUpdateCoordinator):
                 return float(entry.get(mode))
             if "default" in entry:
                 return float(entry.get("default"))
-            # Fallback to heat/cool if present
             if "heat" in entry:
                 return float(entry.get("heat"))
             if "cool" in entry:
                 return float(entry.get("cool"))
-            # Last resort
             return float(self.initial_learned_power)
-        # Backwards compatibility: numeric value
         try:
             return float(entry)
         except Exception:
             return float(self.initial_learned_power)
 
     def set_learned_power(self, zone_name: str, value: float, mode: str | None = None) -> None:
-        """Set learned power for a zone.
-
-        If the stored structure is per-mode (dict), update the requested mode and
-        the 'default' key. If legacy numeric mapping is present, convert it to
-        per-mode dict and then update.
-        """
         if zone_name not in self.learned_power or not isinstance(self.learned_power.get(zone_name), dict):
-            # Initialize per-mode dict
-            base = float(self.learned_power.get(zone_name) if isinstance(self.learned_power.get(zone_name), (int, float)) else self.initial_learned_power)
+            base = float(
+                self.learned_power.get(zone_name)
+                if isinstance(self.learned_power.get(zone_name), (int, float))
+                else self.initial_learned_power
+            )
             self.learned_power[zone_name] = {
                 "default": base,
                 "heat": base,
@@ -224,18 +220,15 @@ class SolarACCoordinator(DataUpdateCoordinator):
             }
 
         entry = self.learned_power[zone_name]
-        # Update requested mode and default
         if mode:
             entry[mode] = float(value)
         entry["default"] = float(value)
-        # Keep heat/cool present
         if "heat" not in entry:
             entry["heat"] = entry["default"]
         if "cool" not in entry:
             entry["cool"] = entry["default"]
 
     async def _persist_learned_values(self) -> None:
-        """Persist learned_power and samples to storage (async)."""
         try:
             payload = {
                 "learned_power": dict(self.learned_power),
@@ -281,15 +274,22 @@ class SolarACCoordinator(DataUpdateCoordinator):
             "Cycle sensors: grid_raw=%s solar=%s ac_power=%s", grid_raw, solar, ac_power
         )
 
-        # 2. EMA updates
+        # 2. Master switch auto-control (based ONLY on solar production)
+        await self._handle_master_switch(solar)
+
+        # 3. If master exists and is OFF -> perform full freeze cleanup then return
+        ac_switch = self.config.get(CONF_AC_SWITCH)
+        if ac_switch:
+            switch_state_obj = self.hass.states.get(ac_switch)
+            if switch_state_obj and switch_state_obj.state == "off":
+                # Ensure any running tasks are cancelled and learning reset
+                await self._perform_freeze_cleanup()
+                self.last_action = "master_off"
+                await self._log("[MASTER_OFF] master switch is off, freezing all calculations")
+                return
+
+        # 4. EMA updates
         self._update_ema(grid_raw)
-
-        # 3. Master switch handling
-        await self._handle_master_switch(solar, ac_power)
-
-        # 4. Master OFF guard
-        if await self._handle_master_off_guard():
-            return
 
         # 5. Determine zones and detect manual overrides
         active_zones = await self._update_zone_states_and_overrides()
@@ -364,35 +364,26 @@ class SolarACCoordinator(DataUpdateCoordinator):
         self.ema_30s = 0.25 * grid_raw + 0.75 * self.ema_30s
         self.ema_5m = 0.03 * grid_raw + 0.97 * self.ema_5m
 
-    async def _handle_master_off_guard(self) -> bool:
-        ac_switch = self.config.get(CONF_AC_SWITCH)
-        if not ac_switch:
-            return False
+    async def _perform_freeze_cleanup(self) -> None:
+        """Cancel tasks and reset learning state when master is off."""
+        # Cancel panic task
+        if self._panic_task and not self._panic_task.done():
+            try:
+                self._panic_task.cancel()
+            except Exception:
+                _LOGGER.debug("Failed to cancel panic task")
+            self._panic_task = None
 
-        switch_state_obj = self.hass.states.get(ac_switch)
-        if not switch_state_obj:
-            return False
+        # Reset controller learning state (safe)
+        try:
+            await self.controller._reset_learning_state_async()
+        except Exception:
+            _LOGGER.debug("Controller reset learning method failed or controller not set")
 
-        if switch_state_obj.state != "off":
-            self.master_off_since = None
-            return False
-
-        # Master is OFF
+        # Track master_off_since for EMA reset
         now_ts = dt_util.utcnow().timestamp()
         if self.master_off_since is None:
             self.master_off_since = now_ts
-
-        # Cancel panic task
-        if self._panic_task and not self._panic_task.done():
-            self._panic_task.cancel()
-            self._panic_task = None
-
-        # Reset learning
-        # Use controller method if available
-        try:
-            self.controller._reset_learning_state()
-        except Exception:
-            _LOGGER.debug("Controller reset learning method failed or controller not set")
 
         # Reset EMA after long OFF
         if now_ts - self.master_off_since >= _EMA_RESET_AFTER_OFF_SECONDS:
@@ -400,10 +391,6 @@ class SolarACCoordinator(DataUpdateCoordinator):
                 await self._log("[EMA_RESET_AFTER_MASTER_OFF] resetting EMA")
             self.ema_30s = 0.0
             self.ema_5m = 0.0
-
-        self.last_action = "master_off"
-        await self._log("[MASTER_OFF] skipping all zone calculations")
-        return True
 
     def _in_panic_cooldown(self, now_ts: float) -> bool:
         if self.last_panic_ts is None:
@@ -479,7 +466,6 @@ class SolarACCoordinator(DataUpdateCoordinator):
             return None
 
         zone_name = next_zone.split(".")[-1]
-        # We don't know the mode for a zone that is currently off; use 'default'
         lp = self.get_learned_power(zone_name, mode="default")
         safety_mult = 1.15 if self.samples >= 10 else 1.30
         return lp * safety_mult
@@ -566,12 +552,20 @@ class SolarACCoordinator(DataUpdateCoordinator):
             if self.panic_delay > 0:
                 await asyncio.sleep(self.panic_delay)
 
+            # If master turned off during delay, abort
+            ac_switch = self.config.get(CONF_AC_SWITCH)
+            if ac_switch:
+                st = self.hass.states.get(ac_switch)
+                if st and st.state == "off":
+                    await self._log("[PANIC_ABORTED] master switch turned off during panic delay")
+                    return
+
             if self.ema_30s > self.panic_threshold:
                 await self._panic_shed(active_zones)
 
                 # Reset learning state via controller if available
                 try:
-                    self.controller._reset_learning_state()
+                    await self.controller._reset_learning_state_async()
                 except Exception:
                     _LOGGER.debug("Controller reset learning method failed or controller not set")
 
@@ -584,6 +578,8 @@ class SolarACCoordinator(DataUpdateCoordinator):
                 )
 
                 self.last_action = "panic"
+        except asyncio.CancelledError:
+            _LOGGER.debug("Panic task cancelled")
         except Exception as e:
             _LOGGER.exception("Error in panic task: %s", e)
         finally:
@@ -737,14 +733,21 @@ class SolarACCoordinator(DataUpdateCoordinator):
     # -------------------------------------------------------------------------
     # Master switch control
     # -------------------------------------------------------------------------
-    async def _handle_master_switch(self, solar: float, ac_power: float):
-        """Master relay control based on solar availability and compressor safety."""
+    async def _handle_master_switch(self, solar: float):
+        """Master relay control based solely on solar production thresholds."""
         ac_switch = self.config.get(CONF_AC_SWITCH)
         if not ac_switch:
             return
 
-        on_threshold = self.config.get(CONF_SOLAR_THRESHOLD_ON, 1200)
-        off_threshold = self.config.get(CONF_SOLAR_THRESHOLD_OFF, 800)
+        try:
+            on_threshold = float(self.config.get(CONF_SOLAR_THRESHOLD_ON, DEFAULT_SOLAR_THRESHOLD_ON))
+        except (TypeError, ValueError):
+            on_threshold = DEFAULT_SOLAR_THRESHOLD_ON
+
+        try:
+            off_threshold = float(self.config.get(CONF_SOLAR_THRESHOLD_OFF, DEFAULT_SOLAR_THRESHOLD_OFF))
+        except (TypeError, ValueError):
+            off_threshold = DEFAULT_SOLAR_THRESHOLD_OFF
 
         switch_state_obj = self.hass.states.get(ac_switch)
         if not switch_state_obj:
@@ -752,10 +755,10 @@ class SolarACCoordinator(DataUpdateCoordinator):
 
         switch_state = switch_state_obj.state
 
-        # Turn ON when solar is consistently above threshold
-        if solar > on_threshold and switch_state == "off":
+        # Turn ON when solar is above or equal to ON threshold
+        if solar >= on_threshold and switch_state == "off":
             await self._log(
-                f"[MASTER_ON] solar={round(solar)} threshold={on_threshold}"
+                f"[MASTER_ON] solar={round(solar)} threshold_on={on_threshold}"
             )
             await self.hass.services.async_call(
                 "switch",
@@ -764,15 +767,18 @@ class SolarACCoordinator(DataUpdateCoordinator):
                 blocking=True,
             )
             self.last_action = "master_on"
+            # reset master_off_since when turned on
             self.master_off_since = None
             return
 
-        # Turn OFF when solar is consistently below threshold and no zones are active
-        if solar < off_threshold and switch_state != "off":
+        # Turn OFF when solar is below or equal to OFF threshold
+        if solar <= off_threshold and switch_state != "off":
             # Only turn off if no zones are active (safety)
             active_zones = [z for z in self.config.get(CONF_ZONES, []) if (st := self.hass.states.get(z)) and st.state in ("heat", "cool", "on")]
             if not active_zones:
-                await self._log(f"[MASTER_OFF] solar={round(solar)} threshold={off_threshold}")
+                await self._log(
+                    f"[MASTER_OFF_SOLAR] solar={round(solar)} threshold_off={off_threshold}"
+                )
                 await self.hass.services.async_call(
                     "switch",
                     "turn_off",
@@ -780,7 +786,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
                     blocking=True,
                 )
                 self.last_action = "master_off"
-                self.master_off_since = dt_util.utcnow().timestamp()
+                # master_off_since will be set in freeze cleanup
                 return
 
     # -------------------------------------------------------------------------

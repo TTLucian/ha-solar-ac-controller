@@ -39,11 +39,28 @@ CONF_REMOVE_CONFIDENCE = "remove_confidence"
 # Learning system
 CONF_INITIAL_LEARNED_POWER = "initial_learned_power"
 
-# Enable diagnostics sensor toggle
+# Enable diagnostics sensor toggle (kept original name for backward compatibility)
 CONF_ENABLE_DIAGNOSTICS = "enable_diagnostics_sensor"
+# Recommended clearer alias (optional; safe to add)
+CONF_ENABLE_DIAGNOSTICS_SENSOR = CONF_ENABLE_DIAGNOSTICS
 
 # Default initial learned power used when no value is configured
 DEFAULT_INITIAL_LEARNED_POWER = 1200.0
+
+# Sensible defaults for thresholds and timing (used by coordinator if config missing)
+DEFAULT_SOLAR_THRESHOLD_ON = 1200.0
+DEFAULT_SOLAR_THRESHOLD_OFF = 800.0
+
+DEFAULT_PANIC_THRESHOLD = 1500.0
+DEFAULT_PANIC_DELAY = 30  # seconds
+
+DEFAULT_MANUAL_LOCK_SECONDS = 1200  # seconds
+DEFAULT_SHORT_CYCLE_ON_SECONDS = 1200  # seconds
+DEFAULT_SHORT_CYCLE_OFF_SECONDS = 1200  # seconds
+DEFAULT_ACTION_DELAY_SECONDS = 3  # seconds
+
+DEFAULT_ADD_CONFIDENCE = 25
+DEFAULT_REMOVE_CONFIDENCE = 10
 
 # Storage
 # Use a literal storage key so the on-disk filename remains stable even if DOMAIN changes.

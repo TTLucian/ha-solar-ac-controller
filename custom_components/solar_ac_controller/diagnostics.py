@@ -23,16 +23,17 @@ async def async_get_config_entry_diagnostics(
     the integration version and cooling support).
     """
     try:
-        entry_data = hass.data.get(DOMAIN, {}).get(entry.entry_id)
-        if not entry_data:
+        entry_data = hass.data.get(DOMAIN, {}) or {}
+        if entry.entry_id not in entry_data:
             _LOGGER.error("Diagnostics requested for unknown config entry %s", entry.entry_id)
             return {}
 
-        coordinator = entry_data.get("coordinator")
+        coordinator = entry_data.get(entry.entry_id, {}).get("coordinator")
         if not coordinator:
             _LOGGER.error("No coordinator available for diagnostics for entry %s", entry.entry_id)
             return {}
 
+        # Build and return diagnostics snapshot
         return build_diagnostics(coordinator)
     except Exception as exc:  # Defensive: never raise from diagnostics endpoint
         _LOGGER.exception("Failed to build diagnostics for entry %s: %s", entry.entry_id, exc)

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from homeassistant.components.binary_sensor import BinarySensorEntity
+from homeassistant.components.binary_sensor import BinarySensorEntity, BinarySensorDeviceClass
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN
+from .const import DOMAIN, CONF_AC_SWITCH, CONF_ZONES
 
 
 async def async_setup_entry(
@@ -25,7 +25,7 @@ async def async_setup_entry(
         SolarACLockedBinarySensor(coordinator),
         SolarACExportingBinarySensor(coordinator),
         SolarACImportingBinarySensor(coordinator),
-        SolarACMasterOffBinarySensor(coordinator),
+        SolarACMasterBinarySensor(coordinator),
     ]
 
     async_add_entities(entities)
@@ -117,7 +117,8 @@ class SolarACShortCycleBinarySensor(_BaseSolarACBinary):
         c = self.coordinator
         now = dt_util.utcnow().timestamp()
 
-        for z in c.config.get("zones", []):
+        # Use CONF_ZONES constant for consistency
+        for z in c.config.get(CONF_ZONES, []):
             last = c.zone_last_changed.get(z)
             if not last:
                 continue
@@ -180,15 +181,33 @@ class SolarACImportingBinarySensor(_BaseSolarACBinary):
         return bool(self.coordinator.ema_30s > 0)
 
 
-class SolarACMasterOffBinarySensor(_BaseSolarACBinary):
+class SolarACMasterBinarySensor(_BaseSolarACBinary):
+    """Master switch sensor: ON when master is enabled, OFF when disabled."""
+
+    _attr_device_class = BinarySensorDeviceClass.RUNNING
+
     @property
     def name(self):
-        return "Solar AC Master Switch Off"
+        return "Solar AC Master Switch"
 
     @property
     def unique_id(self):
-        return "solar_ac_master_off"
+        return "solar_ac_master_switch"
 
     @property
     def is_on(self):
-        return self.coordinator.last_action == "master_off"
+        """Return True when master is ON, False when master is OFF.
+
+        If no master switch is configured, return True (integration runs).
+        """
+        ac_switch = self.coordinator.config.get(CONF_AC_SWITCH)
+        if not ac_switch:
+            # No physical master configured -> integration considered enabled
+            return True
+
+        switch_state_obj = self.coordinator.hass.states.get(ac_switch)
+        if not switch_state_obj:
+            # If entity missing, treat as OFF to be safe
+            return False
+
+        return switch_state_obj.state == "on"

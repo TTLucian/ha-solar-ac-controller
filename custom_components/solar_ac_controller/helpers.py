@@ -16,20 +16,17 @@ def build_diagnostics(coordinator):
     now_ts = dt_util.utcnow().timestamp()
 
     # Zones list from config (JSON-safe)
-    zones = coordinator.config.get(CONF_ZONES, [])
+    zones = coordinator.config.get(CONF_ZONES, []) or []
 
     # Active zones (heat/cool/on)
-    active_zones = [
-        z
-        for z in zones
-        if (st := coordinator.hass.states.get(z)) and st.state in ("heat", "cool", "on")
-    ]
-
-    # Per-zone mode snapshot
-    zone_modes = {
-        z: (coordinator.hass.states.get(z).state if coordinator.hass.states.get(z) else None)
-        for z in zones
-    }
+    active_zones = []
+    zone_modes = {}
+    for z in zones:
+        st = coordinator.hass.states.get(z)
+        mode = st.state if st else None
+        zone_modes[z] = mode
+        if mode in ("heat", "cool", "on"):
+            active_zones.append(z)
 
     # Panic cooldown state
     panic_cooldown_active = False
@@ -40,8 +37,8 @@ def build_diagnostics(coordinator):
     learned_power = dict(coordinator.learned_power) if coordinator.learned_power is not None else {}
 
     return {
-        # Authoritative integration version
-        "version": coordinator.version,
+        # Authoritative integration version (fallback to None if missing)
+        "version": getattr(coordinator, "version", None),
 
         # Timestamp for diagnostics snapshot (ISO + epoch)
         "timestamp": dt_util.utcnow().isoformat(),

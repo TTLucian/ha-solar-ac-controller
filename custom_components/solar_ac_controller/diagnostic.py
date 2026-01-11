@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from typing import Callable
+
 from homeassistant.components.sensor import SensorEntity
-from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN
 from .helpers import build_diagnostics
@@ -13,7 +14,7 @@ class SolarACDiagnosticEntity(SensorEntity):
     _attr_should_poll = False
     _attr_name = "Solar AC Diagnostics"
     _attr_icon = "mdi:brain"
-    _attr_device_class = "diagnostic"
+    # Omit device_class to avoid using a non-standard value
 
     def __init__(self, coordinator):
         self.coordinator = coordinator
@@ -29,18 +30,22 @@ class SolarACDiagnosticEntity(SensorEntity):
             "sw_version": getattr(coordinator, "version", None),
         }
 
+        self._unsub: Callable[[], None] | None = None
+
     async def async_added_to_hass(self):
         """Register for coordinator updates and keep unsubscribe handle."""
         self._unsub = self.coordinator.async_add_listener(self.async_write_ha_state)
 
     async def async_will_remove_from_hass(self):
         """Clean up listener."""
-        if hasattr(self, "_unsub") and callable(self._unsub):
+        if callable(self._unsub):
             try:
                 self._unsub()
             except Exception:
                 # Best-effort cleanup; don't raise during unload
                 pass
+            finally:
+                self._unsub = None
 
     @property
     def native_value(self):

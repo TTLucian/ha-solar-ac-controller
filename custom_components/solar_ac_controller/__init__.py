@@ -101,8 +101,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Solar AC Controller from a config entry."""
     hass.data.setdefault(DOMAIN, {})
 
+    # Defensive: async_get_integration may rarely return None; fall back to "unknown"
     integration = await async_get_integration(hass, DOMAIN)
-    version = integration.version
+    version = integration.version if integration is not None else "unknown"
+    if integration is None:
+        _LOGGER.debug("async_get_integration returned None for %s; using fallback version=%s", DOMAIN, version)
 
     initial_lp = float(
         entry.options.get(
@@ -142,9 +145,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         version=version,
     )
 
-    await coordinator.async_config_entry_first_refresh()
-
+    # Make coordinator available immediately so any code invoked during first refresh can access it
     hass.data[DOMAIN][entry.entry_id] = {"coordinator": coordinator}
+    _LOGGER.debug("SolarACCoordinator stored in hass.data for entry %s (version=%s)", entry.entry_id, version)
+
+    # Perform initial refresh (may trigger platform setup callbacks)
+    await coordinator.async_config_entry_first_refresh()
 
     # Device registry entry
     device_registry = dr.async_get(hass)

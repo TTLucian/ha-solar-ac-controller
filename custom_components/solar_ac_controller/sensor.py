@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 from homeassistant.components.sensor import (
     SensorEntity,
     SensorDeviceClass,
     SensorStateClass,
 )
-from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
@@ -70,13 +70,23 @@ class _BaseSolarACSensor(SensorEntity):
             "name": "Solar AC Controller",
             "configuration_url": "https://github.com/TTLucian/ha-solar-ac-controller",
         }
+        self._unsub: Callable[[], None] | None = None
 
     @property
     def available(self) -> bool:
         return True
 
     async def async_added_to_hass(self) -> None:
-        self.coordinator.async_add_listener(self.async_write_ha_state)
+        self._unsub = self.coordinator.async_add_listener(self.async_write_ha_state)
+
+    async def async_will_remove_from_hass(self) -> None:
+        if callable(self._unsub):
+            try:
+                self._unsub()
+            except Exception:
+                pass
+            finally:
+                self._unsub = None
 
 
 # ---------------------------------------------------------------------------
@@ -171,7 +181,7 @@ class SolarACEma30Sensor(_NumericSolarACSensor):
         return "solar_ac_ema_30s"
 
     @property
-    def state(self) -> float:
+    def native_value(self) -> float:
         return round(self.coordinator.ema_30s, 2)
 
 
@@ -185,7 +195,7 @@ class SolarACEma5Sensor(_NumericSolarACSensor):
         return "solar_ac_ema_5m"
 
     @property
-    def state(self) -> float:
+    def native_value(self) -> float:
         return round(self.coordinator.ema_5m, 2)
 
 
@@ -205,7 +215,7 @@ class SolarACConfidenceSensor(_BaseSolarACSensor):
         return "solar_ac_confidence"
 
     @property
-    def state(self) -> float:
+    def native_value(self) -> float:
         return round(self.coordinator.confidence, 2)
 
 
@@ -240,7 +250,7 @@ class SolarACRequiredExportSensor(_NumericSolarACSensor):
         return "solar_ac_required_export"
 
     @property
-    def state(self) -> float | None:
+    def native_value(self) -> float | None:
         val = self.coordinator.required_export
         return None if val is None else round(val, 2)
 
@@ -255,7 +265,7 @@ class SolarACExportMarginSensor(_NumericSolarACSensor):
         return "solar_ac_export_margin"
 
     @property
-    def state(self) -> float | None:
+    def native_value(self) -> float | None:
         val = self.coordinator.export_margin
         return None if val is None else round(val, 2)
 
@@ -270,7 +280,7 @@ class SolarACImportPowerSensor(_NumericSolarACSensor):
         return "solar_ac_import_power"
 
     @property
-    def state(self) -> float:
+    def native_value(self) -> float:
         return round(self.coordinator.ema_5m, 2)
 
 
@@ -291,7 +301,7 @@ class SolarACMasterOffSinceSensor(_BaseSolarACSensor):
         return "solar_ac_master_off_since"
 
     @property
-    def state(self) -> str | None:
+    def native_value(self) -> str | None:
         ts = self.coordinator.master_off_since
         if not ts:
             return None
@@ -317,7 +327,7 @@ class SolarACLastPanicSensor(_BaseSolarACSensor):
         return "solar_ac_last_panic"
 
     @property
-    def state(self) -> str | None:
+    def native_value(self) -> str | None:
         ts = self.coordinator.last_panic_ts
         if not ts:
             return None
@@ -365,7 +375,7 @@ class SolarACLearnedPowerSensor(_NumericSolarACSensor):
         return f"solar_ac_learned_power_{self.zone_name}"
 
     @property
-    def state(self) -> float:
+    def native_value(self) -> float:
         # Use coordinator accessor to remain compatible with legacy and per-mode storage.
         return self.coordinator.get_learned_power(self.zone_name, mode="default")
 
@@ -380,7 +390,7 @@ class SolarACDiagnosticEntity(_BaseSolarACSensor):
     _attr_should_poll = False
     _attr_name = "Solar AC Diagnostics"
     _attr_icon = "mdi:brain"
-    _attr_device_class = "diagnostic"
+    # Omit non-standard device_class
 
     def __init__(self, coordinator):
         super().__init__(coordinator)

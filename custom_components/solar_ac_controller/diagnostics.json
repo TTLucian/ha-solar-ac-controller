@@ -5,6 +5,7 @@
     "included": [
       "version",
       "timestamp",
+      "timestamp_epoch",
       "config",
 
       "samples",
@@ -32,9 +33,11 @@
       "panic_threshold",
       "panic_delay",
       "last_panic_ts",
+      "last_panic_iso",
       "panic_cooldown_active",
 
-      "master_off_since"
+      "master_off_since",
+      "master_off_since_iso"
     ]
   }
 }
