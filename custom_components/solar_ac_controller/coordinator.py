@@ -3,13 +3,12 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import timedelta
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
-from .controller import SolarACController
 from .const import (
     CONF_AC_POWER_SENSOR,
     CONF_AC_SWITCH,
@@ -30,6 +29,10 @@ from .const import (
     STORAGE_KEY,
     STORAGE_VERSION,
 )
+
+if TYPE_CHECKING:
+    # For typing only — avoids runtime circular import
+    from .controller import SolarACController
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -135,7 +138,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
                     "learned_power": dict(self.learned_power),
                     "samples": int(self.samples),
                 }
-                # Use store to persist
+                # Use store to persist (schedule on the event loop)
                 hass.async_create_task(self.store.async_save(payload))
                 _LOGGER.info("Migrated legacy learned_power to per-mode structure and saved storage")
             except Exception as exc:
@@ -187,7 +190,10 @@ class SolarACCoordinator(DataUpdateCoordinator):
         ))
 
         # Controller
-        self.controller = SolarACController(hass, self, store)
+        # Import controller lazily to avoid circular import during package initialization
+        from .controller import SolarACController  # local import
+
+        self.controller: "SolarACController" = SolarACController(hass, self, store)
 
         # Observability
         self.last_add_conf: float = 0.0
@@ -421,7 +427,11 @@ class SolarACCoordinator(DataUpdateCoordinator):
             self._panic_task = None
 
         # Reset learning
-        self.controller._reset_learning_state()
+        # Use controller method if available
+        try:
+            self.controller._reset_learning_state()
+        except Exception:
+            _LOGGER.debug("Controller reset learning method failed or controller not set")
 
         # Reset EMA after long OFF
         if now_ts - self.master_off_since >= _EMA_RESET_AFTER_OFF_SECONDS:
@@ -598,7 +608,11 @@ class SolarACCoordinator(DataUpdateCoordinator):
             if self.ema_30s > self.panic_threshold:
                 await self._panic_shed(active_zones)
 
-                self.controller._reset_learning_state()
+                # Reset learning state via controller if available
+                try:
+                    self.controller._reset_learning_state()
+                except Exception:
+                    _LOGGER.debug("Controller reset learning method failed or controller not set")
 
                 now_ts = dt_util.utcnow().timestamp()
                 self.last_panic_ts = now_ts
@@ -780,7 +794,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
         # Turn ON when solar is consistently above threshold
         if solar > on_threshold and switch_state == "off":
             await self._log(
-                f"[MASTER_POWER_ON] solar={round(solar)}W ac_state={switch_state}"
+                f"[MASTER_ON] solar={round(solar)} threshold={on_threshold}"
             )
             await self.hass.services.async_call(
                 "switch",
@@ -788,65 +802,30 @@ class SolarACCoordinator(DataUpdateCoordinator):
                 {"entity_id": ac_switch},
                 blocking=True,
             )
-            # Clear manual locks when restoring master power
-            if self.zone_manual_lock_until:
-                self.zone_manual_lock_until.clear()
-                await self._log(
-                    "[MASTER_POWER_ON] cleared manual locks after OFF period"
-                )
+            self.last_action = "master_on"
+            self.master_off_since = None
+            return
 
-        # Turn OFF when solar is low and AC is idle (delayed for compressor safety)
-        if solar < off_threshold and switch_state == "on":
-            await self._log(
-                f"[MASTER_SHUTDOWN] solar={round(solar)}W ac_power={round(ac_power)}W "
-                "scheduling delayed shutdown for compressor safety"
-            )
-            if not self._master_shutdown_task or self._master_shutdown_task.done():
-                self._master_shutdown_task = self.hass.async_create_task(
-                    self._delayed_master_shutdown(ac_switch)
-                )
-
-    async def _delayed_master_shutdown(self, ac_switch: str):
-        try:
-            await asyncio.sleep(600)
-
-            ac_state = self.hass.states.get(self.config.get(CONF_AC_POWER_SENSOR))
-            try:
-                ac_now = float(ac_state.state) if ac_state else 0.0
-            except (ValueError, TypeError):
-                ac_now = 0.0
-
-            if ac_now < 25:
+        # Turn OFF when solar is consistently below threshold and no zones are active
+        if solar < off_threshold and switch_state != "off":
+            # Only turn off if no zones are active (safety)
+            active_zones = [z for z in self.config.get(CONF_ZONES, []) if (st := self.hass.states.get(z)) and st.state in ("heat", "cool", "on")]
+            if not active_zones:
+                await self._log(f"[MASTER_OFF] solar={round(solar)} threshold={off_threshold}")
                 await self.hass.services.async_call(
                     "switch",
                     "turn_off",
                     {"entity_id": ac_switch},
                     blocking=True,
                 )
-                await self._log(f"[MASTER_POWER_OFF] ac={round(ac_now)}W")
-            else:
-                await self._log(f"[MASTER_SHUTDOWN_BLOCKED] ac={round(ac_now)}W")
-        except Exception as e:
-            _LOGGER.exception("Error in delayed master shutdown: %s", e)
-        finally:
-            self._master_shutdown_task = None
+                self.last_action = "master_off"
+                self.master_off_since = dt_util.utcnow().timestamp()
+                return
 
     # -------------------------------------------------------------------------
     # Logging helper
     # -------------------------------------------------------------------------
     async def _log(self, message: str):
-        """Log to HA logbook with a consistent taxonomy."""
-        _LOGGER.info(message)
-        try:
-            await self.hass.services.async_call(
-                "logbook",
-                "log",
-                {
-                    "name": "Solar AC",
-                    "entity_id": "sensor.solar_ac_controller_debug",
-                    "message": message,
-                },
-                blocking=False,
-            )
-        except Exception:
-            _LOGGER.exception("Failed to write to logbook: %s", message)
+        """Write a short message to the coordinator log (non-blocking)."""
+        _LOGGER.debug(message)
+        # Placeholder for any future persistent log mechanism
