@@ -4,15 +4,16 @@ from homeassistant.components.sensor import SensorEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.util import dt as dt_util
 from .const import DOMAIN, CONF_ENABLE_DIAGNOSTICS
+from .helpers import build_diagnostics
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ):
-    # NEW: respect the diagnostics toggle
+    # Respect the diagnostics toggle
     if not entry.options.get(CONF_ENABLE_DIAGNOSTICS, True):
         return
 
@@ -20,6 +21,7 @@ async def async_setup_entry(
     coordinator = data["coordinator"]
 
     async_add_entities([SolarACDiagnosticEntity(coordinator, entry)])
+
 
 class SolarACDiagnosticEntity(SensorEntity):
     """A single sensor exposing the entire controller state as JSON attributes."""
@@ -55,9 +57,6 @@ class SolarACDiagnosticEntity(SensorEntity):
         """Expose last action as the main state."""
         return self.coordinator.last_action or "idle"
 
-from .helpers import build_diagnostics
-
-@property
-def extra_state_attributes(self):
-    return build_diagnostics(self.coordinator)
-
+    @property
+    def extra_state_attributes(self):
+        return build_diagnostics(self.coordinator)
