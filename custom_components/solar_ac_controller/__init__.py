@@ -55,9 +55,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Load persistent storage
     store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
     try:
+        # Some HA Store implementations may raise NotImplementedError during migration
+        # or when a migration callback is expected but not provided. Treat that as
+        # "no stored data" and continue with an empty payload.
         stored: dict[str, Any] | None = await store.async_load()
+    except NotImplementedError:
+        _LOGGER.warning(
+            "Storage migration function not implemented for %s; starting with empty store",
+            STORAGE_KEY,
+        )
+        stored = {}
     except Exception as exc:
-        _LOGGER.exception("Failed to load storage for %s: %s", DOMAIN, exc)
+        _LOGGER.exception("Failed to load storage for %s: %s; starting with empty store", DOMAIN, exc)
         stored = {}
 
     stored = stored or {}
@@ -160,7 +169,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # ---------------------------------------------------------------------
     async def handle_reset_learning(call: ServiceCall):
         try:
-            await coordinator.controller.reset_learning()
+            # Controller should be present; guard just in case
+            if getattr(coordinator, "controller", None):
+                await coordinator.controller.reset_learning()
+            else:
+                _LOGGER.warning("reset_learning called but controller is not initialized")
         except Exception as exc:
             _LOGGER.exception("reset_learning service failed: %s", exc)
             try:
