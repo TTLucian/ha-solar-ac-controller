@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import asyncio
+from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
@@ -43,6 +44,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Set up the integration and coordinator, preserving original behavior plus migration."""
     hass.data.setdefault(DOMAIN, {})
 
     # Load integration version from manifest
@@ -52,9 +54,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Load persistent storage
     store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
-    stored = await store.async_load() or {}
+    try:
+        stored: dict[str, Any] | None = await store.async_load()
+    except Exception as exc:
+        _LOGGER.exception("Failed to load storage for %s: %s", DOMAIN, exc)
+        stored = {}
 
-    # Create coordinator ONCE with version
+    stored = stored or {}
+
+    # Create coordinator (it will perform migration if needed)
     coordinator = SolarACCoordinator(
         hass,
         entry,
@@ -63,6 +71,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         version=version,
     )
 
+    # First refresh to populate state
     await coordinator.async_config_entry_first_refresh()
 
     hass.data[DOMAIN][entry.entry_id] = {
@@ -71,7 +80,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     }
 
     # ---------------------------------------------------------------------
-    # OPTIONS UPDATE LISTENER
+    # OPTIONS UPDATE LISTENER (preserve original behavior)
     # ---------------------------------------------------------------------
     async def _async_options_updated(hass: HomeAssistant, updated_entry: ConfigEntry):
         data = hass.data.get(DOMAIN, {}).get(updated_entry.entry_id)
@@ -138,33 +147,33 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
 
     # ---------------------------------------------------------------------
-    # PLATFORM SETUP
+    # PLATFORM SETUP (preload to avoid blocking warnings)
     # ---------------------------------------------------------------------
-    # Preload platforms off the event loop to avoid blocking warnings
     await asyncio.gather(
         *(hass.async_add_executor_job(integration.get_platform, p) for p in PLATFORMS)
     )
 
-    # Forward setups
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     # ---------------------------------------------------------------------
-    # SERVICES
+    # SERVICES (reset_learning, force_relearn) - preserve original semantics
     # ---------------------------------------------------------------------
-
     async def handle_reset_learning(call: ServiceCall):
         try:
             await coordinator.controller.reset_learning()
         except Exception as exc:
             _LOGGER.exception("reset_learning service failed: %s", exc)
-            await coordinator._log(f"[SERVICE_ERROR] reset_learning {exc}")
+            try:
+                await coordinator._log(f"[SERVICE_ERROR] reset_learning {exc}")
+            except Exception:
+                _LOGGER.exception("Failed to write service error to logbook")
 
     hass.services.async_register(DOMAIN, "reset_learning", handle_reset_learning)
 
     async def handle_force_relearn(call: ServiceCall):
         zone = call.data.get("zone")
 
-        # Validate zone
+        # Validate zone if provided
         if zone and zone not in coordinator.config.get(CONF_ZONES, []):
             await coordinator._log(f"[FORCE_RELEARN_INVALID_ZONE] {zone}")
             return
@@ -172,12 +181,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Reset one or all zones
         if zone:
             zn = _short_name(zone)
-            coordinator.learned_power[zn] = coordinator.initial_learned_power
+            coordinator.set_learned_power(zn, float(coordinator.initial_learned_power), mode=None)
             target = zn
         else:
             for z in coordinator.config.get(CONF_ZONES, []):
                 zn = _short_name(z)
-                coordinator.learned_power[zn] = coordinator.initial_learned_power
+                coordinator.set_learned_power(zn, float(coordinator.initial_learned_power), mode=None)
             target = "all"
 
         # Reset learning state
@@ -190,10 +199,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await coordinator._log(f"[FORCE_RELEARN] target={target}")
 
         try:
-            await coordinator.controller._save()
+            await coordinator._persist_learned_values()
         except Exception as exc:
             _LOGGER.exception("force_relearn save failed: %s", exc)
-            await coordinator._log(f"[SERVICE_ERROR] force_relearn save {exc}")
+            try:
+                await coordinator._log(f"[SERVICE_ERROR] force_relearn save {exc}")
+            except Exception:
+                _LOGGER.exception("Failed to write service error to logbook")
 
     hass.services.async_register(DOMAIN, "force_relearn", handle_force_relearn)
 
@@ -213,7 +225,24 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload the integration."""
+    """Unload the integration and clean up resources."""
     ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-    hass.data[DOMAIN].pop(entry.entry_id, None)
+    data = hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
+    if data:
+        coordinator: SolarACCoordinator | None = data.get("coordinator")
+        if coordinator:
+            # Cancel background tasks if running
+            if getattr(coordinator, "_panic_task", None) and not coordinator._panic_task.done():
+                coordinator._panic_task.cancel()
+            if getattr(coordinator, "_master_shutdown_task", None) and not coordinator._master_shutdown_task.done():
+                coordinator._master_shutdown_task.cancel()
+
+    # Unregister services if no entries remain
+    if not hass.data.get(DOMAIN):
+        try:
+            hass.services.async_remove(DOMAIN, "reset_learning")
+            hass.services.async_remove(DOMAIN, "force_relearn")
+        except Exception:
+            _LOGGER.debug("Failed to remove services for %s", DOMAIN)
+
     return ok
