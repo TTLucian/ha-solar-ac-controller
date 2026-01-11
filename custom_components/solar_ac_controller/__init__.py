@@ -22,6 +22,7 @@ from .const import (
     CONF_ENABLE_DIAGNOSTICS,
 )
 from .coordinator import SolarACCoordinator
+from homeassistant.loader import async_get_integration
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -43,6 +44,10 @@ async def async_setup(hass: HomeAssistant, config: dict):
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     """Initialize the integration from a config entry."""
     hass.data.setdefault(DOMAIN, {})
+
+    # Load integration version from manifest
+    integration = await async_get_integration(hass, DOMAIN)
+    hass.data[DOMAIN]["version"] = integration.version
 
     # Load persistent storage
     store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
