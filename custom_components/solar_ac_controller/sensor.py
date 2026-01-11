@@ -6,7 +6,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.config_entries import ConfigEntry
+    from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
@@ -51,7 +51,7 @@ async def async_setup_entry(
     # Diagnostics sensor (optional, behind toggle)
     effective = {**entry.data, **entry.options}
     if effective.get(CONF_ENABLE_DIAGNOSTICS, False):
-        entities.append(SolarACDiagnosticEntity(coordinator, entry))
+        entities.append(SolarACDiagnosticEntity(coordinator))
 
     async_add_entities(entities)
 
@@ -195,7 +195,7 @@ class SolarACConfidenceSensor(_BaseSolarACSensor):
 
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = "pts"
-    _attr_device_class = None  # confidence is not power
+    _attr_device_class = None
 
     @property
     def name(self):
@@ -275,7 +275,15 @@ class SolarACImportPowerSensor(_NumericSolarACSensor):
         return round(self.coordinator.ema_5m, 2)
 
 
-class SolarACMasterOffSinceSensor(_NumericSolarACSensor):
+# ---------------------------------------------------------------------------
+# FIXED: MASTER OFF SINCE (seconds, not watts)
+# ---------------------------------------------------------------------------
+
+class SolarACMasterOffSinceSensor(_BaseSolarACSensor):
+    _attr_device_class = None
+    _attr_native_unit_of_measurement = "s"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
     @property
     def name(self):
         return "Solar AC Master Off Since"
@@ -286,10 +294,19 @@ class SolarACMasterOffSinceSensor(_NumericSolarACSensor):
 
     @property
     def state(self):
-        return int(self.coordinator.master_off_since or 0)
+        ts = self.coordinator.master_off_since
+        return int(ts or 0)
 
 
-class SolarACLastPanicSensor(_NumericSolarACSensor):
+# ---------------------------------------------------------------------------
+# FIXED: LAST PANIC (seconds, not watts)
+# ---------------------------------------------------------------------------
+
+class SolarACLastPanicSensor(_BaseSolarACSensor):
+    _attr_device_class = None
+    _attr_native_unit_of_measurement = "s"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
     @property
     def name(self):
         return "Solar AC Last Panic"
@@ -300,7 +317,8 @@ class SolarACLastPanicSensor(_NumericSolarACSensor):
 
     @property
     def state(self):
-        return int(self.coordinator.last_panic_ts or 0)
+        ts = self.coordinator.last_panic_ts
+        return int(ts or 0)
 
 
 class SolarACPanicCooldownSensor(_BaseSolarACSensor):
@@ -360,15 +378,12 @@ class SolarACDiagnosticEntity(_BaseSolarACSensor):
 
     def __init__(self, coordinator):
         super().__init__(coordinator)
-        # Unique ID no longer tied to config entry
         self._attr_unique_id = "solar_ac_diagnostics"
 
     @property
     def native_value(self):
-        """Expose last action as the main state."""
         return self.coordinator.last_action or "idle"
 
     @property
     def extra_state_attributes(self):
-        """Expose unified diagnostics attributes."""
         return build_diagnostics(self.coordinator)
