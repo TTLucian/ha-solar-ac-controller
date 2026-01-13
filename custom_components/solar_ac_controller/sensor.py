@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, Callable
+from datetime import datetime
 
 from homeassistant.components.sensor import (
     SensorEntity,
@@ -41,12 +42,10 @@ async def async_setup_entry(
         SolarACPanicCooldownSensor(coordinator),
     ]
 
-    # Learned power sensors (one per zone)
     for zone in coordinator.config.get(CONF_ZONES, []):
         zone_name = zone.split(".")[-1]
         entities.append(SolarACLearnedPowerSensor(coordinator, zone_name))
 
-    # Diagnostics sensor (optional, behind toggle)
     effective = {**entry.data, **entry.options}
     if effective.get(CONF_ENABLE_DIAGNOSTICS, False):
         entities.append(SolarACDiagnosticEntity(coordinator))
@@ -59,8 +58,6 @@ async def async_setup_entry(
 # ---------------------------------------------------------------------------
 
 class _BaseSolarACSensor(SensorEntity):
-    """Base class for all Solar AC sensors."""
-
     _attr_should_poll = False
 
     def __init__(self, coordinator):
@@ -107,7 +104,6 @@ class SolarACActiveZonesSensor(_BaseSolarACSensor):
         zones = []
         for z in self.coordinator.config.get(CONF_ZONES, []):
             st = self.coordinator.hass.states.get(z)
-            # Treat heating, cooling and generic "on" as active
             if st and st.state in ("heat", "cool", "on"):
                 zones.append(z)
         return ", ".join(zones) if zones else "none"
@@ -160,8 +156,6 @@ class SolarACLastActionSensor(_BaseSolarACSensor):
 # ---------------------------------------------------------------------------
 
 class _NumericSolarACSensor(_BaseSolarACSensor):
-    """Base class for numeric sensors with proper metadata."""
-
     _attr_device_class = SensorDeviceClass.POWER
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = "W"
@@ -200,8 +194,6 @@ class SolarACEma5Sensor(_NumericSolarACSensor):
 
 
 class SolarACConfidenceSensor(_BaseSolarACSensor):
-    """Dimensionless numeric confidence value."""
-
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = "pts"
     _attr_device_class = None
@@ -300,12 +292,11 @@ class SolarACMasterOffSinceSensor(_BaseSolarACSensor):
         return "solar_ac_master_off_since"
 
     @property
-    def native_value(self) -> str | None:
+    def native_value(self) -> datetime | None:
         ts = self.coordinator.master_off_since
         if not ts:
             return None
-        # Return localized ISO 8601 timestamp (Home Assistant timezone)
-        return dt_util.as_local(dt_util.utc_from_timestamp(ts)).isoformat()
+        return dt_util.as_local(dt_util.utc_from_timestamp(ts))
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -325,11 +316,11 @@ class SolarACLastPanicSensor(_BaseSolarACSensor):
         return "solar_ac_last_panic"
 
     @property
-    def native_value(self) -> str | None:
+    def native_value(self) -> datetime | None:
         ts = self.coordinator.last_panic_ts
         if not ts:
             return None
-        return dt_util.as_local(dt_util.utc_from_timestamp(ts)).isoformat()
+        return dt_util.as_local(dt_util.utc_from_timestamp(ts))
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -374,7 +365,6 @@ class SolarACLearnedPowerSensor(_NumericSolarACSensor):
 
     @property
     def native_value(self) -> float:
-        # Use coordinator accessor to remain compatible with legacy and per-mode storage.
         return self.coordinator.get_learned_power(self.zone_name, mode="default")
 
 
@@ -383,12 +373,9 @@ class SolarACLearnedPowerSensor(_NumericSolarACSensor):
 # ---------------------------------------------------------------------------
 
 class SolarACDiagnosticEntity(_BaseSolarACSensor):
-    """A single sensor exposing the entire controller state as JSON attributes."""
-
     _attr_should_poll = False
     _attr_name = "Solar AC Diagnostics"
     _attr_icon = "mdi:brain"
-    # Omit non-standard device_class
 
     def __init__(self, coordinator):
         super().__init__(coordinator)
