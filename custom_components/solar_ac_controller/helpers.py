@@ -40,8 +40,9 @@ def build_diagnostics(coordinator):
         # Authoritative integration version (fallback to None if missing)
         "version": getattr(coordinator, "version", None),
 
-        # Timestamp for diagnostics snapshot (ISO)
+        # Timestamp for diagnostics snapshot (ISO + epoch)
         "timestamp": dt_util.utcnow().isoformat(),
+        "timestamp_epoch": int(now_ts),
 
         # JSON-safe config
         "config": dict(coordinator.config),
@@ -76,8 +77,14 @@ def build_diagnostics(coordinator):
         "panic_threshold": coordinator.panic_threshold,
         "panic_delay": coordinator.panic_delay,
         "last_panic_ts": int(coordinator.last_panic_ts) if coordinator.last_panic_ts else None,
+        "last_panic_iso": dt_util.utc_from_timestamp(coordinator.last_panic_ts).isoformat()
+        if coordinator.last_panic_ts
+        else None,
         "panic_cooldown_active": panic_cooldown_active,
 
         # Master switch
         "master_off_since": int(coordinator.master_off_since) if coordinator.master_off_since else None,
+        "master_off_since_iso": dt_util.utc_from_timestamp(coordinator.master_off_since).isoformat()
+        if coordinator.master_off_since
+        else None,
     }
