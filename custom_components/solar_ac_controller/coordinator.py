@@ -1,3 +1,4 @@
+# custom_components/solar_ac_controller/coordinator.py
 from __future__ import annotations
 
 import asyncio
@@ -476,17 +477,14 @@ class SolarACCoordinator(DataUpdateCoordinator):
     def _compute_required_export(self, next_zone: str | None) -> float | None:
         """Compute required export for the next zone.
 
-        Previously a safety multiplier was applied to the learned power to
-        produce a conservative required export. That multiplier has been
-        removed: the required export is now the learned power estimate
-        (per-zone, per-mode) directly.
+        The required export is the learned power estimate for the zone.
+        No safety multiplier is applied.
         """
         if not next_zone:
             return None
 
         zone_name = next_zone.split(".")[-1]
         lp = self.get_learned_power(zone_name, mode="default")
-        # Safety multiplier removed; return learned power directly
         return float(lp)
 
     def _is_short_cycling(self, zone: str | None) -> bool:
