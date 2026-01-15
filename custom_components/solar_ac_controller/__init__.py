@@ -29,7 +29,7 @@ async def _async_migrate_data(
     old_data: dict | None,
     initial_lp: float = DEFAULT_INITIAL_LEARNED_POWER,
 ) -> dict:
-    """Normalize and migrate stored data into the new per‑mode structure."""
+    """Normalize and migrate stored data into the new per-mode structure."""
     _LOGGER.info(
         "Running explicit fallback migration from v%s.%s to v%s",
         old_major,
@@ -153,10 +153,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN][entry.entry_id] = {"coordinator": coordinator}
     _LOGGER.debug("SolarACCoordinator stored in hass.data for entry %s (version=%s)", entry.entry_id, version)
 
-    # Perform initial refresh (may trigger platform setup callbacks)
-    await coordinator.async_config_entry_first_refresh()
-
-    # Device registry entry — keep legacy identifier to avoid duplicates
+    # Device registry entry — create before first refresh to avoid duplicate devices
     device_registry = dr.async_get(hass)
     try:
         device_registry.async_get_or_create(
@@ -167,6 +164,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
     except Exception:
         _LOGGER.exception("Failed to create device registry entry for Solar AC Controller")
+
+    # Perform initial refresh (may trigger platform setup callbacks)
+    await coordinator.async_config_entry_first_refresh()
 
     # Platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
