@@ -75,16 +75,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Solar AC Controller from a config entry.
 
     This version intentionally does NOT call device_registry.async_get_or_create.
-    Entities themselves expose minimal device_info (identifiers only).
+    Entities themselves expose minimal device_info (identifiers only) if desired.
     """
     hass.data.setdefault(DOMAIN, {})
 
+    # Safely resolve integration version to a plain string or None
     integration = await async_get_integration(hass, DOMAIN)
     version = None
     if integration is not None and getattr(integration, "version", None) is not None:
         try:
             version = str(integration.version)
         except Exception:
+            _LOGGER.debug("Failed to stringify integration.version; using None for version")
             version = None
 
     initial_lp = float(
@@ -104,17 +106,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     try:
         migrated = await _async_migrate_data(0, 0, stored_data, initial_lp)
         if migrated != stored_data:
+            _LOGGER.debug("Data migration changed payload; saving to storage")
             await store.async_save(migrated)
             stored_data = migrated
+            _LOGGER.info("Storage migrated and saved for %s", STORAGE_KEY)
     except Exception:
         _LOGGER.exception("Error while attempting explicit migration fallback")
         if stored_data is None:
             stored_data = {"learned_power": {}, "samples": 0}
 
-    coordinator = SolarACCoordinator(hass, entry, store, stored_data, version=version)
-    hass.data[DOMAIN][entry.entry_id] = {"coordinator": coordinator}
+    coordinator = SolarACCoordinator(
+        hass,
+        entry,
+        store,
+        stored_data,
+        version=version,
+    )
 
-    # Initial refresh may trigger platform setup callbacks
+    # Make coordinator available immediately so any code invoked during first refresh can access it
+    hass.data[DOMAIN][entry.entry_id] = {"coordinator": coordinator}
+    _LOGGER.debug("SolarACCoordinator stored in hass.data for entry %s (version=%s)", entry.entry_id, version)
+
+    # Initial refresh (may trigger platform setup callbacks)
     await coordinator.async_config_entry_first_refresh()
 
     # Forward platforms
