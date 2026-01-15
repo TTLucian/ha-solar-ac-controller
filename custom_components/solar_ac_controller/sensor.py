@@ -48,7 +48,7 @@ async def async_setup_entry(
 
     async_add_entities(entities)
 
-# --- Base Class with FIXED Device Info ---
+# --- BASE CLASS ---
 class _BaseSolarACSensor(SensorEntity):
     _attr_has_entity_name = True
     _attr_should_poll = False
@@ -60,22 +60,26 @@ class _BaseSolarACSensor(SensorEntity):
 
     @property
     def device_info(self) -> DeviceInfo:
+        """Link to the 'Solar AC Smart Controller' device."""
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry_id)},
-            name="Solar AC Smart Controller", # Must match __init__.py exactly
+            name="Solar AC Smart Controller", # <--- THIS MUST MATCH __init__.py
             manufacturer="TTLucian",
             model="Solar AC Logic Controller",
             sw_version=getattr(self.coordinator, "version", "0.5.1"),
         )
 
     async def async_added_to_hass(self) -> None:
-        self._unsub = self.coordinator.async_add_listener(self.async_write_ha_state)
+        try:
+            self._unsub = self.coordinator.async_add_listener(self.async_write_ha_state)
+        except Exception:
+            self.async_write_ha_state()
 
     async def async_will_remove_from_hass(self) -> None:
         if self._unsub:
             self._unsub()
 
-# --- Entities ---
+# --- SENSOR CLASSES ---
 class SolarACActiveZonesSensor(_BaseSolarACSensor):
     _attr_name = "Active Zones"
     @property
