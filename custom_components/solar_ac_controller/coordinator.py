@@ -613,10 +613,10 @@ class SolarACCoordinator(DataUpdateCoordinator):
         if self.ema_5m > -200:
             return False
 
-        return self.confidence >= self.add_confidence_threshold
+        return self.last_add_conf >= self.add_confidence_threshold
 
     def _should_remove_zone(self, last_zone: str, import_power: float) -> bool:
-        return self.confidence <= -self.remove_confidence_threshold
+        return self.last_remove_conf >= self.remove_confidence_threshold
 
     async def _attempt_add_zone(
         self,

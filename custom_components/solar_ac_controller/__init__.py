@@ -93,8 +93,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     device_registry.async_get_or_create(
         config_entry_id=entry.entry_id,
         identifiers={(DOMAIN, entry.entry_id)},
-        name="Solar AC Smart Controller",  # UPDATED TO MATCH
-        manufacturer="TTLucian",
+        name="Solar AC Controller",
         model="Solar AC Logic Controller",
         sw_version=version,
         configuration_url="https://github.com/TTLucian/ha-solar-ac-controller",

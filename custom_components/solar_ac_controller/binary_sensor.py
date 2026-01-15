@@ -50,11 +50,10 @@ class _BaseSolarACBinary(BinarySensorEntity):
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Link to the 'Solar AC Smart Controller' device."""
+        """Link to the 'Solar AC Controller' device."""
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry_id)},
-            name="Solar AC Smart Controller", # <--- THIS MUST MATCH __init__.py
-            manufacturer="TTLucian",
+            name="Solar AC Controller",
             model="Solar AC Logic Controller",
             sw_version=getattr(self.coordinator, "version", "0.5.1"),
         )
