@@ -474,13 +474,20 @@ class SolarACCoordinator(DataUpdateCoordinator):
         return next_zone, last_zone
 
     def _compute_required_export(self, next_zone: str | None) -> float | None:
+        """Compute required export for the next zone.
+
+        Previously a safety multiplier was applied to the learned power to
+        produce a conservative required export. That multiplier has been
+        removed: the required export is now the learned power estimate
+        (per-zone, per-mode) directly.
+        """
         if not next_zone:
             return None
 
         zone_name = next_zone.split(".")[-1]
         lp = self.get_learned_power(zone_name, mode="default")
-        safety_mult = 1.15 if self.samples >= 10 else 1.30
-        return lp * safety_mult
+        # Safety multiplier removed; return learned power directly
+        return float(lp)
 
     def _is_short_cycling(self, zone: str | None) -> bool:
         if not zone:
