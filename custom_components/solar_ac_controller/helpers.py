@@ -13,13 +13,40 @@ def _safe_float(val: Any, default: float | None = None) -> float | None:
         return default
 
 
+def _human_delta(ts: float | None) -> str | None:
+    """Return a short human readable delta like '2m ago' or 'just now'.
+
+    Returns None if ts is falsy.
+    """
+    if not ts:
+        return None
+    try:
+        now = dt_util.utcnow().timestamp()
+        diff = int(now - float(ts))
+        if diff < 0:
+            return "in the future"
+        if diff < 5:
+            return "just now"
+        if diff < 60:
+            return f"{diff}s ago"
+        minutes = diff // 60
+        if minutes < 60:
+            return f"{minutes}m ago"
+        hours = minutes // 60
+        if hours < 24:
+            return f"{hours}h ago"
+        days = hours // 24
+        return f"{days}d ago"
+    except Exception:
+        return None
+
+
 def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
     """
     Build diagnostics payload for Solar AC Controller.
 
-    Returns a dict containing only the fields listed in the diagnostics spec,
-    with all ISO and epoch timestamps removed.
-    Defensive: uses getattr and safe conversions so it never raises.
+    Returns a dict containing the requested fields with human-readable
+    relative time strings instead of ISO/epoch timestamps.
     """
     # Basic metadata
     version = getattr(coordinator, "version", None)
@@ -28,7 +55,7 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
     except Exception:
         version = None
 
-    # Config snapshot (shallow copy of config dict)
+    # Config snapshot (shallow copy)
     config = dict(getattr(coordinator, "config", {}) or {})
 
     # Learned / learning state
@@ -36,7 +63,8 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
     learned_power = dict(getattr(coordinator, "learned_power", {}) or {})
     learning_active = bool(getattr(coordinator, "learning_active", False))
     learning_zone = getattr(coordinator, "learning_zone", None)
-    # learning_start_time removed per request
+    learning_start_time_ts = getattr(coordinator, "learning_start_time", None)
+    learning_started = _human_delta(learning_start_time_ts)
     ac_power_before = _safe_float(getattr(coordinator, "ac_power_before", None), None)
 
     # EMA metrics
@@ -64,11 +92,10 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
         if st_obj:
             state = getattr(st_obj, "state", None)
         else:
-            # fallback to coordinator-tracked state
             state = zone_last_state.get(z)
         if state in ("heat", "cool", "on"):
             active_zones.append(z)
-        # mode detection: prefer hvac_mode/hvac_action attribute if available
+
         mode = None
         if st_obj:
             attrs = getattr(st_obj, "attributes", {}) or {}
@@ -90,18 +117,21 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
     # Panic / safety
     panic_threshold = _safe_float(getattr(coordinator, "panic_threshold", None), None)
     panic_delay = int(getattr(coordinator, "panic_delay", 0) or 0)
-    # last_panic_ts removed per request
+    last_panic_ts = getattr(coordinator, "last_panic_ts", None)
+    last_panic = _human_delta(last_panic_ts)
     panic_cooldown_active = False
     try:
-        last_panic_ts = getattr(coordinator, "last_panic_ts", None)
         if last_panic_ts is not None:
             cooldown = getattr(coordinator, "panic_cooldown_seconds", None) or getattr(coordinator, "_PANIC_COOLDOWN_SECONDS", 120)
-            panic_cooldown_active = (float(last_panic_ts) is not None) and bool(cooldown)
+            now = dt_util.utcnow().timestamp()
+            panic_cooldown_active = (now - float(last_panic_ts)) < float(cooldown)
     except Exception:
         panic_cooldown_active = False
 
-    # Master off tracking: remove master_off_since per request
-    # Build payload without any ISO/epoch timestamps
+    # Master off tracking
+    master_off_since_ts = getattr(coordinator, "master_off_since", None)
+    master_off = _human_delta(master_off_since_ts)
+
     payload = {
         "version": version,
         "config": config,
@@ -109,6 +139,7 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
         "learned_power": learned_power,
         "learning_active": learning_active,
         "learning_zone": learning_zone,
+        "learning_started": learning_started,
         "ac_power_before": ac_power_before,
         "ema_30s": ema_30s,
         "ema_5m": ema_5m,
@@ -124,7 +155,9 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
         "zone_manual_lock_until": zone_manual_lock_until,
         "panic_threshold": panic_threshold,
         "panic_delay": panic_delay,
+        "last_panic": last_panic,
         "panic_cooldown_active": panic_cooldown_active,
+        "master_off": master_off,
     }
 
     return payload
