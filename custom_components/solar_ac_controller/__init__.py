@@ -109,6 +109,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     - Forward platforms early
     - Perform initial refresh without blocking setup on transient errors
     - Create device registry entry safely (avoid awesomeversion comparison issues)
+    - Merge old device identifier if present to avoid duplicate devices
     - Register service and track registration for clean unload
     """
     hass.data.setdefault(DOMAIN, {})
@@ -201,11 +202,44 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             manufacturer="TTLucian",
             model="Solar AC Smart Controller",
         )
+
+        # Safely update sw_version as a plain string
         if version is not None:
             try:
                 device_registry.async_update_device(device.id, sw_version=version)
             except Exception:
                 _LOGGER.exception("Failed to update device sw_version safely")
+
+        # One-time migration: if an old device exists with the legacy identifier,
+        # merge that identifier into the current device so Home Assistant treats them as one.
+        # Replace the old identifier below if your previous code used a different value.
+        old_identifier = (DOMAIN, "solar_ac_controller")
+        try:
+            old_device = device_registry.async_get_device(identifiers={old_identifier})
+            if old_device and old_device.id != device.id:
+                _LOGGER.info(
+                    "Merging legacy device identifier %s into device %s",
+                    old_identifier,
+                    device.id,
+                )
+                try:
+                    # Add the old identifier to the current device's identifiers
+                    new_ids = set(device.identifiers) | {old_identifier}
+                    device_registry.async_update_device(device.id, identifiers=new_ids)
+                except Exception:
+                    _LOGGER.exception("Failed to add legacy identifier to current device")
+
+                # If the old device is now empty (no entities) remove it to avoid duplicates
+                try:
+                    # Re-fetch old_device in case identifiers changed
+                    old_device_ref = device_registry.async_get_device(identifiers={old_identifier})
+                    if old_device_ref and not old_device_ref.entities:
+                        device_registry.async_remove_device(old_device_ref.id)
+                        _LOGGER.info("Removed legacy empty device %s", old_device_ref.id)
+                except Exception:
+                    _LOGGER.exception("Failed to remove legacy device after merging identifiers")
+        except Exception:
+            _LOGGER.debug("No legacy device found or failed to query device registry for legacy identifier")
     except Exception:
         _LOGGER.exception("Failed to create/update device registry entry")
 
