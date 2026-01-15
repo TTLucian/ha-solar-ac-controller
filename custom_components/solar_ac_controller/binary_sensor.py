@@ -38,6 +38,7 @@ async def async_setup_entry(
     ]
     async_add_entities(entities)
 
+# --- BASE CLASS ---
 class _BaseSolarACBinary(BinarySensorEntity):
     _attr_has_entity_name = True
     _attr_should_poll = False
@@ -49,9 +50,10 @@ class _BaseSolarACBinary(BinarySensorEntity):
 
     @property
     def device_info(self) -> DeviceInfo:
+        """Link to the 'Solar AC Smart Controller' device."""
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry_id)},
-            name="Solar AC Smart Controller", # Must match __init__.py
+            name="Solar AC Smart Controller", # <--- THIS MUST MATCH __init__.py
             manufacturer="TTLucian",
             model="Solar AC Logic Controller",
             sw_version=getattr(self.coordinator, "version", "0.5.1"),
@@ -64,7 +66,7 @@ class _BaseSolarACBinary(BinarySensorEntity):
         if self._listener:
             self._listener()
 
-# --- Entities ---
+# --- BINARY SENSORS ---
 class SolarACLearningBinarySensor(_BaseSolarACBinary):
     _attr_name = "Learning Active"
     @property
