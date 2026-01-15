@@ -11,7 +11,6 @@ from homeassistant.components.sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN, CONF_ENABLE_DIAGNOSTICS, CONF_ZONES
 from .helpers import build_diagnostics
@@ -52,10 +51,6 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-# ---------------------------------------------------------------------------
-# BASE CLASS
-# ---------------------------------------------------------------------------
-
 class _BaseSolarACSensor(SensorEntity):
     _attr_should_poll = False
 
@@ -71,7 +66,6 @@ class _BaseSolarACSensor(SensorEntity):
 
     @property
     def available(self) -> bool:
-        # Prefer DataUpdateCoordinator last_update_success if available
         last_ok = getattr(self.coordinator, "last_update_success", None)
         if isinstance(last_ok, bool):
             return last_ok
@@ -93,14 +87,7 @@ class _BaseSolarACSensor(SensorEntity):
                 self._unsub = None
 
 
-# ---------------------------------------------------------------------------
-# NON-NUMERIC SENSORS
-# ---------------------------------------------------------------------------
-
 class SolarACActiveZonesSensor(_BaseSolarACSensor):
-    def __init__(self, coordinator: Any, entry_id: str) -> None:
-        super().__init__(coordinator, entry_id)
-
     @property
     def name(self) -> str:
         return "Solar AC Active Zones"
@@ -120,9 +107,6 @@ class SolarACActiveZonesSensor(_BaseSolarACSensor):
 
 
 class SolarACNextZoneSensor(_BaseSolarACSensor):
-    def __init__(self, coordinator: Any, entry_id: str) -> None:
-        super().__init__(coordinator, entry_id)
-
     @property
     def name(self) -> str:
         return "Solar AC Next Zone"
@@ -137,9 +121,6 @@ class SolarACNextZoneSensor(_BaseSolarACSensor):
 
 
 class SolarACLastZoneSensor(_BaseSolarACSensor):
-    def __init__(self, coordinator: Any, entry_id: str) -> None:
-        super().__init__(coordinator, entry_id)
-
     @property
     def name(self) -> str:
         return "Solar AC Last Zone"
@@ -154,9 +135,6 @@ class SolarACLastZoneSensor(_BaseSolarACSensor):
 
 
 class SolarACLastActionSensor(_BaseSolarACSensor):
-    def __init__(self, coordinator: Any, entry_id: str) -> None:
-        super().__init__(coordinator, entry_id)
-
     @property
     def name(self) -> str:
         return "Solar AC Last Action"
@@ -170,24 +148,13 @@ class SolarACLastActionSensor(_BaseSolarACSensor):
         return self.coordinator.last_action or "none"
 
 
-# ---------------------------------------------------------------------------
-# NUMERIC SENSOR BASE CLASS
-# ---------------------------------------------------------------------------
-
 class _NumericSolarACSensor(_BaseSolarACSensor):
     _attr_device_class = SensorDeviceClass.POWER
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = "W"
 
 
-# ---------------------------------------------------------------------------
-# NUMERIC SENSORS
-# ---------------------------------------------------------------------------
-
 class SolarACEma30Sensor(_NumericSolarACSensor):
-    def __init__(self, coordinator: Any, entry_id: str) -> None:
-        super().__init__(coordinator, entry_id)
-
     @property
     def name(self) -> str:
         return "Solar AC EMA 30s"
@@ -202,9 +169,6 @@ class SolarACEma30Sensor(_NumericSolarACSensor):
 
 
 class SolarACEma5Sensor(_NumericSolarACSensor):
-    def __init__(self, coordinator: Any, entry_id: str) -> None:
-        super().__init__(coordinator, entry_id)
-
     @property
     def name(self) -> str:
         return "Solar AC EMA 5m"
@@ -238,9 +202,6 @@ class SolarACConfidenceSensor(_BaseSolarACSensor):
 
 
 class SolarACConfidenceThresholdSensor(_BaseSolarACSensor):
-    def __init__(self, coordinator: Any, entry_id: str) -> None:
-        super().__init__(coordinator, entry_id)
-
     @property
     def name(self) -> str:
         return "Solar AC Confidence Thresholds"
@@ -262,9 +223,6 @@ class SolarACConfidenceThresholdSensor(_BaseSolarACSensor):
 
 
 class SolarACRequiredExportSensor(_NumericSolarACSensor):
-    def __init__(self, coordinator: Any, entry_id: str) -> None:
-        super().__init__(coordinator, entry_id)
-
     @property
     def name(self) -> str:
         return "Solar AC Required Export"
@@ -280,9 +238,6 @@ class SolarACRequiredExportSensor(_NumericSolarACSensor):
 
 
 class SolarACExportMarginSensor(_NumericSolarACSensor):
-    def __init__(self, coordinator: Any, entry_id: str) -> None:
-        super().__init__(coordinator, entry_id)
-
     @property
     def name(self) -> str:
         return "Solar AC Export Margin"
@@ -298,9 +253,6 @@ class SolarACExportMarginSensor(_NumericSolarACSensor):
 
 
 class SolarACImportPowerSensor(_NumericSolarACSensor):
-    def __init__(self, coordinator: Any, entry_id: str) -> None:
-        super().__init__(coordinator, entry_id)
-
     @property
     def name(self) -> str:
         return "Solar AC Import Power"
@@ -314,14 +266,7 @@ class SolarACImportPowerSensor(_NumericSolarACSensor):
         return round(getattr(self.coordinator, "ema_5m", 0.0), 2)
 
 
-# ---------------------------------------------------------------------------
-# PANIC COOLDOWN SENSOR (keeps yes/no string)
-# ---------------------------------------------------------------------------
-
 class SolarACPanicCooldownSensor(_BaseSolarACSensor):
-    def __init__(self, coordinator: Any, entry_id: str) -> None:
-        super().__init__(coordinator, entry_id)
-
     @property
     def name(self) -> str:
         return "Solar AC Panic Cooldown Active"
@@ -337,14 +282,11 @@ class SolarACPanicCooldownSensor(_BaseSolarACSensor):
             return "no"
         cooldown = getattr(self.coordinator, "panic_cooldown_seconds", None) or getattr(self.coordinator, "_PANIC_COOLDOWN_SECONDS", 120)
         try:
-            return "yes" if (float(ts) is not None and (float(ts) and cooldown)) else "no"
+            now = dt_util.utcnow().timestamp()
+            return "yes" if (now - float(ts)) < float(cooldown) else "no"
         except Exception:
             return "no"
 
-
-# ---------------------------------------------------------------------------
-# LEARNED POWER SENSOR
-# ---------------------------------------------------------------------------
 
 class SolarACLearnedPowerSensor(_NumericSolarACSensor):
     def __init__(self, coordinator: Any, entry_id: str, zone_name: str):
@@ -363,10 +305,6 @@ class SolarACLearnedPowerSensor(_NumericSolarACSensor):
     def native_value(self) -> float:
         return self.coordinator.get_learned_power(self.zone_name, mode="default")
 
-
-# ---------------------------------------------------------------------------
-# DIAGNOSTICS SENSOR (delegates to helpers.build_diagnostics)
-# ---------------------------------------------------------------------------
 
 class SolarACDiagnosticEntity(_BaseSolarACSensor):
     def __init__(self, coordinator: Any, entry_id: str):
