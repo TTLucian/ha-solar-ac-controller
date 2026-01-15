@@ -1,3 +1,4 @@
+# custom_components/solar_ac_controller/helpers.py
 from __future__ import annotations
 
 from typing import Any, Dict, List
@@ -14,10 +15,6 @@ def _safe_float(val: Any, default: float | None = None) -> float | None:
 
 
 def _human_delta(ts: float | None) -> str | None:
-    """Return a short human readable delta like '2m ago' or 'just now'.
-
-    Returns None if ts is falsy.
-    """
     if not ts:
         return None
     try:
@@ -45,20 +42,17 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
     """
     Build diagnostics payload for Solar AC Controller.
 
-    Returns a dict containing the requested fields with human-readable
-    relative time strings instead of ISO/epoch timestamps.
+    The diagnostics payload explicitly documents that required_export is
+    the learned power estimate (no safety multiplier).
     """
-    # Basic metadata
     version = getattr(coordinator, "version", None)
     try:
         version = str(version) if version is not None else None
     except Exception:
         version = None
 
-    # Config snapshot (shallow copy)
     config = dict(getattr(coordinator, "config", {}) or {})
 
-    # Learned / learning state
     samples = int(getattr(coordinator, "samples", 0) or 0)
     learned_power = dict(getattr(coordinator, "learned_power", {}) or {})
     learning_active = bool(getattr(coordinator, "learning_active", False))
@@ -67,18 +61,15 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
     learning_started = _human_delta(learning_start_time_ts)
     ac_power_before = _safe_float(getattr(coordinator, "ac_power_before", None), None)
 
-    # EMA metrics
     ema_30s = _safe_float(getattr(coordinator, "ema_30s", None), 0.0)
     ema_5m = _safe_float(getattr(coordinator, "ema_5m", None), 0.0)
 
-    # Decision engine / action state
     last_action = getattr(coordinator, "last_action", None)
     next_zone = getattr(coordinator, "next_zone", None)
     last_zone = getattr(coordinator, "last_zone", None)
     required_export = _safe_float(getattr(coordinator, "required_export", None), None)
     export_margin = _safe_float(getattr(coordinator, "export_margin", None), None)
 
-    # Zones and modes
     zones_config: List[str] = list(config.get("zones", []) or [])
     active_zones: List[str] = []
     zone_modes: Dict[str, str] = {}
@@ -114,7 +105,6 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
                 mode = "default"
         zone_modes[z] = mode
 
-    # Panic / safety
     panic_threshold = _safe_float(getattr(coordinator, "panic_threshold", None), None)
     panic_delay = int(getattr(coordinator, "panic_delay", 0) or 0)
     last_panic_ts = getattr(coordinator, "last_panic_ts", None)
@@ -128,7 +118,6 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
     except Exception:
         panic_cooldown_active = False
 
-    # Master off tracking
     master_off_since_ts = getattr(coordinator, "master_off_since", None)
     master_off = _human_delta(master_off_since_ts)
 
@@ -148,6 +137,8 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
         "last_zone": last_zone,
         "required_export": required_export,
         "export_margin": export_margin,
+        "required_export_source": "learned_power",
+        "note": "Safety multiplier removed; required_export equals learned power estimate.",
         "active_zones": active_zones,
         "zone_modes": zone_modes,
         "zone_last_changed": zone_last_changed,
