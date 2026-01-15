@@ -38,8 +38,6 @@ async def async_setup_entry(
         SolarACRequiredExportSensor(coordinator, entry_id),
         SolarACExportMarginSensor(coordinator, entry_id),
         SolarACImportPowerSensor(coordinator, entry_id),
-        SolarACMasterOffSinceSensor(coordinator, entry_id),
-        SolarACLastPanicSensor(coordinator, entry_id),
         SolarACPanicCooldownSensor(coordinator, entry_id),
     ]
 
@@ -77,14 +75,12 @@ class _BaseSolarACSensor(SensorEntity):
         last_ok = getattr(self.coordinator, "last_update_success", None)
         if isinstance(last_ok, bool):
             return last_ok
-        # Fallback to True to avoid hiding entities unnecessarily
         return True
 
     async def async_added_to_hass(self) -> None:
         try:
             self._unsub = self.coordinator.async_add_listener(self.async_write_ha_state)
         except Exception:
-            # If coordinator doesn't support async_add_listener, write initial state
             self.async_write_ha_state()
 
     async def async_will_remove_from_hass(self) -> None:
@@ -319,60 +315,8 @@ class SolarACImportPowerSensor(_NumericSolarACSensor):
 
 
 # ---------------------------------------------------------------------------
-# TIMESTAMP SENSORS
+# PANIC COOLDOWN SENSOR (keeps yes/no string)
 # ---------------------------------------------------------------------------
-
-class SolarACMasterOffSinceSensor(_BaseSolarACSensor):
-    def __init__(self, coordinator: Any, entry_id: str) -> None:
-        super().__init__(coordinator, entry_id)
-        self._attr_device_class = SensorDeviceClass.TIMESTAMP
-
-    @property
-    def name(self) -> str:
-        return "Solar AC Master Off Since"
-
-    @property
-    def unique_id(self) -> str:
-        return f"{self._entry_id}_master_off_since"
-
-    @property
-    def native_value(self) -> datetime | None:
-        ts = getattr(self.coordinator, "master_off_since", None)
-        if not ts:
-            return None
-        return dt_util.as_local(dt_util.utc_from_timestamp(ts))
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        ts = getattr(self.coordinator, "master_off_since", None)
-        return {"utc_iso": dt_util.utc_from_timestamp(ts).isoformat() if ts else None}
-
-
-class SolarACLastPanicSensor(_BaseSolarACSensor):
-    def __init__(self, coordinator: Any, entry_id: str) -> None:
-        super().__init__(coordinator, entry_id)
-        self._attr_device_class = SensorDeviceClass.TIMESTAMP
-
-    @property
-    def name(self) -> str:
-        return "Solar AC Last Panic"
-
-    @property
-    def unique_id(self) -> str:
-        return f"{self._entry_id}_last_panic"
-
-    @property
-    def native_value(self) -> datetime | None:
-        ts = getattr(self.coordinator, "last_panic_ts", None)
-        if not ts:
-            return None
-        return dt_util.as_local(dt_util.utc_from_timestamp(ts))
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        ts = getattr(self.coordinator, "last_panic_ts", None)
-        return {"utc_iso": dt_util.utc_from_timestamp(ts).isoformat() if ts else None}
-
 
 class SolarACPanicCooldownSensor(_BaseSolarACSensor):
     def __init__(self, coordinator: Any, entry_id: str) -> None:
@@ -388,12 +332,14 @@ class SolarACPanicCooldownSensor(_BaseSolarACSensor):
 
     @property
     def state(self) -> str:
-        now = dt_util.utcnow().timestamp()
         ts = getattr(self.coordinator, "last_panic_ts", None)
         if not ts:
             return "no"
         cooldown = getattr(self.coordinator, "panic_cooldown_seconds", None) or getattr(self.coordinator, "_PANIC_COOLDOWN_SECONDS", 120)
-        return "yes" if (now - ts) < float(cooldown) else "no"
+        try:
+            return "yes" if (float(ts) is not None and (float(ts) and cooldown)) else "no"
+        except Exception:
+            return "no"
 
 
 # ---------------------------------------------------------------------------
@@ -419,7 +365,7 @@ class SolarACLearnedPowerSensor(_NumericSolarACSensor):
 
 
 # ---------------------------------------------------------------------------
-# DIAGNOSTICS SENSOR
+# DIAGNOSTICS SENSOR (delegates to helpers.build_diagnostics)
 # ---------------------------------------------------------------------------
 
 class SolarACDiagnosticEntity(_BaseSolarACSensor):
@@ -431,8 +377,15 @@ class SolarACDiagnosticEntity(_BaseSolarACSensor):
 
     @property
     def native_value(self) -> str:
-        return self.coordinator.last_action or "idle"
+        return getattr(self.coordinator, "last_action", None) or "idle"
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        return build_diagnostics(self.coordinator)
+        try:
+            attrs = build_diagnostics(self.coordinator)
+            return attrs if isinstance(attrs, dict) else {}
+        except Exception:
+            return {
+                "last_action": getattr(self.coordinator, "last_action", None),
+                "samples": getattr(self.coordinator, "samples", None),
+            }
