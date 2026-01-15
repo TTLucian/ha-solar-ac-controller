@@ -72,6 +72,11 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Set up Solar AC Controller from a config entry.
+
+    NOTE: This version intentionally does NOT create a device registry entry.
+    Entities are created without device_info per user request.
+    """
     hass.data.setdefault(DOMAIN, {})
 
     integration = await async_get_integration(hass, DOMAIN)
@@ -109,8 +114,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = SolarACCoordinator(hass, entry, store, stored_data, version=version)
     hass.data[DOMAIN][entry.entry_id] = {"coordinator": coordinator}
 
+    # Initial refresh may trigger platform setup callbacks
     await coordinator.async_config_entry_first_refresh()
 
+    # Forward platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.add_update_listener(async_reload_entry)
 
