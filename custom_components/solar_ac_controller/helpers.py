@@ -1,90 +1,130 @@
 from __future__ import annotations
 
+from typing import Any, Dict, List
+from datetime import datetime
+
 from homeassistant.util import dt as dt_util
 
-from .const import CONF_ZONES
 
-_PANIC_COOLDOWN_SECONDS = 120
+def _safe_float(val: Any, default: float | None = None) -> float | None:
+    try:
+        return float(val)
+    except Exception:
+        return default
 
 
-def build_diagnostics(coordinator):
-    """Return a unified diagnostics structure for both sensor and HA diagnostics.
-
-    Uses coordinator.version as the authoritative integration version and
-    converts mappingproxy config to a plain dict for JSON safety.
+def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
     """
-    now_ts = dt_util.utcnow().timestamp()
+    Build diagnostics payload for Solar AC Controller.
 
-    # Zones list from config (JSON-safe)
-    zones = coordinator.config.get(CONF_ZONES, []) or []
+    Returns a dict containing only the fields listed in the diagnostics spec,
+    with all ISO and epoch timestamps removed.
+    Defensive: uses getattr and safe conversions so it never raises.
+    """
+    # Basic metadata
+    version = getattr(coordinator, "version", None)
+    try:
+        version = str(version) if version is not None else None
+    except Exception:
+        version = None
 
-    # Active zones (heat/cool/on)
-    active_zones = []
-    zone_modes = {}
-    for z in zones:
-        st = coordinator.hass.states.get(z)
-        mode = st.state if st else None
-        zone_modes[z] = mode
-        if mode in ("heat", "cool", "on"):
+    # Config snapshot (shallow copy of config dict)
+    config = dict(getattr(coordinator, "config", {}) or {})
+
+    # Learned / learning state
+    samples = int(getattr(coordinator, "samples", 0) or 0)
+    learned_power = dict(getattr(coordinator, "learned_power", {}) or {})
+    learning_active = bool(getattr(coordinator, "learning_active", False))
+    learning_zone = getattr(coordinator, "learning_zone", None)
+    # learning_start_time removed per request
+    ac_power_before = _safe_float(getattr(coordinator, "ac_power_before", None), None)
+
+    # EMA metrics
+    ema_30s = _safe_float(getattr(coordinator, "ema_30s", None), 0.0)
+    ema_5m = _safe_float(getattr(coordinator, "ema_5m", None), 0.0)
+
+    # Decision engine / action state
+    last_action = getattr(coordinator, "last_action", None)
+    next_zone = getattr(coordinator, "next_zone", None)
+    last_zone = getattr(coordinator, "last_zone", None)
+    required_export = _safe_float(getattr(coordinator, "required_export", None), None)
+    export_margin = _safe_float(getattr(coordinator, "export_margin", None), None)
+
+    # Zones and modes
+    zones_config: List[str] = list(config.get("zones", []) or [])
+    active_zones: List[str] = []
+    zone_modes: Dict[str, str] = {}
+    zone_last_changed = dict(getattr(coordinator, "zone_last_changed", {}) or {})
+    zone_last_state = dict(getattr(coordinator, "zone_last_state", {}) or {})
+    zone_manual_lock_until = dict(getattr(coordinator, "zone_manual_lock_until", {}) or {})
+
+    for z in zones_config:
+        st_obj = getattr(coordinator, "hass", None).states.get(z) if getattr(coordinator, "hass", None) else None
+        state = None
+        if st_obj:
+            state = getattr(st_obj, "state", None)
+        else:
+            # fallback to coordinator-tracked state
+            state = zone_last_state.get(z)
+        if state in ("heat", "cool", "on"):
             active_zones.append(z)
+        # mode detection: prefer hvac_mode/hvac_action attribute if available
+        mode = None
+        if st_obj:
+            attrs = getattr(st_obj, "attributes", {}) or {}
+            hvac_mode = attrs.get("hvac_mode") or attrs.get("hvac_action")
+            if isinstance(hvac_mode, str):
+                if "heat" in hvac_mode:
+                    mode = "heat"
+                elif "cool" in hvac_mode:
+                    mode = "cool"
+        if mode is None:
+            if state == "heat":
+                mode = "heat"
+            elif state == "cool":
+                mode = "cool"
+            else:
+                mode = "default"
+        zone_modes[z] = mode
 
-    # Panic cooldown state
+    # Panic / safety
+    panic_threshold = _safe_float(getattr(coordinator, "panic_threshold", None), None)
+    panic_delay = int(getattr(coordinator, "panic_delay", 0) or 0)
+    # last_panic_ts removed per request
     panic_cooldown_active = False
-    if coordinator.last_panic_ts:
-        panic_cooldown_active = (now_ts - coordinator.last_panic_ts) < _PANIC_COOLDOWN_SECONDS
+    try:
+        last_panic_ts = getattr(coordinator, "last_panic_ts", None)
+        if last_panic_ts is not None:
+            cooldown = getattr(coordinator, "panic_cooldown_seconds", None) or getattr(coordinator, "_PANIC_COOLDOWN_SECONDS", 120)
+            panic_cooldown_active = (float(last_panic_ts) is not None) and bool(cooldown)
+    except Exception:
+        panic_cooldown_active = False
 
-    # JSON-safe learned_power copy (normalize to dict)
-    learned_power = dict(coordinator.learned_power) if coordinator.learned_power is not None else {}
-
-    return {
-        # Authoritative integration version (fallback to None if missing)
-        "version": getattr(coordinator, "version", None),
-
-        # Timestamp for diagnostics snapshot (ISO + epoch)
-        "timestamp": dt_util.utcnow().isoformat(),
-        "timestamp_epoch": int(now_ts),
-
-        # JSON-safe config
-        "config": dict(coordinator.config),
-
-        # Learning
-        "samples": int(coordinator.samples or 0),
+    # Master off tracking: remove master_off_since per request
+    # Build payload without any ISO/epoch timestamps
+    payload = {
+        "version": version,
+        "config": config,
+        "samples": samples,
         "learned_power": learned_power,
-        "learning_active": bool(coordinator.learning_active),
-        "learning_zone": coordinator.learning_zone,
-        "learning_start_time": coordinator.learning_start_time,
-        "ac_power_before": coordinator.ac_power_before,
-
-        # EMA
-        "ema_30s": coordinator.ema_30s,
-        "ema_5m": coordinator.ema_5m,
-
-        # Decision state
-        "last_action": coordinator.last_action,
-        "next_zone": coordinator.next_zone,
-        "last_zone": coordinator.last_zone,
-        "required_export": coordinator.required_export,
-        "export_margin": coordinator.export_margin,
-
-        # Zones
+        "learning_active": learning_active,
+        "learning_zone": learning_zone,
+        "ac_power_before": ac_power_before,
+        "ema_30s": ema_30s,
+        "ema_5m": ema_5m,
+        "last_action": last_action,
+        "next_zone": next_zone,
+        "last_zone": last_zone,
+        "required_export": required_export,
+        "export_margin": export_margin,
         "active_zones": active_zones,
         "zone_modes": zone_modes,
-        "zone_last_changed": coordinator.zone_last_changed,
-        "zone_last_state": coordinator.zone_last_state,
-        "zone_manual_lock_until": coordinator.zone_manual_lock_until,
-
-        # Panic
-        "panic_threshold": coordinator.panic_threshold,
-        "panic_delay": coordinator.panic_delay,
-        "last_panic_ts": int(coordinator.last_panic_ts) if coordinator.last_panic_ts else None,
-        "last_panic_iso": dt_util.utc_from_timestamp(coordinator.last_panic_ts).isoformat()
-        if coordinator.last_panic_ts
-        else None,
+        "zone_last_changed": zone_last_changed,
+        "zone_last_state": zone_last_state,
+        "zone_manual_lock_until": zone_manual_lock_until,
+        "panic_threshold": panic_threshold,
+        "panic_delay": panic_delay,
         "panic_cooldown_active": panic_cooldown_active,
-
-        # Master switch
-        "master_off_since": int(coordinator.master_off_since) if coordinator.master_off_since else None,
-        "master_off_since_iso": dt_util.utc_from_timestamp(coordinator.master_off_since).isoformat()
-        if coordinator.master_off_since
-        else None,
     }
+
+    return payload
