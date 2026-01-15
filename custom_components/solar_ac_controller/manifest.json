@@ -1,7 +1,7 @@
 {
   "domain": "solar_ac_controller",
   "name": "Solar AC Controller",
-  "version": "0.4.9",
+  "version": "0.5.0",
   "documentation": "https://github.com/TTLucian/ha-solar-ac-controller",
   "issue_tracker": "https://github.com/TTLucian/ha-solar-ac-controller/issues",
   "requirements": [],
