@@ -462,16 +462,13 @@ class SolarACCoordinator(DataUpdateCoordinator):
         return next_zone, last_zone
 
     def _compute_required_export(self, next_zone: str | None) -> float | None:
-        """Return the required export to safely add the next zone.
-
-        NOTE: multiplier removed per user request — returns raw learned power.
-        """
         if not next_zone:
             return None
 
         zone_name = next_zone.split(".")[-1]
         lp = self.get_learned_power(zone_name, mode="default")
-        return lp
+        safety_mult = 1.15 if self.samples >= 10 else 1.30
+        return lp * safety_mult
 
     def _is_short_cycling(self, zone: str | None) -> bool:
         if not zone:
@@ -763,26 +760,25 @@ class SolarACCoordinator(DataUpdateCoordinator):
             await self._log(
                 f"[MASTER_ON] solar={round(solar)} threshold_on={on_threshold}"
             )
-            try:
-                await self.hass.services.async_call(
-                    "switch",
-                    "turn_on",
-                    {"entity_id": ac_switch},
-                    blocking=True,
-                )
-                self.last_action = "master_on"
-                # reset master_off_since when turned on
-                self.master_off_since = None
-            except Exception as exc:
-                _LOGGER.exception("Failed to turn master switch on: %s", exc)
+            await self.hass.services.async_call(
+                "switch",
+                "turn_on",
+                {"entity_id": ac_switch},
+                blocking=True,
+            )
+            self.last_action = "master_on"
+            # reset master_off_since when turned on
+            self.master_off_since = None
             return
 
         # Turn OFF when solar is below or equal to OFF threshold
-        if solar <= off_threshold and switch_state == "on":
-            await self._log(
-                f"[MASTER_OFF] solar={round(solar)} threshold_off={off_threshold}"
-            )
-            try:
+        if solar <= off_threshold and switch_state != "off":
+            # Only turn off if no zones are active (safety)
+            active_zones = [z for z in self.config.get(CONF_ZONES, []) if (st := self.hass.states.get(z)) and st.state in ("heat", "cool", "on")]
+            if not active_zones:
+                await self._log(
+                    f"[MASTER_OFF_SOLAR] solar={round(solar)} threshold_off={off_threshold}"
+                )
                 await self.hass.services.async_call(
                     "switch",
                     "turn_off",
@@ -790,26 +786,13 @@ class SolarACCoordinator(DataUpdateCoordinator):
                     blocking=True,
                 )
                 self.last_action = "master_off"
-                # record when master was turned off for EMA reset logic
-                self.master_off_since = dt_util.utcnow().timestamp()
-            except Exception as exc:
-                _LOGGER.exception("Failed to turn master switch off: %s", exc)
-            return
+                # master_off_since will be set in freeze cleanup
+                return
 
     # -------------------------------------------------------------------------
-    # Utilities / logging
+    # Logging helper
     # -------------------------------------------------------------------------
-    async def _log(self, message: str) -> None:
-        """Write a coordinator-level log entry and emit to logger."""
-        try:
-            # Persist to storage if available (best-effort)
-            entry = {"ts": int(dt_util.utcnow().timestamp()), "msg": message}
-            # If store supports append, attempt to save; otherwise just log
-            try:
-                # store may not implement append; wrap in try
-                await self.store.async_save({"last_log": entry})
-            except Exception:
-                pass
-        except Exception:
-            pass
-        _LOGGER.info(message)
+    async def _log(self, message: str):
+        """Write a short message to the coordinator log (non-blocking)."""
+        _LOGGER.debug(message)
+        # Placeholder for any future persistent log mechanism
