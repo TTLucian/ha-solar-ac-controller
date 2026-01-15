@@ -4,6 +4,7 @@ import logging
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.loader import async_get_integration
@@ -47,74 +48,64 @@ async def _async_migrate_data(
             learned_power[zone] = {"default": v, "heat": v, "cool": v}
             modified = True
         elif isinstance(val, dict):
-            default = val.get("default")
-            for mode in ("default", "heat", "cool"):
-                if val.get(mode) is None:
-                    val[mode] = default if default is not None else initial_lp
+            # Already in dict form; ensure keys exist
+            for mode in ["default", "heat", "cool"]:
+                if mode not in val:
+                    val[mode] = initial_lp
                     modified = True
-            learned_power[zone] = val
-        else:
-            learned_power[zone] = {"default": initial_lp, "heat": initial_lp, "cool": initial_lp}
-            modified = True
-
+    
     if modified:
-        old_data["learned_power"] = learned_power
-        try:
-            old_data["samples"] = int(old_data.get("samples", 0) or 0)
-        except Exception:
-            old_data["samples"] = 0
-
+        return {"learned_power": learned_power, "samples": old_data.get("samples", 0)}
     return old_data
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Set up the Solar AC Controller component."""
+    hass.data.setdefault(DOMAIN, {})
     return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up Solar AC Controller from a config entry.
-
-    This version intentionally does NOT call device_registry.async_get_or_create.
-    Entities themselves expose minimal device_info (identifiers only) if desired.
-    """
+    """Set up Solar AC Controller from a config entry."""
     hass.data.setdefault(DOMAIN, {})
 
-    # Safely resolve integration version to a plain string or None
+    # 1. FIX: Get integration version from manifest and ensure it's a valid string
+    # This prevents the AwesomeVersionCompareException during device registration
     integration = await async_get_integration(hass, DOMAIN)
-    version = None
-    if integration is not None and getattr(integration, "version", None) is not None:
-        try:
-            version = str(integration.version)
-        except Exception:
-            _LOGGER.debug("Failed to stringify integration.version; using None for version")
-            version = None
+    version = str(integration.version) if integration.version else "0.4.9"
 
-    initial_lp = float(
-        entry.options.get(
-            CONF_INITIAL_LEARNED_POWER,
-            entry.data.get(CONF_INITIAL_LEARNED_POWER, DEFAULT_INITIAL_LEARNED_POWER),
-        )
+    initial_lp = entry.options.get(
+        CONF_INITIAL_LEARNED_POWER,
+        entry.data.get(CONF_INITIAL_LEARNED_POWER, DEFAULT_INITIAL_LEARNED_POWER)
     )
 
+    # 2. Setup storage and data migration
     store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
+    
+    async def migrate_fn(old_major, old_minor, old_data):
+        return await _async_migrate_data(old_major, old_minor, old_data, initial_lp)
+
     try:
-        stored_data = await store.async_load()
+        stored_data = await store.async_load_with_migration(migrate_fn)
     except Exception:
-        _LOGGER.exception("Critical error loading integration storage")
+        _LOGGER.exception("Failed to load or migrate stored learned power data")
         stored_data = None
 
-    try:
-        migrated = await _async_migrate_data(0, 0, stored_data, initial_lp)
-        if migrated != stored_data:
-            _LOGGER.debug("Data migration changed payload; saving to storage")
-            await store.async_save(migrated)
-            stored_data = migrated
-            _LOGGER.info("Storage migrated and saved for %s", STORAGE_KEY)
-    except Exception:
-        _LOGGER.exception("Error while attempting explicit migration fallback")
-        if stored_data is None:
-            stored_data = {"learned_power": {}, "samples": 0}
+    if stored_data is None:
+        stored_data = {"learned_power": {}, "samples": 0}
 
+    # 3. Create device in registry
+    device_registry = dr.async_get(hass)
+    device_registry.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, entry.entry_id)},
+        name="Solar AC Controller",
+        manufacturer="TTLucian",
+        model="Solar AC Logic Controller",
+        sw_version=version,  # Explicitly using the validated string
+    )
+
+    # 4. Initialize Coordinator
     coordinator = SolarACCoordinator(
         hass,
         entry,
@@ -123,17 +114,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         version=version,
     )
 
-    # Make coordinator available immediately so any code invoked during first refresh can access it
     hass.data[DOMAIN][entry.entry_id] = {"coordinator": coordinator}
-    _LOGGER.debug("SolarACCoordinator stored in hass.data for entry %s (version=%s)", entry.entry_id, version)
 
-    # Initial refresh (may trigger platform setup callbacks)
+    # 5. Refresh and forward platforms
     await coordinator.async_config_entry_first_refresh()
-
-    # Forward platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    
     entry.add_update_listener(async_reload_entry)
 
+    # 6. Register Services
     async def handle_reset_learning(call: ServiceCall):
         controller = getattr(coordinator, "controller", None)
         if controller:
@@ -145,14 +134,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Handle options update."""
     await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Unload a config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id, None)
+    
     if not hass.data.get(DOMAIN):
         if hass.services.has_service(DOMAIN, "reset_learning"):
             hass.services.async_remove(DOMAIN, "reset_learning")
+            
     return unload_ok
