@@ -65,8 +65,10 @@ class _BaseSolarACSensor(SensorEntity):
     def __init__(self, coordinator: Any, entry_id: str) -> None:
         self.coordinator = coordinator
         self._entry_id = entry_id
+        # Use per-entry device identifier so all entities for this config entry
+        # attach to the same device in Home Assistant.
         self._attr_device_info = {
-            "identifiers": {(DOMAIN, "solar_ac_controller")},
+            "identifiers": {(DOMAIN, self._entry_id)},
             "name": "Solar AC Controller",
             "configuration_url": "https://github.com/TTLucian/ha-solar-ac-controller",
         }
