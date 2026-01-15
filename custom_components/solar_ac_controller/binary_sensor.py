@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Callable
 
 from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
@@ -54,14 +54,11 @@ class _BaseSolarACBinary(BinarySensorEntity):
     def __init__(self, coordinator: Any, entry_id: str) -> None:
         self.coordinator = coordinator
         self._entry_id = entry_id
-        # Use per-entry device identifier so all entities for this config entry
-        # attach to the same device in Home Assistant.
+        # Minimal device_info: identifiers only (no manufacturer, no sw_version)
         self._attr_device_info = {
             "identifiers": {(DOMAIN, self._entry_id)},
-            "name": "Solar AC Controller",
-            "configuration_url": "https://github.com/TTLucian/ha-solar-ac-controller",
         }
-        self._listener = None
+        self._listener: Callable[[], None] | None = None
 
     async def async_added_to_hass(self) -> None:
         try:
@@ -77,13 +74,17 @@ class _BaseSolarACBinary(BinarySensorEntity):
                     self._listener()
                 except Exception:
                     try:
-                        self.coordinator.async_remove_listener(self.async_write_ha_state)
+                        remove = getattr(self.coordinator, "async_remove_listener", None)
+                        if callable(remove):
+                            remove(self.async_write_ha_state)
                     except Exception:
                         pass
                 self._listener = None
             else:
                 try:
-                    self.coordinator.async_remove_listener(self.async_write_ha_state)
+                    remove = getattr(self.coordinator, "async_remove_listener", None)
+                    if callable(remove):
+                        remove(self.async_write_ha_state)
                 except Exception:
                     pass
         except Exception:
