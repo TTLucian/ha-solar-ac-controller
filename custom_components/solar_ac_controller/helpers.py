@@ -62,7 +62,12 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
     config = dict(getattr(coordinator, "config", {}) or {})
 
     samples = int(getattr(coordinator, "samples", 0) or 0)
+    # Limit learned_power dict size for attribute payload (HA truncates large attributes)
     learned_power = dict(getattr(coordinator, "learned_power", {}) or {})
+    if len(learned_power) > 20:
+        learned_power = {k: learned_power[k] for k in list(learned_power)[:20]}
+        learned_power["_truncated"] = f"{len(learned_power)}+ entries, truncated"
+
     learning_active = bool(getattr(coordinator, "learning_active", False))
     learning_zone = getattr(coordinator, "learning_zone", None)
     learning_start_time_ts = getattr(coordinator, "learning_start_time", None)
@@ -86,32 +91,35 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
     zone_manual_lock_until = dict(getattr(coordinator, "zone_manual_lock_until", {}) or {})
 
     for z in zones_config:
-        st_obj = getattr(coordinator, "hass", None).states.get(z) if getattr(coordinator, "hass", None) else None
-        state = None
-        if st_obj:
-            state = getattr(st_obj, "state", None)
-        else:
-            state = zone_last_state.get(z)
-        if state in ("heat", "cool", "on"):
-            active_zones.append(z)
-
-        mode = None
-        if st_obj:
-            attrs = getattr(st_obj, "attributes", {}) or {}
-            hvac_mode = attrs.get("hvac_mode") or attrs.get("hvac_action")
-            if isinstance(hvac_mode, str):
-                if "heat" in hvac_mode:
-                    mode = "heat"
-                elif "cool" in hvac_mode:
-                    mode = "cool"
-        if mode is None:
-            if state == "heat":
-                mode = "heat"
-            elif state == "cool":
-                mode = "cool"
+        try:
+            st_obj = getattr(coordinator, "hass", None).states.get(z) if getattr(coordinator, "hass", None) else None
+            state = None
+            if st_obj:
+                state = getattr(st_obj, "state", None)
             else:
-                mode = "default"
-        zone_modes[z] = mode
+                state = zone_last_state.get(z)
+            if state in ("heat", "cool", "on"):
+                active_zones.append(z)
+
+            mode = None
+            if st_obj:
+                attrs = getattr(st_obj, "attributes", {}) or {}
+                hvac_mode = attrs.get("hvac_mode") or attrs.get("hvac_action")
+                if isinstance(hvac_mode, str):
+                    if "heat" in hvac_mode:
+                        mode = "heat"
+                    elif "cool" in hvac_mode:
+                        mode = "cool"
+            if mode is None:
+                if state == "heat":
+                    mode = "heat"
+                elif state == "cool":
+                    mode = "cool"
+                else:
+                    mode = "default"
+            zone_modes[z] = mode
+        except Exception as exc:
+            zone_modes[z] = f"diagnostics_error: {exc}"
 
     panic_threshold = _safe_float(getattr(coordinator, "panic_threshold", None), None)
     panic_delay = int(getattr(coordinator, "panic_delay", 0) or 0)
@@ -129,6 +137,7 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
     master_off_since_ts = getattr(coordinator, "master_off_since", None)
     master_off = _human_delta(master_off_since_ts)
 
+    # Add raw timestamps for automation/debugging
     payload = {
         "version": version,
         "config": config,
@@ -137,6 +146,7 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
         "learning_active": learning_active,
         "learning_zone": learning_zone,
         "learning_started": learning_started,
+        "learning_start_time_ts": learning_start_time_ts,
         "ac_power_before": ac_power_before,
         "ema_30s": ema_30s,
         "ema_5m": ema_5m,
@@ -155,8 +165,27 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
         "panic_threshold": panic_threshold,
         "panic_delay": panic_delay,
         "last_panic": last_panic,
+        "last_panic_ts": last_panic_ts,
         "panic_cooldown_active": panic_cooldown_active,
         "master_off": master_off,
+        "master_off_since_ts": master_off_since_ts,
     }
+
+    # Extensibility: auto-discover simple coordinator attributes not already included
+    known_keys = set(payload.keys())
+    for attr in dir(coordinator):
+        if attr.startswith("_") or attr in known_keys:
+            continue
+        try:
+            val = getattr(coordinator, attr)
+            if isinstance(val, (str, int, float, bool)):
+                payload[attr] = val
+        except Exception:
+            continue
+
+    # Privacy/Security: Remove any attribute that looks like a token/secret
+    for k in list(payload.keys()):
+        if "token" in k or "secret" in k or "password" in k:
+            payload.pop(k)
 
     return payload

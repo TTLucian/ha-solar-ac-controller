@@ -204,9 +204,23 @@ class SolarACLearnedPowerSensor(_NumericSolarACSensor):
 class SolarACDiagnosticEntity(_BaseSolarACSensor):
     _attr_name = "Diagnostics"
     _attr_icon = "mdi:brain"
+
     @property
-    def unique_id(self) -> str: return f"{self._entry_id}_diagnostics"
+    def unique_id(self) -> str:
+        return f"{self._entry_id}_diagnostics"
+
     @property
-    def native_value(self) -> str: return getattr(self.coordinator, "last_action", "idle")
+    def native_value(self) -> str:
+        """Show last action as the main state."""
+        return getattr(self.coordinator, "last_action", "idle")
+
     @property
-    def extra_state_attributes(self) -> dict: return build_diagnostics(self.coordinator)
+    def extra_state_attributes(self) -> dict[str, object]:
+        """
+        Expose a JSON snapshot of the controller's internal state for diagnostics.
+        Includes error field if diagnostics collection fails.
+        """
+        try:
+            return build_diagnostics(self.coordinator)
+        except Exception as exc:
+            return {"diagnostics_error": str(exc)}
