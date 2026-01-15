@@ -281,7 +281,7 @@ class SolarACImportingBinarySensor(_BaseSolarACBinary):
 
 
 class SolarACMasterBinarySensor(_BaseSolarACBinary):
-    """Master switch sensor: ON when master is enabled, OFF when disabled."""
+    """Master switch sensor: ON when master is enabled, OFF when master is disabled."""
 
     _attr_device_class = BinarySensorDeviceClass.RUNNING
 
