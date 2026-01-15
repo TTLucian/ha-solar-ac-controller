@@ -30,10 +30,9 @@ async def _async_migrate_data(
     old_data: dict | None,
     initial_lp: float = DEFAULT_INITIAL_LEARNED_POWER,
 ) -> dict:
-    """Normalize and migrate stored data into the new per‑mode structure.
+    """Normalize and migrate stored data into the new per-mode structure.
 
-    This function is defensive and will always return a dict with the
-    expected storage keys: 'learned_power' and 'samples'.
+    Always returns a dict with 'learned_power' and 'samples' keys.
     """
     _LOGGER.info(
         "Running explicit fallback migration from v%s.%s to v%s",
@@ -104,26 +103,25 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Solar AC Controller from a config entry.
 
-    Improvements applied:
-    - Defensive handling around integration lookup.
-    - Explicit migration with logging and safe save.
-    - Coordinator stored in hass.data immediately.
-    - Forward platforms early to make entities available quickly.
-    - Wrap initial refresh in try/except to avoid blocking setup on transient errors.
-    - Use entry-specific device identifier for uniqueness.
-    - Register service and track registration for clean removal on unload.
+    Defensive and robust setup:
+    - Normalize stored data
+    - Create coordinator and expose it immediately
+    - Forward platforms early
+    - Perform initial refresh without blocking setup on transient errors
+    - Create device registry entry safely (avoid awesomeversion comparison issues)
+    - Register service and track registration for clean unload
     """
     hass.data.setdefault(DOMAIN, {})
 
-    # Defensive: async_get_integration may rarely return None; fall back to "unknown"
+    # Resolve integration version defensively
     try:
         integration = await async_get_integration(hass, DOMAIN)
     except Exception:
         integration = None
         _LOGGER.debug("async_get_integration raised an exception for %s", DOMAIN)
 
-    # Convert integration.version to a plain string if present; otherwise use None.
-    # Passing a plain string avoids awesomeversion comparison errors in device registry.
+    # Convert integration.version to a plain string if possible; otherwise None
+    version: str | None
     if integration is not None and getattr(integration, "version", None) is not None:
         try:
             version = str(integration.version)
@@ -140,7 +138,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
     )
 
-    # Create persistent store for learned values
+    # Persistent store for learned values
     store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
 
     try:
@@ -149,7 +147,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.exception("Critical error loading integration storage")
         stored_data = None
 
-    # Explicit fallback migration
+    # Run explicit fallback migration
     try:
         migrated = await _async_migrate_data(0, 0, stored_data, initial_lp)
 
@@ -175,7 +173,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         version=version,
     )
 
-    # Make coordinator available immediately so any code invoked during platform setup can access it
+    # Expose coordinator immediately
     hass.data[DOMAIN][entry.entry_id] = {"coordinator": coordinator}
     _LOGGER.debug(
         "SolarACCoordinator stored in hass.data for entry %s (version=%s)",
@@ -183,8 +181,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         version,
     )
 
-    # Forward platforms early so entities appear in UI quickly.
-    # If platforms require coordinator data during setup, they can access hass.data[DOMAIN][entry.entry_id]["coordinator"].
+    # Forward platforms early so entities appear quickly
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     # Perform initial refresh but do not let failures block setup
@@ -192,24 +189,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await coordinator.async_config_entry_first_refresh()
     except Exception as exc:
         _LOGGER.exception("Initial coordinator refresh failed: %s", exc)
-        # Continue setup; platforms can handle missing data and will update when coordinator recovers.
+        # Continue setup; platforms will update when coordinator recovers.
 
-    # Device registry entry
+    # Device registry: create device without sw_version, then update sw_version safely
     device_registry = dr.async_get(hass)
-    # Use entry-specific identifier to support multiple controllers in the future
     try:
-        device_registry.async_get_or_create(
+        device = device_registry.async_get_or_create(
             config_entry_id=entry.entry_id,
             identifiers={(DOMAIN, entry.entry_id)},
             name="Solar AC Controller",
             manufacturer="TTLucian",
             model="Solar AC Smart Controller",
-            sw_version=version,
         )
+        if version is not None:
+            try:
+                device_registry.async_update_device(device.id, sw_version=version)
+            except Exception:
+                _LOGGER.exception("Failed to update device sw_version safely")
     except Exception:
         _LOGGER.exception("Failed to create/update device registry entry")
 
-    # Keep track of service registration so we can remove it cleanly on unload
+    # Register service for resetting learning
     service_registered = False
 
     async def handle_reset_learning(call: ServiceCall):
@@ -223,10 +223,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.exception("Failed to register service %s.reset_learning", DOMAIN)
         service_registered = False
 
-    # Persist service registration flag for cleanup
+    # Persist service flag for cleanup and ensure coordinator reference present
     hass.data[DOMAIN][entry.entry_id]["service_registered"] = service_registered
-
-    # Store coordinator reference again (with service flag) for completeness
     hass.data[DOMAIN][entry.entry_id]["coordinator"] = coordinator
 
     # Add update listener for reloads
