@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from typing import Callable, Any
-
 from homeassistant.components.sensor import SensorEntity
 import logging
 
@@ -24,8 +23,9 @@ class SolarACDiagnosticEntity(SensorEntity):
         self._entry_id = entry_id
         self._attr_unique_id = f"{self._entry_id}_diagnostics"
 
+        # FIXED: use per-entry identifier so diagnostics attach to the same device
         self._attr_device_info = {
-            "identifiers": {(DOMAIN, "solar_ac_controller")},
+            "identifiers": {(DOMAIN, self._entry_id)},
             "name": "Solar AC Controller",
             "configuration_url": "https://github.com/TTLucian/ha-solar-ac-controller",
         }
