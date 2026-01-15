@@ -101,11 +101,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Solar AC Controller from a config entry."""
     hass.data.setdefault(DOMAIN, {})
 
-    # Defensive: async_get_integration may rarely return None; fall back to "unknown"
+    # Safely resolve integration version to a plain string or None
     integration = await async_get_integration(hass, DOMAIN)
-    version = integration.version if integration is not None else "unknown"
-    if integration is None:
-        _LOGGER.debug("async_get_integration returned None for %s; using fallback version=%s", DOMAIN, version)
+    if integration is not None and getattr(integration, "version", None) is not None:
+        try:
+            version = str(integration.version)
+        except Exception:
+            _LOGGER.debug("Failed to stringify integration.version; using None for sw_version")
+            version = None
+    else:
+        version = None
 
     initial_lp = float(
         entry.options.get(
@@ -152,7 +157,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Perform initial refresh (may trigger platform setup callbacks)
     await coordinator.async_config_entry_first_refresh()
 
-    # Device registry entry
+    # Device registry entry — keep legacy identifier to avoid duplicates
     device_registry = dr.async_get(hass)
     device_registry.async_get_or_create(
         config_entry_id=entry.entry_id,
