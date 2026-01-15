@@ -71,7 +71,7 @@ class _BaseSolarACSensor(SensorEntity):
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Return device information to link to the central device."""
+        """Link this sensor to the branded 'TTLucian' device."""
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry_id)},
             name="Solar AC Controller",
