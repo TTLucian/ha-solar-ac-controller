@@ -11,6 +11,7 @@ from homeassistant.components.sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN, CONF_ENABLE_DIAGNOSTICS, CONF_ZONES
@@ -60,14 +61,24 @@ async def async_setup_entry(
 # ---------------------------------------------------------------------------
 
 class _BaseSolarACSensor(SensorEntity):
+    _attr_has_entity_name = True
     _attr_should_poll = False
 
     def __init__(self, coordinator: Any, entry_id: str) -> None:
         self.coordinator = coordinator
         self._entry_id = entry_id
-        # Minimal device_info: identifiers only (no manufacturer, no sw_version)
-        self._attr_device_info = {"identifiers": {(DOMAIN, self._entry_id)}}
         self._unsub: Callable[[], None] | None = None
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information to link to the central device."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._entry_id)},
+            name="Solar AC Controller",
+            manufacturer="TTLucian",
+            model="Solar AC Logic Controller",
+            sw_version=getattr(self.coordinator, "version", "0.5.0"),
+        )
 
     @property
     def available(self) -> bool:
@@ -81,7 +92,6 @@ class _BaseSolarACSensor(SensorEntity):
         try:
             self._unsub = self.coordinator.async_add_listener(self.async_write_ha_state)
         except Exception:
-            # Fallback: write initial state if coordinator doesn't support listeners
             self.async_write_ha_state()
 
     async def async_will_remove_from_hass(self) -> None:
@@ -102,7 +112,7 @@ class _BaseSolarACSensor(SensorEntity):
 class SolarACActiveZonesSensor(_BaseSolarACSensor):
     @property
     def name(self) -> str:
-        return "Solar AC Active Zones"
+        return "Active Zones"
 
     @property
     def unique_id(self) -> str:
@@ -121,7 +131,7 @@ class SolarACActiveZonesSensor(_BaseSolarACSensor):
 class SolarACNextZoneSensor(_BaseSolarACSensor):
     @property
     def name(self) -> str:
-        return "Solar AC Next Zone"
+        return "Next Zone"
 
     @property
     def unique_id(self) -> str:
@@ -135,7 +145,7 @@ class SolarACNextZoneSensor(_BaseSolarACSensor):
 class SolarACLastZoneSensor(_BaseSolarACSensor):
     @property
     def name(self) -> str:
-        return "Solar AC Last Zone"
+        return "Last Zone"
 
     @property
     def unique_id(self) -> str:
@@ -149,7 +159,7 @@ class SolarACLastZoneSensor(_BaseSolarACSensor):
 class SolarACLastActionSensor(_BaseSolarACSensor):
     @property
     def name(self) -> str:
-        return "Solar AC Last Action"
+        return "Last Action"
 
     @property
     def unique_id(self) -> str:
@@ -177,7 +187,7 @@ class _NumericSolarACSensor(_BaseSolarACSensor):
 class SolarACEma30Sensor(_NumericSolarACSensor):
     @property
     def name(self) -> str:
-        return "Solar AC EMA 30s"
+        return "EMA 30s"
 
     @property
     def unique_id(self) -> str:
@@ -191,7 +201,7 @@ class SolarACEma30Sensor(_NumericSolarACSensor):
 class SolarACEma5Sensor(_NumericSolarACSensor):
     @property
     def name(self) -> str:
-        return "Solar AC EMA 5m"
+        return "EMA 5m"
 
     @property
     def unique_id(self) -> str:
@@ -210,7 +220,7 @@ class SolarACConfidenceSensor(_BaseSolarACSensor):
 
     @property
     def name(self) -> str:
-        return "Solar AC Confidence"
+        return "Confidence"
 
     @property
     def unique_id(self) -> str:
@@ -224,7 +234,7 @@ class SolarACConfidenceSensor(_BaseSolarACSensor):
 class SolarACConfidenceThresholdSensor(_BaseSolarACSensor):
     @property
     def name(self) -> str:
-        return "Solar AC Confidence Thresholds"
+        return "Confidence Thresholds"
 
     @property
     def unique_id(self) -> str:
@@ -245,7 +255,7 @@ class SolarACConfidenceThresholdSensor(_BaseSolarACSensor):
 class SolarACRequiredExportSensor(_NumericSolarACSensor):
     @property
     def name(self) -> str:
-        return "Solar AC Required Export"
+        return "Required Export"
 
     @property
     def unique_id(self) -> str:
@@ -258,7 +268,6 @@ class SolarACRequiredExportSensor(_NumericSolarACSensor):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        # Explain source to the user: required_export is the learned power estimate
         return {
             "source": "learned_power",
             "note": "No safety multiplier applied; required_export equals learned power estimate.",
@@ -269,7 +278,7 @@ class SolarACRequiredExportSensor(_NumericSolarACSensor):
 class SolarACExportMarginSensor(_NumericSolarACSensor):
     @property
     def name(self) -> str:
-        return "Solar AC Export Margin"
+        return "Export Margin"
 
     @property
     def unique_id(self) -> str:
@@ -292,7 +301,7 @@ class SolarACExportMarginSensor(_NumericSolarACSensor):
 class SolarACImportPowerSensor(_NumericSolarACSensor):
     @property
     def name(self) -> str:
-        return "Solar AC Import Power"
+        return "Import Power"
 
     @property
     def unique_id(self) -> str:
@@ -303,14 +312,10 @@ class SolarACImportPowerSensor(_NumericSolarACSensor):
         return round(getattr(self.coordinator, "ema_5m", 0.0), 2)
 
 
-# ---------------------------------------------------------------------------
-# PANIC COOLDOWN SENSOR
-# ---------------------------------------------------------------------------
-
 class SolarACPanicCooldownSensor(_BaseSolarACSensor):
     @property
     def name(self) -> str:
-        return "Solar AC Panic Cooldown Active"
+        return "Panic Cooldown Active"
 
     @property
     def unique_id(self) -> str:
@@ -329,15 +334,11 @@ class SolarACPanicCooldownSensor(_BaseSolarACSensor):
             return "no"
 
 
-# ---------------------------------------------------------------------------
-# LEARNED POWER SENSOR
-# ---------------------------------------------------------------------------
-
 class SolarACLearnedPowerSensor(_NumericSolarACSensor):
     def __init__(self, coordinator: Any, entry_id: str, zone_name: str):
         super().__init__(coordinator, entry_id)
         self.zone_name = zone_name
-        self._attr_name = f"Solar AC Learned Power {self.zone_name}"
+        self._attr_name = f"Learned Power {self.zone_name}"
         self._attr_unique_id = f"{self._entry_id}_learned_power_{self.zone_name}"
 
     @property
@@ -345,14 +346,10 @@ class SolarACLearnedPowerSensor(_NumericSolarACSensor):
         return self.coordinator.get_learned_power(self.zone_name, mode="default")
 
 
-# ---------------------------------------------------------------------------
-# DIAGNOSTICS SENSOR (delegates to helpers.build_diagnostics)
-# ---------------------------------------------------------------------------
-
 class SolarACDiagnosticEntity(_BaseSolarACSensor):
     def __init__(self, coordinator: Any, entry_id: str):
         super().__init__(coordinator, entry_id)
-        self._attr_name = "Solar AC Diagnostics"
+        self._attr_name = "Diagnostics"
         self._attr_icon = "mdi:brain"
         self._attr_unique_id = f"{self._entry_id}_diagnostics"
 
