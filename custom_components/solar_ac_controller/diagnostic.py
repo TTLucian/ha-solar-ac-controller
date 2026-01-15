@@ -1,3 +1,4 @@
+# custom_components/solar_ac_controller/diagnostic.py
 from __future__ import annotations
 
 from typing import Callable, Any
