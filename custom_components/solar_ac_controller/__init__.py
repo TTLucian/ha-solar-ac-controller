@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
@@ -159,12 +158,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Device registry entry — keep legacy identifier to avoid duplicates
     device_registry = dr.async_get(hass)
-    device_registry.async_get_or_create(
-        config_entry_id=entry.entry_id,
-        identifiers={(DOMAIN, "solar_ac_controller")},
-        name="Solar AC Controller",
-        sw_version=version,
-    )
+    try:
+        device_registry.async_get_or_create(
+            config_entry_id=entry.entry_id,
+            identifiers={(DOMAIN, "solar_ac_controller")},
+            name="Solar AC Controller",
+            sw_version=version,
+        )
+    except Exception:
+        _LOGGER.exception("Failed to create device registry entry for Solar AC Controller")
 
     # Platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -172,8 +174,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Services
     async def handle_reset_learning(call: ServiceCall):
-        if hasattr(coordinator, "controller"):
-            await coordinator.controller.reset_learning()
+        controller = getattr(coordinator, "controller", None)
+        if controller:
+            await controller.reset_learning()
 
     hass.services.async_register(DOMAIN, "reset_learning", handle_reset_learning)
 
