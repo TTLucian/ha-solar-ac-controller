@@ -43,6 +43,10 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
+# ---------------------------------------------------------------------------
+# BASE CLASS
+# ---------------------------------------------------------------------------
+
 class _BaseSolarACBinary(BinarySensorEntity):
     """Base class for all Solar AC binary sensors."""
     _attr_has_entity_name = True
@@ -55,7 +59,7 @@ class _BaseSolarACBinary(BinarySensorEntity):
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Link binary sensors to the same device."""
+        """Link this binary sensor to the branded 'TTLucian' device."""
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry_id)},
             name="Solar AC Controller",
@@ -103,6 +107,10 @@ class _BaseSolarACBinary(BinarySensorEntity):
         except Exception:
             return None
 
+
+# ---------------------------------------------------------------------------
+# BINARY SENSOR ENTITIES
+# ---------------------------------------------------------------------------
 
 class SolarACLearningBinarySensor(_BaseSolarACBinary):
     @property
@@ -181,6 +189,7 @@ class SolarACShortCycleBinarySensor(_BaseSolarACBinary):
                     return True
             except Exception:
                 continue
+
         return False
 
 
@@ -196,7 +205,10 @@ class SolarACLockedBinarySensor(_BaseSolarACBinary):
     @property
     def is_on(self) -> bool:
         now = dt_util.utcnow().timestamp()
-        return any(until and until > now for until in self.coordinator.zone_manual_lock_until.values())
+        return any(
+            until and until > now
+            for until in self.coordinator.zone_manual_lock_until.values()
+        )
 
 
 class SolarACExportingBinarySensor(_BaseSolarACBinary):
@@ -234,6 +246,7 @@ class SolarACImportingBinarySensor(_BaseSolarACBinary):
 
 
 class SolarACMasterBinarySensor(_BaseSolarACBinary):
+    """Master switch sensor: ON when master is enabled, OFF when master is disabled."""
     _attr_device_class = BinarySensorDeviceClass.RUNNING
 
     @property
@@ -249,5 +262,9 @@ class SolarACMasterBinarySensor(_BaseSolarACBinary):
         ac_switch = self.coordinator.config.get(CONF_AC_SWITCH)
         if not ac_switch:
             return True
+
         switch_state_obj = self.coordinator.hass.states.get(ac_switch)
-        return switch_state_obj.state == "on" if switch_state_obj else False
+        if not switch_state_obj:
+            return False
+
+        return switch_state_obj.state == "on"
