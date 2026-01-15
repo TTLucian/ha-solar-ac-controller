@@ -8,6 +8,7 @@ from homeassistant.util import dt as dt_util
 
 
 def _safe_float(val: Any, default: float | None = None) -> float | None:
+    """Safely convert a value to float, or return default if conversion fails."""
     try:
         return float(val)
     except Exception:
@@ -15,6 +16,7 @@ def _safe_float(val: Any, default: float | None = None) -> float | None:
 
 
 def _human_delta(ts: float | None) -> str | None:
+    """Return a human-readable time delta string for a timestamp."""
     if not ts:
         return None
     try:
@@ -39,6 +41,12 @@ def _human_delta(ts: float | None) -> str | None:
 
 
 def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
+    """
+    Build diagnostics payload for Solar AC Controller.
+
+    The diagnostics payload explicitly documents that required_export is
+    the learned power estimate (no safety multiplier).
+    """
     """
     Build diagnostics payload for Solar AC Controller.
 

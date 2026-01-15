@@ -13,16 +13,22 @@ from .const import CONF_AC_POWER_SENSOR
 _LOGGER = logging.getLogger(__name__)
 
 
+
 class SolarACController:
-    """Controller helper that encapsulates learning operations."""
+    """
+    Controller helper that encapsulates learning operations and persistence.
+    All learning state is managed on the coordinator.
+    """
 
     def __init__(self, hass: HomeAssistant, coordinator: Any, store: Any | None = None) -> None:
+        """Initialize controller with Home Assistant, coordinator, and optional store."""
         self.hass = hass
         self.coordinator = coordinator
         self.store = store
         self._lock = asyncio.Lock()
 
     async def start_learning(self, zone_entity_id: str, ac_power_before: float | None) -> None:
+        """Begin learning for a zone, storing baseline power."""
         async with self._lock:
             if getattr(self.coordinator, "learning_active", False):
                 _LOGGER.debug(
@@ -49,6 +55,7 @@ class SolarACController:
             )
 
     async def finish_learning(self) -> None:
+        """Finish learning for the current zone, update learned power, and persist."""
         async with self._lock:
             zone = getattr(self.coordinator, "learning_zone", None)
             if not zone:

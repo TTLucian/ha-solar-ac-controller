@@ -40,12 +40,16 @@ async def async_setup_entry(
 
 # --- BASE CLASS ---
 class _BaseSolarACBinary(BinarySensorEntity):
+    """
+    Base class for all Solar AC Controller binary sensors.
+    Handles coordinator listener and device info.
+    """
     _attr_has_entity_name = True
     _attr_should_poll = False
 
     def __init__(self, coordinator: Any, entry_id: str) -> None:
-        self.coordinator = coordinator
-        self._entry_id = entry_id
+        self.coordinator: Any = coordinator
+        self._entry_id: str = entry_id
         self._listener: Callable[[], None] | None = None
 
     @property
@@ -59,9 +63,11 @@ class _BaseSolarACBinary(BinarySensorEntity):
         )
 
     async def async_added_to_hass(self) -> None:
+        """Register listener for coordinator updates."""
         self._listener = self.coordinator.async_add_listener(self.async_write_ha_state)
 
     async def async_will_remove_from_hass(self) -> None:
+        """Remove coordinator listener on entity removal."""
         if self._listener:
             self._listener()
 

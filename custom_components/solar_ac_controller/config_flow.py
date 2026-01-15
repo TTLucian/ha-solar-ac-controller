@@ -65,6 +65,12 @@ class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     data=normalized,
                 )
 
+        # Group advanced options
+        advanced_schema = {
+            vol.Optional(CONF_ADD_CONFIDENCE, default=int(DEFAULT_ADD_CONFIDENCE)): _int_field(int(DEFAULT_ADD_CONFIDENCE), minimum=0),
+            vol.Optional(CONF_REMOVE_CONFIDENCE, default=int(DEFAULT_REMOVE_CONFIDENCE)): _int_field(int(DEFAULT_REMOVE_CONFIDENCE), minimum=0),
+            vol.Optional(CONF_ENABLE_DIAGNOSTICS, default=False): bool,
+        }
         schema = vol.Schema(
             {
                 vol.Required(CONF_SOLAR_SENSOR): selector({"entity": {"domain": "sensor"}}),
@@ -74,7 +80,7 @@ class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Optional(CONF_AC_SWITCH, default=""): selector({"entity": {"domain": "switch"}}),
 
                 vol.Required(CONF_ZONES): selector({
-                    "entity": {"domain": ["climate", "switch"], "multiple": True}
+                    "entity": {"domain": selector({"select": {"options": ["climate", "switch", "fan"]}})["select"]["options"], "multiple": True}
                 }),
 
                 vol.Optional(CONF_SOLAR_THRESHOLD_ON, default=int(DEFAULT_SOLAR_THRESHOLD_ON)): _int_field(int(DEFAULT_SOLAR_THRESHOLD_ON), minimum=0),
@@ -87,17 +93,22 @@ class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Optional(CONF_SHORT_CYCLE_OFF_SECONDS, default=int(DEFAULT_SHORT_CYCLE_OFF_SECONDS)): _int_field(int(DEFAULT_SHORT_CYCLE_OFF_SECONDS), minimum=0),
                 vol.Optional(CONF_ACTION_DELAY_SECONDS, default=int(DEFAULT_ACTION_DELAY_SECONDS)): _int_field(int(DEFAULT_ACTION_DELAY_SECONDS), minimum=0),
 
-                vol.Optional(CONF_ADD_CONFIDENCE, default=int(DEFAULT_ADD_CONFIDENCE)): _int_field(int(DEFAULT_ADD_CONFIDENCE), minimum=0),
-                vol.Optional(CONF_REMOVE_CONFIDENCE, default=int(DEFAULT_REMOVE_CONFIDENCE)): _int_field(int(DEFAULT_REMOVE_CONFIDENCE), minimum=0),
-
-                # Diagnostics toggle (initial config)
-                vol.Optional(CONF_ENABLE_DIAGNOSTICS, default=False): bool,
-
                 vol.Required(CONF_INITIAL_LEARNED_POWER, default=int(DEFAULT_INITIAL_LEARNED_POWER)): vol.All(vol.Coerce(int), vol.Range(min=0)),
             }
         )
+        # Add advanced options as a separate group (shown after main fields)
+        schema = schema.extend(advanced_schema)
 
-        return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
+        return self.async_show_form(
+            step_id="user",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={
+                "add_confidence": "Minimum confidence required to add a new zone.",
+                "remove_confidence": "Minimum negative confidence required to remove a zone.",
+                "enable_diagnostics": "Enable a sensor with full controller state for debugging.",
+            },
+        )
 
     async def async_step_import(self, user_input: dict[str, Any]):
         return await self.async_step_user(user_input)
@@ -174,7 +185,7 @@ class SolarACOptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Optional(CONF_AC_SWITCH, default=data.get(CONF_AC_SWITCH, "")): selector({"entity": {"domain": "switch"}}),
 
                 vol.Required(CONF_ZONES, default=data.get(CONF_ZONES, [])): selector({
-                    "entity": {"domain": ["climate", "switch"], "multiple": True}
+                    "entity": {"domain": selector({"select": {"options": ["climate", "switch", "fan"]}})["select"]["options"], "multiple": True}
                 }),
 
                 vol.Optional(CONF_SOLAR_THRESHOLD_ON, default=data.get(CONF_SOLAR_THRESHOLD_ON, int(DEFAULT_SOLAR_THRESHOLD_ON))): _int_field(int(DEFAULT_SOLAR_THRESHOLD_ON), minimum=0),

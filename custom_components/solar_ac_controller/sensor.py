@@ -50,12 +50,16 @@ async def async_setup_entry(
 
 # --- BASE CLASS ---
 class _BaseSolarACSensor(SensorEntity):
+    """
+    Base class for all Solar AC Controller sensors.
+    Handles coordinator listener and device info.
+    """
     _attr_has_entity_name = True
     _attr_should_poll = False
 
     def __init__(self, coordinator: Any, entry_id: str) -> None:
-        self.coordinator = coordinator
-        self._entry_id = entry_id
+        self.coordinator: Any = coordinator
+        self._entry_id: str = entry_id
         self._unsub: Callable[[], None] | None = None
 
     @property
@@ -69,12 +73,14 @@ class _BaseSolarACSensor(SensorEntity):
         )
 
     async def async_added_to_hass(self) -> None:
+        """Register listener for coordinator updates."""
         try:
             self._unsub = self.coordinator.async_add_listener(self.async_write_ha_state)
         except Exception:
             self.async_write_ha_state()
 
     async def async_will_remove_from_hass(self) -> None:
+        """Remove coordinator listener on entity removal."""
         if self._unsub:
             self._unsub()
 

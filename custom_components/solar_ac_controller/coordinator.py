@@ -49,17 +49,23 @@ _PANIC_COOLDOWN_SECONDS = 120
 _EMA_RESET_AFTER_OFF_SECONDS = 600
 
 
+
 class SolarACCoordinator(DataUpdateCoordinator):
-    """Main control loop for the Solar AC Controller."""
+    """
+    Main control loop for the Solar AC Controller.
+
+    Handles all state, learning, zone logic, and device actions.
+    Storage migrations are handled in __init__.py; see STORAGE_VERSION and migration docstring there.
+    """
 
     def __init__(
         self,
         hass: HomeAssistant,
-        config_entry,
-        store,
+        config_entry: Any,
+        store: Any,
         stored: dict[str, Any] | None,
         version: str,
-    ):
+    ) -> None:
         super().__init__(
             hass,
             logger=_LOGGER,
@@ -189,6 +195,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
     # Helper accessors for learned_power (abstracts storage format)
     # -------------------------------------------------------------------------
     def get_learned_power(self, zone_name: str, mode: str | None = None) -> float:
+        """Return learned power for a zone and mode, or default if missing."""
         entry = self.learned_power.get(zone_name)
         if entry is None:
             return float(self.initial_learned_power)
@@ -208,6 +215,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
             return float(self.initial_learned_power)
 
     def set_learned_power(self, zone_name: str, value: float, mode: str | None = None) -> None:
+        """Set learned power for a zone and mode."""
         if zone_name not in self.learned_power or not isinstance(self.learned_power.get(zone_name), dict):
             base = float(
                 self.learned_power.get(zone_name)
@@ -230,6 +238,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
             entry["cool"] = entry["default"]
 
     async def _persist_learned_values(self) -> None:
+        """Persist learned values to storage."""
         try:
             payload = {
                 "learned_power": dict(self.learned_power),
@@ -248,6 +257,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
     # -------------------------------------------------------------------------
     async def _log(self, message: str) -> None:
         """Async logging hook used by coordinator and controller."""
+        """Async logging hook used by coordinator and controller."""
         try:
             # Keep this simple and non-blocking; expand if persistent logs are desired
             _LOGGER.info(message)
@@ -257,7 +267,8 @@ class SolarACCoordinator(DataUpdateCoordinator):
     # -------------------------------------------------------------------------
     # Main update loop
     # -------------------------------------------------------------------------
-    async def _async_update_data(self):
+    async def _async_update_data(self) -> None:
+        """Main loop executed every 5 seconds."""
         """Main loop executed every 5 seconds."""
 
         # 1. Read sensors
@@ -373,10 +384,12 @@ class SolarACCoordinator(DataUpdateCoordinator):
     # EMA / metrics / guards
     # -------------------------------------------------------------------------
     def _update_ema(self, grid_raw: float) -> None:
+        """Update EMA metrics for grid power."""
         self.ema_30s = 0.25 * grid_raw + 0.75 * self.ema_30s
         self.ema_5m = 0.03 * grid_raw + 0.97 * self.ema_5m
 
     async def _perform_freeze_cleanup(self) -> None:
+        """Cancel tasks and reset learning state when master is off."""
         """Cancel tasks and reset learning state when master is off."""
         # Cancel panic task
         if self._panic_task and not self._panic_task.done():
@@ -406,6 +419,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
             self.ema_5m = 0.0
 
     def _in_panic_cooldown(self, now_ts: float) -> bool:
+        """Return True if in panic cooldown period."""
         if self.last_panic_ts is None:
             return False
         return (now_ts - self.last_panic_ts) < _PANIC_COOLDOWN_SECONDS
@@ -414,6 +428,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
     # Zones, overrides, short-cycling
     # -------------------------------------------------------------------------
     async def _update_zone_states_and_overrides(self) -> list[str]:
+        """Update zone states, detect manual overrides, and return active zones."""
         active_zones: list[str] = []
 
         for zone in self.config.get(CONF_ZONES, []):
@@ -451,12 +466,14 @@ class SolarACCoordinator(DataUpdateCoordinator):
         return active_zones
 
     def _is_locked(self, zone_id: str) -> bool:
+        """Return True if a zone is locked due to manual override."""
         until = self.zone_manual_lock_until.get(zone_id)
         return bool(until and dt_util.utcnow().timestamp() < until)
 
     def _select_next_and_last_zone(
         self, active_zones: list[str]
     ) -> tuple[str | None, str | None]:
+        """Return (next_zone, last_zone) based on active and locked zones."""
 
         next_zone = next(
             (
@@ -475,6 +492,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
         return next_zone, last_zone
 
     def _compute_required_export(self, next_zone: str | None) -> float | None:
+        """Compute required export for the next zone (learned power, no multiplier)."""
         """Compute required export for the next zone.
 
         The required export is the learned power estimate for the zone.
@@ -488,6 +506,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
         return float(lp)
 
     def _is_short_cycling(self, zone: str | None) -> bool:
+        """Return True if a zone is in short-cycle protection."""
         if not zone:
             return False
         last = self.zone_last_changed.get(zone)
@@ -541,9 +560,11 @@ class SolarACCoordinator(DataUpdateCoordinator):
     # Learning and panic
     # -------------------------------------------------------------------------
     def _should_panic(self, on_count: int) -> bool:
+        """Return True if panic shedding should be triggered."""
         return self.ema_30s > self.panic_threshold and on_count > 1
 
     async def _schedule_panic(self, active_zones: list[str]) -> None:
+        """Schedule panic task if not already running."""
         if self.last_action != "panic":
             await self._log(
                 f"[PANIC_SHED_TRIGGER] ema30={round(self.ema_30s)} "
@@ -555,7 +576,8 @@ class SolarACCoordinator(DataUpdateCoordinator):
                     self._panic_task_runner(active_zones)
                 )
 
-    async def _panic_shed(self, active_zones: list[str]):
+    async def _panic_shed(self, active_zones: list[str]) -> None:
+        """Shed all but the first active zone during panic."""
         start = dt_util.utcnow().timestamp()
         for zone in active_zones[1:]:
             await self._call_entity_service(zone, False)
@@ -564,7 +586,8 @@ class SolarACCoordinator(DataUpdateCoordinator):
         self.last_action_start_ts = start
         self.last_action_duration = end - start
 
-    async def _panic_task_runner(self, active_zones: list[str]):
+    async def _panic_task_runner(self, active_zones: list[str]) -> None:
+        """Run panic task with delay and learning reset."""
         try:
             if self.panic_delay > 0:
                 await asyncio.sleep(self.panic_delay)
@@ -607,6 +630,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
     # Add / remove decisions
     # -------------------------------------------------------------------------
     def _should_add_zone(self, next_zone: str, required_export: float | None) -> bool:
+        """Return True if add zone conditions are met."""
         if self.learning_active:
             return False
 
@@ -616,6 +640,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
         return self.last_add_conf >= self.add_confidence_threshold
 
     def _should_remove_zone(self, last_zone: str, import_power: float) -> bool:
+        """Return True if remove zone conditions are met."""
         return self.last_remove_conf >= self.remove_confidence_threshold
 
     async def _attempt_add_zone(
@@ -659,7 +684,8 @@ class SolarACCoordinator(DataUpdateCoordinator):
         await self._remove_zone(last_zone)
         self.last_action = f"remove_{last_zone}"
 
-    async def _add_zone(self, zone: str, ac_power_before: float):
+    async def _add_zone(self, zone: str, ac_power_before: float) -> None:
+        """Start learning and turn on zone."""
         """Start learning + turn on zone."""
         if self.learning_active:
             await self._log(
@@ -688,7 +714,8 @@ class SolarACCoordinator(DataUpdateCoordinator):
             f"samples={self.samples}"
         )
 
-    async def _remove_zone(self, zone: str):
+    async def _remove_zone(self, zone: str) -> None:
+        """Turn off zone and update short-cycle memory."""
         """Turn off zone and update short-cycle memory."""
         start = dt_util.utcnow().timestamp()
         try:
@@ -706,7 +733,8 @@ class SolarACCoordinator(DataUpdateCoordinator):
             f"[ZONE_REMOVE_SUCCESS] zone={zone} import_after={round(self.ema_5m)}"
         )
 
-    async def _call_entity_service(self, entity_id: str, turn_on: bool):
+    async def _call_entity_service(self, entity_id: str, turn_on: bool) -> None:
+        """Call turn_on/turn_off service for the entity's domain, with climate fallback."""
         """Call an appropriate turn_on/turn_off service for the entity's domain, with climate fallback."""
         domain = entity_id.split(".")[0]
         service = "turn_on" if turn_on else "turn_off"
@@ -751,7 +779,8 @@ class SolarACCoordinator(DataUpdateCoordinator):
     # -------------------------------------------------------------------------
     # Master switch control
     # -------------------------------------------------------------------------
-    async def _handle_master_switch(self, solar: float):
+    async def _handle_master_switch(self, solar: float) -> None:
+        """Master relay control based solely on solar production thresholds."""
         """Master relay control based solely on solar production thresholds."""
         ac_switch = self.config.get(CONF_AC_SWITCH)
         if not ac_switch:
