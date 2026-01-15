@@ -24,17 +24,16 @@ PLATFORMS = ["sensor", "binary_sensor"]
 
 
 async def _async_migrate_data(
-    """
-    Normalize and migrate stored data for Solar AC Controller.
-    STORAGE_VERSION is incremented whenever the structure of the stored payload changes.
-    Document migration changes here and in commit messages for future maintainers.
-    """
     old_major: int,
     old_minor: int,
     old_data: dict | None,
     initial_lp: float = DEFAULT_INITIAL_LEARNED_POWER,
 ) -> dict:
-    """Normalize and migrate stored data."""
+    """
+    Normalize and migrate stored data for Solar AC Controller.
+    STORAGE_VERSION is incremented whenever the structure of the stored payload changes.
+    Document migration changes here and in commit messages for future maintainers.
+    """
     if not isinstance(old_data, dict):
         return {"learned_power": {}, "samples": 0}
 
