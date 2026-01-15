@@ -23,12 +23,17 @@ class SolarACDiagnosticEntity(SensorEntity):
         self._entry_id = entry_id
         self._attr_unique_id = f"{self._entry_id}_diagnostics"
 
-        # FIXED: use per-entry identifier so diagnostics attach to the same device
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, self._entry_id)},
-            "name": "Solar AC Controller",
-            "configuration_url": "https://github.com/TTLucian/ha-solar-ac-controller",
-        }
+
+    @property
+    def device_info(self):
+        """Link to the 'Solar AC Controller' device (match all other entities)."""
+        from homeassistant.helpers.entity import DeviceInfo
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._entry_id)},
+            name="Solar AC Controller",
+            sw_version=getattr(self.coordinator, "version", "0.5.1"),
+            configuration_url="https://github.com/TTLucian/ha-solar-ac-controller",
+        )
 
         self._unsub: Callable[[], None] | None = None
 

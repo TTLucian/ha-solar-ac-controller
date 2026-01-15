@@ -81,9 +81,10 @@
           "action_delay_seconds": "Minimum time between sending zone actions or commands.",
           "add_confidence": "Minimum confidence required to add a new zone.",
           "remove_confidence": "Minimum negative confidence required to remove a zone."
-        }
+          "enable_diagnostics_sensor": "Diagnostics Sensor (full state)",
       }
     },
+          "enable_diagnostics_sensor": "Creates a sensor exposing the controller's full internal state as JSON attributes for advanced troubleshooting and dashboards."
     "error": {
       "no_zones": "You must define at least one zone.",
       "invalid_solar_hysteresis": "Solar OFF threshold must be lower than Solar ON threshold.",
