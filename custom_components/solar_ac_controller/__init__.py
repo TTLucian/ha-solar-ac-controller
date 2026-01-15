@@ -153,14 +153,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN][entry.entry_id] = {"coordinator": coordinator}
     _LOGGER.debug("SolarACCoordinator stored in hass.data for entry %s (version=%s)", entry.entry_id, version)
 
-    # Device registry entry — create before first refresh to avoid duplicate devices
+    # Device registry entry — use per-entry identifier to avoid duplicates
     device_registry = dr.async_get(hass)
     try:
         device_registry.async_get_or_create(
             config_entry_id=entry.entry_id,
-            identifiers={(DOMAIN, "solar_ac_controller")},
+            identifiers={(DOMAIN, entry.entry_id)},
             name="Solar AC Controller",
-            sw_version=version,
+            configuration_url="https://github.com/TTLucian/ha-solar-ac-controller",
         )
     except Exception:
         _LOGGER.exception("Failed to create device registry entry for Solar AC Controller")
