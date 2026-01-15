@@ -300,8 +300,8 @@ class SolarACMasterOffSinceSensor(_BaseSolarACSensor):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        # Removed utc_iso attribute per user request
-        return {}
+        ts = self.coordinator.master_off_since
+        return {"utc_iso": dt_util.utc_from_timestamp(ts).isoformat() if ts else None}
 
 
 class SolarACLastPanicSensor(_BaseSolarACSensor):
@@ -324,8 +324,8 @@ class SolarACLastPanicSensor(_BaseSolarACSensor):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        # Removed utc_iso attribute per user request
-        return {}
+        ts = self.coordinator.last_panic_ts
+        return {"utc_iso": dt_util.utc_from_timestamp(ts).isoformat() if ts else None}
 
 
 class SolarACPanicCooldownSensor(_BaseSolarACSensor):
@@ -387,5 +387,4 @@ class SolarACDiagnosticEntity(_BaseSolarACSensor):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        # build_diagnostics no longer emits epoch/ISO timestamp fields
-        return build_diagnostics(self.coordinator) or {}
+        return build_diagnostics(self.coordinator)
