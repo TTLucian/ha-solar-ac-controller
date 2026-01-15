@@ -10,6 +10,7 @@ from homeassistant.components.binary_sensor import (
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN, CONF_AC_SWITCH, CONF_ZONES
@@ -42,53 +43,37 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-# ---------------------------------------------------------------------------
-# BASE CLASS
-# ---------------------------------------------------------------------------
-
 class _BaseSolarACBinary(BinarySensorEntity):
     """Base class for all Solar AC binary sensors."""
-
+    _attr_has_entity_name = True
     _attr_should_poll = False
 
     def __init__(self, coordinator: Any, entry_id: str) -> None:
         self.coordinator = coordinator
         self._entry_id = entry_id
-        # Minimal device_info: identifiers only (no manufacturer, no sw_version)
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, self._entry_id)},
-        }
         self._listener: Callable[[], None] | None = None
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Link binary sensors to the same device."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._entry_id)},
+            name="Solar AC Controller",
+            manufacturer="TTLucian",
+            model="Solar AC Logic Controller",
+            sw_version=getattr(self.coordinator, "version", "0.5.0"),
+        )
 
     async def async_added_to_hass(self) -> None:
         try:
             self._listener = self.coordinator.async_add_listener(self.async_write_ha_state)
         except Exception:
-            _LOGGER.debug("Coordinator does not support async_add_listener; falling back to manual updates")
             self.async_write_ha_state()
 
     async def async_will_remove_from_hass(self) -> None:
-        try:
-            if self._listener:
-                try:
-                    self._listener()
-                except Exception:
-                    try:
-                        remove = getattr(self.coordinator, "async_remove_listener", None)
-                        if callable(remove):
-                            remove(self.async_write_ha_state)
-                    except Exception:
-                        pass
-                self._listener = None
-            else:
-                try:
-                    remove = getattr(self.coordinator, "async_remove_listener", None)
-                    if callable(remove):
-                        remove(self.async_write_ha_state)
-                except Exception:
-                    pass
-        except Exception:
-            _LOGGER.debug("Failed to remove coordinator listener for %s", getattr(self, "entity_id", None))
+        if self._listener:
+            self._listener()
+            self._listener = None
 
     @property
     def available(self) -> bool:
@@ -119,17 +104,10 @@ class _BaseSolarACBinary(BinarySensorEntity):
             return None
 
 
-# ---------------------------------------------------------------------------
-# BINARY SENSOR ENTITIES
-# ---------------------------------------------------------------------------
-
 class SolarACLearningBinarySensor(_BaseSolarACBinary):
-    def __init__(self, coordinator: Any, entry_id: str) -> None:
-        super().__init__(coordinator, entry_id)
-
     @property
     def name(self) -> str:
-        return "Solar AC Learning Active"
+        return "Learning Active"
 
     @property
     def unique_id(self) -> str:
@@ -141,12 +119,9 @@ class SolarACLearningBinarySensor(_BaseSolarACBinary):
 
 
 class SolarACPanicBinarySensor(_BaseSolarACBinary):
-    def __init__(self, coordinator: Any, entry_id: str) -> None:
-        super().__init__(coordinator, entry_id)
-
     @property
     def name(self) -> str:
-        return "Solar AC Panic State"
+        return "Panic State"
 
     @property
     def unique_id(self) -> str:
@@ -158,12 +133,9 @@ class SolarACPanicBinarySensor(_BaseSolarACBinary):
 
 
 class SolarACPanicCooldownBinarySensor(_BaseSolarACBinary):
-    def __init__(self, coordinator: Any, entry_id: str) -> None:
-        super().__init__(coordinator, entry_id)
-
     @property
     def name(self) -> str:
-        return "Solar AC Panic Cooldown"
+        return "Panic Cooldown"
 
     @property
     def unique_id(self) -> str:
@@ -183,12 +155,9 @@ class SolarACPanicCooldownBinarySensor(_BaseSolarACBinary):
 
 
 class SolarACShortCycleBinarySensor(_BaseSolarACBinary):
-    def __init__(self, coordinator: Any, entry_id: str) -> None:
-        super().__init__(coordinator, entry_id)
-
     @property
     def name(self) -> str:
-        return "Solar AC Short Cycling"
+        return "Short Cycling"
 
     @property
     def unique_id(self) -> str:
@@ -205,27 +174,20 @@ class SolarACShortCycleBinarySensor(_BaseSolarACBinary):
                 continue
 
             last_type = c.zone_last_changed_type.get(z)
-            if last_type == "on":
-                threshold = c.short_cycle_on_seconds
-            else:
-                threshold = c.short_cycle_off_seconds
+            threshold = c.short_cycle_on_seconds if last_type == "on" else c.short_cycle_off_seconds
 
             try:
                 if (now - last) < float(threshold):
                     return True
             except Exception:
                 continue
-
         return False
 
 
 class SolarACLockedBinarySensor(_BaseSolarACBinary):
-    def __init__(self, coordinator: Any, entry_id: str) -> None:
-        super().__init__(coordinator, entry_id)
-
     @property
     def name(self) -> str:
-        return "Solar AC Manual Lock Active"
+        return "Manual Lock Active"
 
     @property
     def unique_id(self) -> str:
@@ -234,19 +196,13 @@ class SolarACLockedBinarySensor(_BaseSolarACBinary):
     @property
     def is_on(self) -> bool:
         now = dt_util.utcnow().timestamp()
-        return any(
-            until and until > now
-            for until in self.coordinator.zone_manual_lock_until.values()
-        )
+        return any(until and until > now for until in self.coordinator.zone_manual_lock_until.values())
 
 
 class SolarACExportingBinarySensor(_BaseSolarACBinary):
-    def __init__(self, coordinator: Any, entry_id: str) -> None:
-        super().__init__(coordinator, entry_id)
-
     @property
     def name(self) -> str:
-        return "Solar AC Exporting"
+        return "Exporting"
 
     @property
     def unique_id(self) -> str:
@@ -261,12 +217,9 @@ class SolarACExportingBinarySensor(_BaseSolarACBinary):
 
 
 class SolarACImportingBinarySensor(_BaseSolarACBinary):
-    def __init__(self, coordinator: Any, entry_id: str) -> None:
-        super().__init__(coordinator, entry_id)
-
     @property
     def name(self) -> str:
-        return "Solar AC Importing"
+        return "Importing"
 
     @property
     def unique_id(self) -> str:
@@ -281,16 +234,11 @@ class SolarACImportingBinarySensor(_BaseSolarACBinary):
 
 
 class SolarACMasterBinarySensor(_BaseSolarACBinary):
-    """Master switch sensor: ON when master is enabled, OFF when master is disabled."""
-
     _attr_device_class = BinarySensorDeviceClass.RUNNING
-
-    def __init__(self, coordinator: Any, entry_id: str) -> None:
-        super().__init__(coordinator, entry_id)
 
     @property
     def name(self) -> str:
-        return "Solar AC Master Switch"
+        return "Master Switch"
 
     @property
     def unique_id(self) -> str:
@@ -298,18 +246,8 @@ class SolarACMasterBinarySensor(_BaseSolarACBinary):
 
     @property
     def is_on(self) -> bool:
-        """Return True when master is ON, False when master is OFF.
-
-        If no master switch is configured, return True (integration runs).
-        """
         ac_switch = self.coordinator.config.get(CONF_AC_SWITCH)
         if not ac_switch:
-            # No physical master configured -> integration considered enabled
             return True
-
         switch_state_obj = self.coordinator.hass.states.get(ac_switch)
-        if not switch_state_obj:
-            # If entity missing, treat as OFF to be safe
-            return False
-
-        return switch_state_obj.state == "on"
+        return switch_state_obj.state == "on" if switch_state_obj else False
