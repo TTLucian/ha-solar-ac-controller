@@ -65,11 +65,8 @@ class _BaseSolarACSensor(SensorEntity):
     def __init__(self, coordinator: Any, entry_id: str) -> None:
         self.coordinator = coordinator
         self._entry_id = entry_id
-        # Minimal device_info: identifiers and name only
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, self._entry_id)},
-            "name": "Solar AC Controller",
-        }
+        # Minimal device_info: identifiers only (no manufacturer, no sw_version)
+        self._attr_device_info = {"identifiers": {(DOMAIN, self._entry_id)}}
         self._unsub: Callable[[], None] | None = None
 
     @property
