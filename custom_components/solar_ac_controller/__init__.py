@@ -122,13 +122,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         integration = None
         _LOGGER.debug("async_get_integration raised an exception for %s", DOMAIN)
 
-    version = integration.version if integration is not None else "unknown"
-    if integration is None:
-        _LOGGER.debug(
-            "async_get_integration returned None for %s; using fallback version=%s",
-            DOMAIN,
-            version,
-        )
+    # Convert integration.version to a plain string if present; otherwise use None.
+    # Passing a plain string avoids awesomeversion comparison errors in device registry.
+    if integration is not None and getattr(integration, "version", None) is not None:
+        try:
+            version = str(integration.version)
+        except Exception:
+            version = None
+            _LOGGER.debug("Failed to stringify integration.version; using None for sw_version")
+    else:
+        version = None
 
     initial_lp = float(
         entry.options.get(
@@ -194,14 +197,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Device registry entry
     device_registry = dr.async_get(hass)
     # Use entry-specific identifier to support multiple controllers in the future
-    device_registry.async_get_or_create(
-        config_entry_id=entry.entry_id,
-        identifiers={(DOMAIN, entry.entry_id)},
-        name="Solar AC Controller",
-        manufacturer="TTLucian",
-        model="Solar AC Smart Controller",
-        sw_version=version,
-    )
+    try:
+        device_registry.async_get_or_create(
+            config_entry_id=entry.entry_id,
+            identifiers={(DOMAIN, entry.entry_id)},
+            name="Solar AC Controller",
+            manufacturer="TTLucian",
+            model="Solar AC Smart Controller",
+            sw_version=version,
+        )
+    except Exception:
+        _LOGGER.exception("Failed to create/update device registry entry")
 
     # Keep track of service registration so we can remove it cleanly on unload
     service_registered = False
