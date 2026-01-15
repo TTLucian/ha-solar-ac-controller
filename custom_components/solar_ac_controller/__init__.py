@@ -84,7 +84,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         return await _async_migrate_data(old_major, old_minor, old_data, initial_lp)
 
     try:
-        stored_data = await store.async_load_with_migration(migrate_fn)
+        old_data = await store.async_load()
+        stored_data = await migrate_fn(STORAGE_VERSION, 0, old_data)
     except Exception:
         _LOGGER.exception("Failed to load stored data")
         stored_data = None

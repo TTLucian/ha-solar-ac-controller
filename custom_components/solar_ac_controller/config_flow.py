@@ -186,7 +186,7 @@ class SolarACOptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Optional(CONF_AC_SWITCH, default=data.get(CONF_AC_SWITCH, "")): selector({"entity": {"domain": "switch"}}),
 
                 vol.Required(CONF_ZONES, default=data.get(CONF_ZONES, [])): selector({
-                    "entity": {"domain": selector({"select": {"options": ["climate", "switch", "fan"]}})["select"]["options"], "multiple": True}
+                    "entity": {"domain": ["climate", "switch", "fan"], "multiple": True}
                 }),
 
                 vol.Optional(CONF_SOLAR_THRESHOLD_ON, default=data.get(CONF_SOLAR_THRESHOLD_ON, int(DEFAULT_SOLAR_THRESHOLD_ON))): _int_field(int(DEFAULT_SOLAR_THRESHOLD_ON), minimum=0),
