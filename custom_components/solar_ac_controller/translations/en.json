@@ -22,8 +22,8 @@
           "short_cycle_off_seconds": "Short Cycle OFF Protection (seconds)",
           "action_delay_seconds": "Action Delay (seconds)",
           "add_confidence": "Add Confidence Threshold",
-          "enable_diagnostics_sensor": "Enable Diagnostics Sensor (advanced)",
-          "remove_confidence": "Remove Confidence Threshold"
+          "remove_confidence": "Remove Confidence Threshold",
+          "enable_diagnostics": "Enable Diagnostics Sensor (advanced)"
         },
         "data_description": {
           "ac_power_sensor": "Sensor that reports the AC unit's current power draw.",
@@ -41,7 +41,8 @@
           "short_cycle_off_seconds": "Minimum time a zone must stay OFF before it can be turned ON.",
           "action_delay_seconds": "Minimum time between sending zone actions or commands.",
           "add_confidence": "Minimum confidence required to add a new zone.",
-          "remove_confidence": "Minimum negative confidence required to remove a zone."
+          "remove_confidence": "Minimum negative confidence required to remove a zone.",
+          "enable_diagnostics": "Create a diagnostics sensor with internal state."
         }
       }
     }
@@ -69,7 +70,7 @@
           "action_delay_seconds": "Action Delay (seconds)",
           "add_confidence": "Add Confidence Threshold",
           "remove_confidence": "Remove Confidence Threshold",
-          "enable_diagnostics_sensor": "Enable Diagnostics Sensor (advanced)"
+          "enable_diagnostics": "Enable Diagnostics Sensor (advanced)"
         },
         "data_description": {
           "solar_threshold_on": "Solar must exceed this value to enable the AC master switch.",
