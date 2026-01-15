@@ -30,7 +30,11 @@ async def _async_migrate_data(
     old_data: dict | None,
     initial_lp: float = DEFAULT_INITIAL_LEARNED_POWER,
 ) -> dict:
-    """Normalize and migrate stored data into the new per‑mode structure."""
+    """Normalize and migrate stored data into the new per‑mode structure.
+
+    This function is defensive and will always return a dict with the
+    expected storage keys: 'learned_power' and 'samples'.
+    """
     _LOGGER.info(
         "Running explicit fallback migration from v%s.%s to v%s",
         old_major,
@@ -98,14 +102,33 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up Solar AC Controller from a config entry."""
+    """Set up Solar AC Controller from a config entry.
+
+    Improvements applied:
+    - Defensive handling around integration lookup.
+    - Explicit migration with logging and safe save.
+    - Coordinator stored in hass.data immediately.
+    - Forward platforms early to make entities available quickly.
+    - Wrap initial refresh in try/except to avoid blocking setup on transient errors.
+    - Use entry-specific device identifier for uniqueness.
+    - Register service and track registration for clean removal on unload.
+    """
     hass.data.setdefault(DOMAIN, {})
 
     # Defensive: async_get_integration may rarely return None; fall back to "unknown"
-    integration = await async_get_integration(hass, DOMAIN)
+    try:
+        integration = await async_get_integration(hass, DOMAIN)
+    except Exception:
+        integration = None
+        _LOGGER.debug("async_get_integration raised an exception for %s", DOMAIN)
+
     version = integration.version if integration is not None else "unknown"
     if integration is None:
-        _LOGGER.debug("async_get_integration returned None for %s; using fallback version=%s", DOMAIN, version)
+        _LOGGER.debug(
+            "async_get_integration returned None for %s; using fallback version=%s",
+            DOMAIN,
+            version,
+        )
 
     initial_lp = float(
         entry.options.get(
@@ -114,6 +137,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
     )
 
+    # Create persistent store for learned values
     store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
 
     try:
@@ -128,15 +152,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         if migrated != stored_data:
             _LOGGER.debug("Data migration changed payload; saving to storage")
-            await store.async_save(migrated)
-            stored_data = migrated
-            _LOGGER.info("Storage migrated and saved for %s", STORAGE_KEY)
-
+            try:
+                await store.async_save(migrated)
+                stored_data = migrated
+                _LOGGER.info("Storage migrated and saved for %s", STORAGE_KEY)
+            except Exception:
+                _LOGGER.exception("Failed to save migrated storage payload")
     except Exception:
         _LOGGER.exception("Error while attempting explicit migration fallback")
         if stored_data is None:
             stored_data = {"learned_power": {}, "samples": 0}
 
+    # Instantiate coordinator
     coordinator = SolarACCoordinator(
         hass,
         entry,
@@ -145,34 +172,59 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         version=version,
     )
 
-    # Make coordinator available immediately so any code invoked during first refresh can access it
+    # Make coordinator available immediately so any code invoked during platform setup can access it
     hass.data[DOMAIN][entry.entry_id] = {"coordinator": coordinator}
-    _LOGGER.debug("SolarACCoordinator stored in hass.data for entry %s (version=%s)", entry.entry_id, version)
+    _LOGGER.debug(
+        "SolarACCoordinator stored in hass.data for entry %s (version=%s)",
+        entry.entry_id,
+        version,
+    )
 
-    # Perform initial refresh (may trigger platform setup callbacks)
-    await coordinator.async_config_entry_first_refresh()
+    # Forward platforms early so entities appear in UI quickly.
+    # If platforms require coordinator data during setup, they can access hass.data[DOMAIN][entry.entry_id]["coordinator"].
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    # Perform initial refresh but do not let failures block setup
+    try:
+        await coordinator.async_config_entry_first_refresh()
+    except Exception as exc:
+        _LOGGER.exception("Initial coordinator refresh failed: %s", exc)
+        # Continue setup; platforms can handle missing data and will update when coordinator recovers.
 
     # Device registry entry
     device_registry = dr.async_get(hass)
+    # Use entry-specific identifier to support multiple controllers in the future
     device_registry.async_get_or_create(
         config_entry_id=entry.entry_id,
-        identifiers={(DOMAIN, "solar_ac_controller")},
+        identifiers={(DOMAIN, entry.entry_id)},
         name="Solar AC Controller",
         manufacturer="TTLucian",
         model="Solar AC Smart Controller",
         sw_version=version,
     )
 
-    # Platforms
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    entry.add_update_listener(async_reload_entry)
+    # Keep track of service registration so we can remove it cleanly on unload
+    service_registered = False
 
-    # Services
     async def handle_reset_learning(call: ServiceCall):
         if hasattr(coordinator, "controller"):
             await coordinator.controller.reset_learning()
 
-    hass.services.async_register(DOMAIN, "reset_learning", handle_reset_learning)
+    try:
+        hass.services.async_register(DOMAIN, "reset_learning", handle_reset_learning)
+        service_registered = True
+    except Exception:
+        _LOGGER.exception("Failed to register service %s.reset_learning", DOMAIN)
+        service_registered = False
+
+    # Persist service registration flag for cleanup
+    hass.data[DOMAIN][entry.entry_id]["service_registered"] = service_registered
+
+    # Store coordinator reference again (with service flag) for completeness
+    hass.data[DOMAIN][entry.entry_id]["coordinator"] = coordinator
+
+    # Add update listener for reloads
+    entry.add_update_listener(async_reload_entry)
 
     return True
 
@@ -182,13 +234,18 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Unload an entry and clean up resources."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id, None)
 
+    # If no more entries remain, remove the service registration if present
     if not hass.data.get(DOMAIN):
-        if hass.services.has_service(DOMAIN, "reset_learning"):
-            hass.services.async_remove(DOMAIN, "reset_learning")
+        try:
+            if hass.services.has_service(DOMAIN, "reset_learning"):
+                hass.services.async_remove(DOMAIN, "reset_learning")
+        except Exception:
+            _LOGGER.exception("Failed to remove service %s.reset_learning during unload", DOMAIN)
 
     return unload_ok
