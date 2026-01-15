@@ -40,7 +40,8 @@ from .const import (
 
 
 def _int_field(default: int, minimum: int = 0) -> vol.All:
-    return vol.All(vol.Coerce(int), vol.Range(min=minimum), vol.Default(default))
+    # vol.Default does not exist; set default in the schema, not here
+    return vol.All(vol.Coerce(int), vol.Range(min=minimum))
 
 
 class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
