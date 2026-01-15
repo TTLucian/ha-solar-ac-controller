@@ -74,8 +74,8 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Solar AC Controller from a config entry.
 
-    NOTE: This version intentionally does NOT create a device registry entry.
-    Entities are created without device_info per user request.
+    This version intentionally does NOT call device_registry.async_get_or_create.
+    Entities themselves expose minimal device_info (identifiers only).
     """
     hass.data.setdefault(DOMAIN, {})
 
