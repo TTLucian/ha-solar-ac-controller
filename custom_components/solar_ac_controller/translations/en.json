@@ -1,6 +1,5 @@
 {
   "title": "Solar AC Controller",
-
   "config": {
     "step": {
       "user": {
@@ -46,7 +45,6 @@
       }
     }
   },
-
   "options": {
     "step": {
       "init": {
@@ -85,7 +83,6 @@
         }
       }
     },
-
     "error": {
       "no_zones": "You must define at least one zone.",
       "invalid_solar_hysteresis": "Solar OFF threshold must be lower than Solar ON threshold.",
