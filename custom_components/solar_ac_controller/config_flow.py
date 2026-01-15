@@ -39,6 +39,10 @@ from .const import (
 )
 
 
+def _int_field(default: int, minimum: int = 0) -> vol.All:
+    return vol.All(vol.Coerce(int), vol.Range(min=minimum), vol.Default(default))
+
+
 class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle the initial setup of the Solar AC Controller."""
 
@@ -53,9 +57,12 @@ class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if not zones:
                 errors["base"] = "no_zones"
             else:
+                # Normalize zones to list of strings
+                normalized = {**user_input}
+                normalized[CONF_ZONES] = list(zones)
                 return self.async_create_entry(
                     title="Solar AC Controller",
-                    data=user_input,
+                    data=normalized,
                 )
 
         schema = vol.Schema(
@@ -70,23 +77,23 @@ class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     "entity": {"domain": ["climate", "switch"], "multiple": True}
                 }),
 
-                vol.Optional(CONF_SOLAR_THRESHOLD_ON, default=int(DEFAULT_SOLAR_THRESHOLD_ON)): int,
-                vol.Optional(CONF_SOLAR_THRESHOLD_OFF, default=int(DEFAULT_SOLAR_THRESHOLD_OFF)): int,
+                vol.Optional(CONF_SOLAR_THRESHOLD_ON, default=int(DEFAULT_SOLAR_THRESHOLD_ON)): _int_field(int(DEFAULT_SOLAR_THRESHOLD_ON), minimum=0),
+                vol.Optional(CONF_SOLAR_THRESHOLD_OFF, default=int(DEFAULT_SOLAR_THRESHOLD_OFF)): _int_field(int(DEFAULT_SOLAR_THRESHOLD_OFF), minimum=0),
 
-                vol.Optional(CONF_PANIC_THRESHOLD, default=int(DEFAULT_PANIC_THRESHOLD)): int,
-                vol.Optional(CONF_PANIC_DELAY, default=int(DEFAULT_PANIC_DELAY)): int,
-                vol.Optional(CONF_MANUAL_LOCK_SECONDS, default=int(DEFAULT_MANUAL_LOCK_SECONDS)): int,
-                vol.Optional(CONF_SHORT_CYCLE_ON_SECONDS, default=int(DEFAULT_SHORT_CYCLE_ON_SECONDS)): int,
-                vol.Optional(CONF_SHORT_CYCLE_OFF_SECONDS, default=int(DEFAULT_SHORT_CYCLE_OFF_SECONDS)): int,
-                vol.Optional(CONF_ACTION_DELAY_SECONDS, default=int(DEFAULT_ACTION_DELAY_SECONDS)): int,
+                vol.Optional(CONF_PANIC_THRESHOLD, default=int(DEFAULT_PANIC_THRESHOLD)): _int_field(int(DEFAULT_PANIC_THRESHOLD), minimum=0),
+                vol.Optional(CONF_PANIC_DELAY, default=int(DEFAULT_PANIC_DELAY)): _int_field(int(DEFAULT_PANIC_DELAY), minimum=0),
+                vol.Optional(CONF_MANUAL_LOCK_SECONDS, default=int(DEFAULT_MANUAL_LOCK_SECONDS)): _int_field(int(DEFAULT_MANUAL_LOCK_SECONDS), minimum=0),
+                vol.Optional(CONF_SHORT_CYCLE_ON_SECONDS, default=int(DEFAULT_SHORT_CYCLE_ON_SECONDS)): _int_field(int(DEFAULT_SHORT_CYCLE_ON_SECONDS), minimum=0),
+                vol.Optional(CONF_SHORT_CYCLE_OFF_SECONDS, default=int(DEFAULT_SHORT_CYCLE_OFF_SECONDS)): _int_field(int(DEFAULT_SHORT_CYCLE_OFF_SECONDS), minimum=0),
+                vol.Optional(CONF_ACTION_DELAY_SECONDS, default=int(DEFAULT_ACTION_DELAY_SECONDS)): _int_field(int(DEFAULT_ACTION_DELAY_SECONDS), minimum=0),
 
-                vol.Optional(CONF_ADD_CONFIDENCE, default=int(DEFAULT_ADD_CONFIDENCE)): int,
-                vol.Optional(CONF_REMOVE_CONFIDENCE, default=int(DEFAULT_REMOVE_CONFIDENCE)): int,
+                vol.Optional(CONF_ADD_CONFIDENCE, default=int(DEFAULT_ADD_CONFIDENCE)): _int_field(int(DEFAULT_ADD_CONFIDENCE), minimum=0),
+                vol.Optional(CONF_REMOVE_CONFIDENCE, default=int(DEFAULT_REMOVE_CONFIDENCE)): _int_field(int(DEFAULT_REMOVE_CONFIDENCE), minimum=0),
 
                 # Diagnostics toggle (initial config)
                 vol.Optional(CONF_ENABLE_DIAGNOSTICS, default=False): bool,
 
-                vol.Required(CONF_INITIAL_LEARNED_POWER, default=int(DEFAULT_INITIAL_LEARNED_POWER)): vol.Coerce(int),
+                vol.Required(CONF_INITIAL_LEARNED_POWER, default=int(DEFAULT_INITIAL_LEARNED_POWER)): vol.All(vol.Coerce(int), vol.Range(min=0)),
             }
         )
 
@@ -116,9 +123,9 @@ class SolarACOptionsFlowHandler(config_entries.OptionsFlow):
         current = self._current
 
         if user_input is not None:
-            solar_on = user_input.get(CONF_SOLAR_THRESHOLD_ON, DEFAULT_SOLAR_THRESHOLD_ON)
-            solar_off = user_input.get(CONF_SOLAR_THRESHOLD_OFF, DEFAULT_SOLAR_THRESHOLD_OFF)
-            panic_th = user_input.get(CONF_PANIC_THRESHOLD, DEFAULT_PANIC_THRESHOLD)
+            solar_on = int(user_input.get(CONF_SOLAR_THRESHOLD_ON, DEFAULT_SOLAR_THRESHOLD_ON))
+            solar_off = int(user_input.get(CONF_SOLAR_THRESHOLD_OFF, DEFAULT_SOLAR_THRESHOLD_OFF))
+            panic_th = int(user_input.get(CONF_PANIC_THRESHOLD, DEFAULT_PANIC_THRESHOLD))
             zones = user_input.get(CONF_ZONES, [])
 
             if not zones:
@@ -128,27 +135,28 @@ class SolarACOptionsFlowHandler(config_entries.OptionsFlow):
             elif panic_th <= solar_on:
                 errors["base"] = "panic_too_low"
             else:
+                # Normalize and coerce numeric options
                 new_options = {
                     CONF_SOLAR_SENSOR: user_input[CONF_SOLAR_SENSOR],
                     CONF_GRID_SENSOR: user_input[CONF_GRID_SENSOR],
                     CONF_AC_POWER_SENSOR: user_input[CONF_AC_POWER_SENSOR],
                     CONF_AC_SWITCH: user_input.get(CONF_AC_SWITCH, ""),
-                    CONF_ZONES: zones,
+                    CONF_ZONES: list(zones),
                     CONF_SOLAR_THRESHOLD_ON: solar_on,
                     CONF_SOLAR_THRESHOLD_OFF: solar_off,
                     CONF_PANIC_THRESHOLD: panic_th,
-                    CONF_PANIC_DELAY: user_input.get(CONF_PANIC_DELAY, DEFAULT_PANIC_DELAY),
-                    CONF_MANUAL_LOCK_SECONDS: user_input.get(CONF_MANUAL_LOCK_SECONDS, DEFAULT_MANUAL_LOCK_SECONDS),
-                    CONF_SHORT_CYCLE_ON_SECONDS: user_input.get(CONF_SHORT_CYCLE_ON_SECONDS, DEFAULT_SHORT_CYCLE_ON_SECONDS),
-                    CONF_SHORT_CYCLE_OFF_SECONDS: user_input.get(CONF_SHORT_CYCLE_OFF_SECONDS, DEFAULT_SHORT_CYCLE_OFF_SECONDS),
-                    CONF_ACTION_DELAY_SECONDS: user_input.get(CONF_ACTION_DELAY_SECONDS, DEFAULT_ACTION_DELAY_SECONDS),
-                    CONF_ADD_CONFIDENCE: user_input.get(CONF_ADD_CONFIDENCE, DEFAULT_ADD_CONFIDENCE),
-                    CONF_REMOVE_CONFIDENCE: user_input.get(CONF_REMOVE_CONFIDENCE, DEFAULT_REMOVE_CONFIDENCE),
+                    CONF_PANIC_DELAY: int(user_input.get(CONF_PANIC_DELAY, DEFAULT_PANIC_DELAY)),
+                    CONF_MANUAL_LOCK_SECONDS: int(user_input.get(CONF_MANUAL_LOCK_SECONDS, DEFAULT_MANUAL_LOCK_SECONDS)),
+                    CONF_SHORT_CYCLE_ON_SECONDS: int(user_input.get(CONF_SHORT_CYCLE_ON_SECONDS, DEFAULT_SHORT_CYCLE_ON_SECONDS)),
+                    CONF_SHORT_CYCLE_OFF_SECONDS: int(user_input.get(CONF_SHORT_CYCLE_OFF_SECONDS, DEFAULT_SHORT_CYCLE_OFF_SECONDS)),
+                    CONF_ACTION_DELAY_SECONDS: int(user_input.get(CONF_ACTION_DELAY_SECONDS, DEFAULT_ACTION_DELAY_SECONDS)),
+                    CONF_ADD_CONFIDENCE: int(user_input.get(CONF_ADD_CONFIDENCE, DEFAULT_ADD_CONFIDENCE)),
+                    CONF_REMOVE_CONFIDENCE: int(user_input.get(CONF_REMOVE_CONFIDENCE, DEFAULT_REMOVE_CONFIDENCE)),
 
                     # Diagnostics toggle is saved in options
-                    CONF_ENABLE_DIAGNOSTICS: user_input.get(CONF_ENABLE_DIAGNOSTICS, False),
+                    CONF_ENABLE_DIAGNOSTICS: bool(user_input.get(CONF_ENABLE_DIAGNOSTICS, False)),
 
-                    CONF_INITIAL_LEARNED_POWER: user_input.get(CONF_INITIAL_LEARNED_POWER, DEFAULT_INITIAL_LEARNED_POWER),
+                    CONF_INITIAL_LEARNED_POWER: int(user_input.get(CONF_INITIAL_LEARNED_POWER, DEFAULT_INITIAL_LEARNED_POWER)),
                 }
                 return self.async_create_entry(title="", data=new_options)
 
@@ -169,23 +177,23 @@ class SolarACOptionsFlowHandler(config_entries.OptionsFlow):
                     "entity": {"domain": ["climate", "switch"], "multiple": True}
                 }),
 
-                vol.Optional(CONF_SOLAR_THRESHOLD_ON, default=data.get(CONF_SOLAR_THRESHOLD_ON, int(DEFAULT_SOLAR_THRESHOLD_ON))): int,
-                vol.Optional(CONF_SOLAR_THRESHOLD_OFF, default=data.get(CONF_SOLAR_THRESHOLD_OFF, int(DEFAULT_SOLAR_THRESHOLD_OFF))): int,
+                vol.Optional(CONF_SOLAR_THRESHOLD_ON, default=data.get(CONF_SOLAR_THRESHOLD_ON, int(DEFAULT_SOLAR_THRESHOLD_ON))): _int_field(int(DEFAULT_SOLAR_THRESHOLD_ON), minimum=0),
+                vol.Optional(CONF_SOLAR_THRESHOLD_OFF, default=data.get(CONF_SOLAR_THRESHOLD_OFF, int(DEFAULT_SOLAR_THRESHOLD_OFF))): _int_field(int(DEFAULT_SOLAR_THRESHOLD_OFF), minimum=0),
 
-                vol.Optional(CONF_PANIC_THRESHOLD, default=data.get(CONF_PANIC_THRESHOLD, int(DEFAULT_PANIC_THRESHOLD))): int,
-                vol.Optional(CONF_PANIC_DELAY, default=data.get(CONF_PANIC_DELAY, int(DEFAULT_PANIC_DELAY))): int,
-                vol.Optional(CONF_MANUAL_LOCK_SECONDS, default=data.get(CONF_MANUAL_LOCK_SECONDS, int(DEFAULT_MANUAL_LOCK_SECONDS))): int,
-                vol.Optional(CONF_SHORT_CYCLE_ON_SECONDS, default=data.get(CONF_SHORT_CYCLE_ON_SECONDS, int(DEFAULT_SHORT_CYCLE_ON_SECONDS))): int,
-                vol.Optional(CONF_SHORT_CYCLE_OFF_SECONDS, default=data.get(CONF_SHORT_CYCLE_OFF_SECONDS, int(DEFAULT_SHORT_CYCLE_OFF_SECONDS))): int,
-                vol.Optional(CONF_ACTION_DELAY_SECONDS, default=data.get(CONF_ACTION_DELAY_SECONDS, int(DEFAULT_ACTION_DELAY_SECONDS))): int,
+                vol.Optional(CONF_PANIC_THRESHOLD, default=data.get(CONF_PANIC_THRESHOLD, int(DEFAULT_PANIC_THRESHOLD))): _int_field(int(DEFAULT_PANIC_THRESHOLD), minimum=0),
+                vol.Optional(CONF_PANIC_DELAY, default=data.get(CONF_PANIC_DELAY, int(DEFAULT_PANIC_DELAY))): _int_field(int(DEFAULT_PANIC_DELAY), minimum=0),
+                vol.Optional(CONF_MANUAL_LOCK_SECONDS, default=data.get(CONF_MANUAL_LOCK_SECONDS, int(DEFAULT_MANUAL_LOCK_SECONDS))): _int_field(int(DEFAULT_MANUAL_LOCK_SECONDS), minimum=0),
+                vol.Optional(CONF_SHORT_CYCLE_ON_SECONDS, default=data.get(CONF_SHORT_CYCLE_ON_SECONDS, int(DEFAULT_SHORT_CYCLE_ON_SECONDS))): _int_field(int(DEFAULT_SHORT_CYCLE_ON_SECONDS), minimum=0),
+                vol.Optional(CONF_SHORT_CYCLE_OFF_SECONDS, default=data.get(CONF_SHORT_CYCLE_OFF_SECONDS, int(DEFAULT_SHORT_CYCLE_OFF_SECONDS))): _int_field(int(DEFAULT_SHORT_CYCLE_OFF_SECONDS), minimum=0),
+                vol.Optional(CONF_ACTION_DELAY_SECONDS, default=data.get(CONF_ACTION_DELAY_SECONDS, int(DEFAULT_ACTION_DELAY_SECONDS))): _int_field(int(DEFAULT_ACTION_DELAY_SECONDS), minimum=0),
 
-                vol.Optional(CONF_ADD_CONFIDENCE, default=data.get(CONF_ADD_CONFIDENCE, int(DEFAULT_ADD_CONFIDENCE))): int,
-                vol.Optional(CONF_REMOVE_CONFIDENCE, default=data.get(CONF_REMOVE_CONFIDENCE, int(DEFAULT_REMOVE_CONFIDENCE))): int,
+                vol.Optional(CONF_ADD_CONFIDENCE, default=data.get(CONF_ADD_CONFIDENCE, int(DEFAULT_ADD_CONFIDENCE))): _int_field(int(DEFAULT_ADD_CONFIDENCE), minimum=0),
+                vol.Optional(CONF_REMOVE_CONFIDENCE, default=data.get(CONF_REMOVE_CONFIDENCE, int(DEFAULT_REMOVE_CONFIDENCE))): _int_field(int(DEFAULT_REMOVE_CONFIDENCE), minimum=0),
 
                 # Diagnostics toggle included in options UI
                 vol.Optional(CONF_ENABLE_DIAGNOSTICS, default=data.get(CONF_ENABLE_DIAGNOSTICS, False)): bool,
 
-                vol.Optional(CONF_INITIAL_LEARNED_POWER, default=data.get(CONF_INITIAL_LEARNED_POWER, int(DEFAULT_INITIAL_LEARNED_POWER))): int,
+                vol.Optional(CONF_INITIAL_LEARNED_POWER, default=data.get(CONF_INITIAL_LEARNED_POWER, int(DEFAULT_INITIAL_LEARNED_POWER))): vol.All(vol.Coerce(int), vol.Range(min=0)),
             }
         )
 
