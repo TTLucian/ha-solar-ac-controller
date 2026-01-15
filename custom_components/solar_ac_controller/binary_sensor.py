@@ -10,6 +10,7 @@ from homeassistant.components.binary_sensor import (
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN, CONF_AC_SWITCH, CONF_ZONES
 from .helpers import build_diagnostics
@@ -53,8 +54,10 @@ class _BaseSolarACBinary(BinarySensorEntity):
     def __init__(self, coordinator: Any, entry_id: str) -> None:
         self.coordinator = coordinator
         self._entry_id = entry_id
+        # Use per-entry device identifier so all entities for this config entry
+        # attach to the same device in Home Assistant.
         self._attr_device_info = {
-            "identifiers": {(DOMAIN, "solar_ac_controller")},
+            "identifiers": {(DOMAIN, self._entry_id)},
             "name": "Solar AC Controller",
             "configuration_url": "https://github.com/TTLucian/ha-solar-ac-controller",
         }
