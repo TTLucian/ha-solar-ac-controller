@@ -1,3 +1,4 @@
+// custom_components/solar_ac_controller/strings.json
 {
   "title": "Solar AC Controller",
   "config": {
@@ -40,7 +41,8 @@
           "short_cycle_off_seconds": "Minimum time a zone must stay OFF before it can be turned ON.",
           "action_delay_seconds": "Minimum time between sending zone actions or commands.",
           "add_confidence": "Minimum confidence required to add a new zone.",
-          "remove_confidence": "Minimum negative confidence required to remove a zone."
+          "remove_confidence": "Minimum negative confidence required to remove a zone.",
+          "note_required_export": "Required Export is the learned power estimate for the next zone. No safety multiplier is applied."
         }
       }
     }
@@ -49,7 +51,7 @@
     "step": {
       "init": {
         "title": "Solar AC Controller options",
-        "description": "Adjust sensors, zones, thresholds and safety settings.\n\nZone order determines activation priority. Panic settings protect your inverter from overload.\n\nSupports cooling and heating zones (heat / cool / on).",
+        "description": "Adjust sensors, zones, thresholds and safety settings.\n\nZone order determines activation priority. Panic settings protect your inverter from overload.\n\nRequired Export uses the learned power estimate directly (no safety multiplier).",
         "data": {
           "ac_power_sensor": "AC Power Sensor",
           "grid_sensor": "Grid Import/Export Sensor",
