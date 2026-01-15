@@ -81,7 +81,7 @@ class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Optional(CONF_AC_SWITCH, default=""): selector({"entity": {"domain": "switch"}}),
 
                 vol.Required(CONF_ZONES): selector({
-                    "entity": {"domain": selector({"select": {"options": ["climate", "switch", "fan"]}})["select"]["options"], "multiple": True}
+                    "entity": {"domain": ["climate", "switch", "fan"], "multiple": True}
                 }),
 
                 vol.Optional(CONF_SOLAR_THRESHOLD_ON, default=int(DEFAULT_SOLAR_THRESHOLD_ON)): _int_field(int(DEFAULT_SOLAR_THRESHOLD_ON), minimum=0),
