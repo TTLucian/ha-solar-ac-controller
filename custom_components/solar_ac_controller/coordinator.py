@@ -243,6 +243,17 @@ class SolarACCoordinator(DataUpdateCoordinator):
                 _LOGGER.exception("Failed to write storage error to coordinator log")
 
     # -------------------------------------------------------------------------
+    # Minimal async logging hook used by coordinator and controller
+    # -------------------------------------------------------------------------
+    async def _log(self, message: str) -> None:
+        """Async logging hook used by coordinator and controller."""
+        try:
+            # Keep this simple and non-blocking; expand if persistent logs are desired
+            _LOGGER.info(message)
+        except Exception:
+            _LOGGER.debug("Failed to write coordinator log message: %s", message)
+
+    # -------------------------------------------------------------------------
     # Main update loop
     # -------------------------------------------------------------------------
     async def _async_update_data(self):
@@ -376,7 +387,8 @@ class SolarACCoordinator(DataUpdateCoordinator):
 
         # Reset controller learning state (safe)
         try:
-            await self.controller._reset_learning_state_async()
+            if getattr(self, "controller", None) is not None:
+                await self.controller._reset_learning_state_async()
         except Exception:
             _LOGGER.debug("Controller reset learning method failed or controller not set")
 
@@ -565,7 +577,8 @@ class SolarACCoordinator(DataUpdateCoordinator):
 
                 # Reset learning state via controller if available
                 try:
-                    await self.controller._reset_learning_state_async()
+                    if getattr(self, "controller", None) is not None:
+                        await self.controller._reset_learning_state_async()
                 except Exception:
                     _LOGGER.debug("Controller reset learning method failed or controller not set")
 
@@ -772,27 +785,17 @@ class SolarACCoordinator(DataUpdateCoordinator):
             return
 
         # Turn OFF when solar is below or equal to OFF threshold
-        if solar <= off_threshold and switch_state != "off":
-            # Only turn off if no zones are active (safety)
-            active_zones = [z for z in self.config.get(CONF_ZONES, []) if (st := self.hass.states.get(z)) and st.state in ("heat", "cool", "on")]
-            if not active_zones:
-                await self._log(
-                    f"[MASTER_OFF_SOLAR] solar={round(solar)} threshold_off={off_threshold}"
-                )
-                await self.hass.services.async_call(
-                    "switch",
-                    "turn_off",
-                    {"entity_id": ac_switch},
-                    blocking=True,
-                )
-                self.last_action = "master_off"
-                # master_off_since will be set in freeze cleanup
-                return
-
-    # -------------------------------------------------------------------------
-    # Logging helper
-    # -------------------------------------------------------------------------
-    async def _log(self, message: str):
-        """Write a short message to the coordinator log (non-blocking)."""
-        _LOGGER.debug(message)
-        # Placeholder for any future persistent log mechanism
+        if solar <= off_threshold and switch_state == "on":
+            await self._log(
+                f"[MASTER_OFF_TRIGGER] solar={round(solar)} threshold_off={off_threshold}"
+            )
+            await self.hass.services.async_call(
+                "switch",
+                "turn_off",
+                {"entity_id": ac_switch},
+                blocking=True,
+            )
+            self.last_action = "master_off"
+            # mark master_off_since for EMA reset logic
+            self.master_off_since = dt_util.utcnow().timestamp()
+            return
