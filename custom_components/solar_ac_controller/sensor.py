@@ -11,6 +11,7 @@ from homeassistant.components.sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN, CONF_ENABLE_DIAGNOSTICS, CONF_ZONES
 from .helpers import build_diagnostics
@@ -21,6 +22,7 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
+    """Set up sensors for the Solar AC Controller integration."""
     data = hass.data[DOMAIN][entry.entry_id]
     coordinator = data["coordinator"]
     entry_id = entry.entry_id
@@ -40,16 +42,22 @@ async def async_setup_entry(
         SolarACPanicCooldownSensor(coordinator, entry_id),
     ]
 
+    # Per-zone learned power sensors
     for zone in coordinator.config.get(CONF_ZONES, []):
         zone_name = zone.split(".")[-1]
         entities.append(SolarACLearnedPowerSensor(coordinator, entry_id, zone_name))
 
+    # Diagnostics sensor is optional
     effective = {**entry.data, **entry.options}
     if effective.get(CONF_ENABLE_DIAGNOSTICS, False):
         entities.append(SolarACDiagnosticEntity(coordinator, entry_id))
 
     async_add_entities(entities)
 
+
+# ---------------------------------------------------------------------------
+# BASE CLASS
+# ---------------------------------------------------------------------------
 
 class _BaseSolarACSensor(SensorEntity):
     _attr_should_poll = False
@@ -66,6 +74,7 @@ class _BaseSolarACSensor(SensorEntity):
 
     @property
     def available(self) -> bool:
+        """Prefer DataUpdateCoordinator last_update_success if available."""
         last_ok = getattr(self.coordinator, "last_update_success", None)
         if isinstance(last_ok, bool):
             return last_ok
@@ -75,6 +84,7 @@ class _BaseSolarACSensor(SensorEntity):
         try:
             self._unsub = self.coordinator.async_add_listener(self.async_write_ha_state)
         except Exception:
+            # Fallback: write initial state if coordinator doesn't support listeners
             self.async_write_ha_state()
 
     async def async_will_remove_from_hass(self) -> None:
@@ -86,6 +96,10 @@ class _BaseSolarACSensor(SensorEntity):
             finally:
                 self._unsub = None
 
+
+# ---------------------------------------------------------------------------
+# NON-NUMERIC SENSORS
+# ---------------------------------------------------------------------------
 
 class SolarACActiveZonesSensor(_BaseSolarACSensor):
     @property
@@ -148,11 +162,19 @@ class SolarACLastActionSensor(_BaseSolarACSensor):
         return self.coordinator.last_action or "none"
 
 
+# ---------------------------------------------------------------------------
+# NUMERIC SENSOR BASE CLASS
+# ---------------------------------------------------------------------------
+
 class _NumericSolarACSensor(_BaseSolarACSensor):
     _attr_device_class = SensorDeviceClass.POWER
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = "W"
 
+
+# ---------------------------------------------------------------------------
+# NUMERIC SENSORS
+# ---------------------------------------------------------------------------
 
 class SolarACEma30Sensor(_NumericSolarACSensor):
     @property
@@ -236,6 +258,15 @@ class SolarACRequiredExportSensor(_NumericSolarACSensor):
         val = getattr(self.coordinator, "required_export", None)
         return None if val is None else round(val, 2)
 
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        # Explain source to the user: required_export is the learned power estimate
+        return {
+            "source": "learned_power",
+            "note": "No safety multiplier applied; required_export equals learned power estimate.",
+            "samples": getattr(self.coordinator, "samples", None),
+        }
+
 
 class SolarACExportMarginSensor(_NumericSolarACSensor):
     @property
@@ -251,6 +282,14 @@ class SolarACExportMarginSensor(_NumericSolarACSensor):
         val = getattr(self.coordinator, "export_margin", None)
         return None if val is None else round(val, 2)
 
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {
+            "meaning": "export_margin = current_export - required_export",
+            "positive_meaning": "positive = surplus available to add a zone",
+            "required_export_source": "learned_power",
+        }
+
 
 class SolarACImportPowerSensor(_NumericSolarACSensor):
     @property
@@ -265,6 +304,10 @@ class SolarACImportPowerSensor(_NumericSolarACSensor):
     def native_value(self) -> float:
         return round(getattr(self.coordinator, "ema_5m", 0.0), 2)
 
+
+# ---------------------------------------------------------------------------
+# PANIC COOLDOWN SENSOR
+# ---------------------------------------------------------------------------
 
 class SolarACPanicCooldownSensor(_BaseSolarACSensor):
     @property
@@ -288,6 +331,10 @@ class SolarACPanicCooldownSensor(_BaseSolarACSensor):
             return "no"
 
 
+# ---------------------------------------------------------------------------
+# LEARNED POWER SENSOR
+# ---------------------------------------------------------------------------
+
 class SolarACLearnedPowerSensor(_NumericSolarACSensor):
     def __init__(self, coordinator: Any, entry_id: str, zone_name: str):
         super().__init__(coordinator, entry_id)
@@ -305,6 +352,10 @@ class SolarACLearnedPowerSensor(_NumericSolarACSensor):
     def native_value(self) -> float:
         return self.coordinator.get_learned_power(self.zone_name, mode="default")
 
+
+# ---------------------------------------------------------------------------
+# DIAGNOSTICS SENSOR (delegates to helpers.build_diagnostics)
+# ---------------------------------------------------------------------------
 
 class SolarACDiagnosticEntity(_BaseSolarACSensor):
     def __init__(self, coordinator: Any, entry_id: str):
