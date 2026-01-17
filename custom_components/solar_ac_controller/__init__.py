@@ -35,9 +35,10 @@ async def _async_migrate_data(
     Document migration changes here and in commit messages for future maintainers.
     """
     if not isinstance(old_data, dict):
-        return {"learned_power": {}, "samples": 0}
+        return {"learned_power": {}, "learned_power_bands": {}, "samples": 0}
 
     learned_power = old_data.get("learned_power", {})
+    learned_power_bands = old_data.get("learned_power_bands", {}) or {}
     if not isinstance(learned_power, dict):
         learned_power = {}
 
@@ -56,9 +57,15 @@ async def _async_migrate_data(
                     val[mode] = initial_lp
                     modified = True
     
+    payload = {
+        "learned_power": learned_power,
+        "learned_power_bands": learned_power_bands if isinstance(learned_power_bands, dict) else {},
+        "samples": old_data.get("samples", 0),
+    }
+
     if modified:
-        return {"learned_power": learned_power, "samples": old_data.get("samples", 0)}
-    return old_data
+        return payload
+    return payload
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
@@ -68,9 +75,9 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})
 
-    # 1. Get Integration Version
+    # 1. Get Integration Version from manifest
     integration = await async_get_integration(hass, DOMAIN)
-    version = str(integration.version) if integration.version else "0.5.1"
+    version = str(integration.version) if integration.version else None
 
     initial_lp = entry.options.get(
         CONF_INITIAL_LEARNED_POWER,
@@ -91,7 +98,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         stored_data = None
 
     if stored_data is None:
-        stored_data = {"learned_power": {}, "samples": 0}
+        stored_data = {"learned_power": {}, "learned_power_bands": {}, "samples": 0}
 
     # 3. Create Device (The "Master" record)
     device_registry = dr.async_get(hass)
@@ -99,7 +106,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         config_entry_id=entry.entry_id,
         identifiers={(DOMAIN, entry.entry_id)},
         name="Solar AC Controller",
-        sw_version=version,
         configuration_url="https://github.com/TTLucian/ha-solar-ac-controller",
     )
 

@@ -17,6 +17,9 @@ This integration automatically:
 - **Detects manual overrides** and locks zones to respect user control
 - **Performs panic shedding** when grid import exceeds configurable thresholds
 - **Optional master AC switch control** based on solar production thresholds
+- **Season-aware with outside temperature bands** (heat / cool / neutral) using optional outside sensor, configurable cold/mild/hot bands, and **7-day rolling mean** for smooth season transitions
+- **Comfort-aware zone control** with per-zone temperature sensors for intelligent removal prioritization
+- **Graceful degradation**: auto-season and temperature modulation automatically disable if required sensors are missing
 - **Exposes comprehensive diagnostics** through sensors and JSON export
 - **Provides runtime reconfiguration** via Options Flow without restart
 
@@ -30,7 +33,25 @@ Designed as a Home Assistant **service integration** for high-performance, solar
 Zones activate **in priority order** (based on config order) using real-time solar export and grid import data. The controller maintains separate EMAs (30-second and 5-minute) for responsive yet stable decision-making.
 
 ### 🧠 Adaptive learning engine  
-Each zone's power consumption is learned using a **per-mode (heat/cool) EMA model** with bootstrap initialization. The system tracks samples and continuously refines estimates as zones operate, improving accuracy over time.
+Each zone's power consumption is learned using a **per-mode (heat/cool) EMA model** with bootstrap initialization. The system tracks samples and continuously refines estimates as zones operate, improving accuracy over time. When an outside temperature sensor is provided, learning also tracks **banded power** (cold / mild cold / mild hot / hot) to better reflect seasonal efficiency.
+
+### 🌡️ Season-Aware Control with 7-Day Rolling Mean
+When an outside temperature sensor is configured:
+- **7-day rolling mean smoothing**: Season mode (heat/cool/neutral) uses a rolling average of outside temperature to reduce jitter during weather transitions.
+- **Hysteresis-based switching**: Heat/cool thresholds use configurable bands (heat_on_below, heat_off_above, cool_on_above, cool_off_below) with hysteresis to prevent oscillation.
+- **Band-aware learning**: Learned power is tracked per outdoor band (cold/mild_cold/mild_hot/hot) for seasonal efficiency tuning.
+- **Automatic fallback**: If the outside sensor is missing or unavailable, auto-season is automatically disabled and the system operates in export-only mode.
+
+Temperature bands are configurable (defaults: cold < 5°C, mild_cold 5-15°C, mild_hot 15-25°C, hot > 25°C).
+
+### Comfort Temperature Targets
+When indoor temperature sensors are configured, the system can intelligently defer zone removal until all active zones reach comfortable temperatures:
+- Winter mode (heat): Keeps zones ON until all reach max_temp_winter (default 22C)
+- Summer mode (cool): Keeps zones ON until all reach min_temp_summer (default 20C)
+- Neutral mode: No comfort blocking, zones follow solar availability
+
+Missing sensors are handled gracefully (assumes not at target, conservatively keeps zones ON). **Temperature modulation is automatically disabled if no zone temperature sensors are configured.** Comfort targets use 0.1C precision.
+
 
 ### 🔒 Manual override detection  
 When a zone state changes outside the controller's actions, a **configurable lock** (default 20 minutes) prevents the controller from modifying that zone, respecting user intent.
@@ -173,6 +194,9 @@ Add the integration via:
 - **Add confidence** (default: 25 points) — Minimum confidence to add zones
 - **Remove confidence** (default: 10 points) — Minimum negative confidence to remove zones
 - **Initial learned power** (default: 1000W) — Bootstrap estimate before learning completes
+- **Max temperature winter** (default: 22C) — Comfort target for zones in heat mode
+- **Min temperature summer** (default: 20C) — Comfort target for zones in cool mode  
+- **Zone temperature sensors** (optional) — Per-zone indoor temperature sensor entities for comfort-aware removal blocking
 - **Enable diagnostics sensor** (default: disabled) — Optional JSON diagnostics sensor
 
 ---
@@ -180,6 +204,7 @@ Add the integration via:
 ## 🛠 Runtime Options (Options Flow)
 
 All configuration parameters can be changed at runtime via **Settings → Devices & Services → Solar AC Controller → Configure**.
+When launched via Reconfigure, the form now pre-fills with your existing data+options values for a faster review.
 
 ### Behavioral Parameters
 - **`manual_lock_seconds`** — Duration a zone remains locked after manual override (default: 1200s / 20 min)
@@ -272,8 +297,8 @@ then this:
 
 **Created by:** [@TTLucian](https://github.com/TTLucian)  
 **Integration Type:** Service (`integration_type: service`)  
-**Current Version:** 0.5.7 (see [manifest.json](custom_components/solar_ac_controller/manifest.json))  
-**Storage Version:** 2 (supports per-mode learned power structure)  
+**Current Version:** 0.5.8 (see [manifest.json](custom_components/solar_ac_controller/manifest.json))  
+**Storage Version:** 3 (supports per-mode and banded learned power, comfort temperature targets)  
 **Update Interval:** 5 seconds  
 **Platforms:** `sensor`, `binary_sensor`  
 

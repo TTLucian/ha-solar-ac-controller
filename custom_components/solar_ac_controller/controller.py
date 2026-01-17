@@ -127,8 +127,10 @@ class SolarACController:
                     _LOGGER.exception("Failed to clear learning state after missing API")
                 return
 
+            learning_band = getattr(self.coordinator, "learning_band", None)
+
             try:
-                set_lp(zone_name, float(delta), mode=mode)
+                set_lp(zone_name, float(delta), mode=mode, band=learning_band)
                 self.coordinator.samples = int(getattr(self.coordinator, "samples", 0) or 0) + 1
                 await persist()
                 _LOGGER.info(
@@ -181,6 +183,10 @@ class SolarACController:
         self.coordinator.learning_zone = None
         self.coordinator.learning_start_time = None
         self.coordinator.ac_power_before = None
+        try:
+            self.coordinator.learning_band = None
+        except Exception:
+            pass
         _LOGGER.debug("Controller: cleared learning state")
 
     async def _reset_learning_state_async(self) -> None:

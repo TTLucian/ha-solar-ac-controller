@@ -31,7 +31,6 @@ class SolarACDiagnosticEntity(SensorEntity):
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry_id)},
             name="Solar AC Controller",
-            sw_version=getattr(self.coordinator, "version", "0.5.1"),
             configuration_url="https://github.com/TTLucian/ha-solar-ac-controller",
         )
 
