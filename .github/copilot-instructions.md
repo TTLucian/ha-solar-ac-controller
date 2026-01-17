@@ -88,7 +88,6 @@ Questions or unclear areas? Ask for specific sections to expand (decision thresh
 - Required export: Exactly the learned power for `next_zone` (no multiplier). Export margin: `-ema_30s - required_export`.
 - Comfort gating for removal: `coordinator._all_active_zones_at_target(active_zones)` must be true to remove when temp sensors exist (heat uses >= max_temp_winter; cool uses <= min_temp_summer; neutral always False). Missing sensor -> False. Temps read each cycle into `zone_current_temps` via `_read_zone_temps`.
 
-
 ## Learning Lifecycle
 - Start: `controller.start_learning(zone, ac_power_before)` records baseline (from AC power sensor) and timestamps; `coordinator.learning_active = True`.
 - Finish: `controller.finish_learning()` reads current AC power (or falls back to `ema_30s`), computes `delta = |ac_now - ac_before|`, infers mode (`heat`/`cool`/`default`), updates `learned_power[zone_short]`, increments `samples`, and persists via `coordinator._persist_learned_values()`.
