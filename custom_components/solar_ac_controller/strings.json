@@ -70,6 +70,66 @@
           "add_confidence": "Minimum confidence score needed to add a new zone. Higher = more conservative.",
           "remove_confidence": "Minimum negative confidence score needed to remove a zone. Higher = harder to remove."
         }
+      },
+      "timing": {
+        "title": "Timing & Protection",
+        "description": "Configure delays, manual lock, short-cycle guards, and panic shedding thresholds.",
+        "data": {
+          "action_delay_seconds": "Action Delay (seconds)",
+          "manual_lock_seconds": "Manual Override Lock Duration (seconds)",
+          "short_cycle_on_seconds": "Short Cycle ON Protection (seconds)",
+          "short_cycle_off_seconds": "Short Cycle OFF Protection (seconds)",
+          "panic_threshold": "Panic Threshold (W)",
+          "panic_delay": "Panic Delay (seconds)"
+        },
+        "data_description": {
+          "action_delay_seconds": "Minimum delay between consecutive zone commands (including heat/cool mode changes) to avoid rapid sequencing.",
+          "manual_lock_seconds": "If user manually toggles a zone via Home Assistant UI, it is locked from controller changes for this duration.",
+          "short_cycle_on_seconds": "Minimum time a zone must stay ON before controller can turn it OFF (prevents rapid cycling).",
+          "short_cycle_off_seconds": "Minimum time a zone must stay OFF before controller can turn it ON (prevents rapid cycling).",
+          "panic_threshold": "If grid import exceeds this for panic_delay seconds with multiple zones active, zones are shed sequentially.",
+          "panic_delay": "Seconds of sustained high import before panic shedding begins."
+        }
+      },
+      "comfort": {
+        "title": "Comfort-Based Zone Control",
+        "description": "Map zones to indoor temperature sensors and set comfort targets used to gate zone removals.",
+        "data": {
+          "zone_temp_sensors": "Zone Temperature Sensors (optional)",
+          "max_temp_winter": "Winter Comfort Target (°C)",
+          "min_temp_summer": "Summer Comfort Target (°C)"
+        },
+        "data_description": {
+          "zone_temp_sensors": "Mapping from each zone to its indoor temperature sensor. Used with temperature modulation to prevent premature zone removal.",
+          "max_temp_winter": "Heating comfort cutoff; zones stay on until reaching this temperature in heat mode.",
+          "min_temp_summer": "Cooling comfort cutoff; zones stay on until reaching this temperature in cool mode."
+        }
+      },
+      "auto_season": {
+        "title": "Auto Season Detection — Used for better learning needed power in each season.",
+        "description": "Configure outside temperature thresholds for heat/cool and set seasonal learning thresholds.",
+        "data": {
+          "outside_temperature_sensor": "Outside Temperature Sensor (optional)",
+          "heat_on_below": "Heat ON below (°C)",
+          "heat_off_above": "Heat OFF above (°C)",
+          "cool_on_above": "Cool ON above (°C)",
+          "cool_off_below": "Cool OFF below (°C)",
+          "very_cold_threshold": "Very Cold Threshold (°C)",
+          "chilly_threshold": "Chilly Threshold (°C)",
+          "comfortable_threshold": "Comfortable Threshold (°C)",
+          "master_switch_in_offseason": "Master Switch in Offseason"
+        },
+        "data_description": {
+          "outside_temperature_sensor": "Optional outside temperature for auto season and banded learning.",
+          "heat_on_below": "Auto season: enable heating when outside is below this.",
+          "heat_off_above": "Auto season: stop heating when outside rises above this.",
+          "cool_on_above": "Auto season: enable cooling when outside is above this.",
+          "cool_off_below": "Auto season: stop cooling when outside falls below this.",
+          "very_cold_threshold": "Temperature at or below this is very cold.",
+          "chilly_threshold": "Temperature between this and very cold threshold is chilly.",
+          "comfortable_threshold": "Temperature between this and chilly threshold is comfortable. Above this is very hot.",
+          "master_switch_in_offseason": "When auto-season detects neutral/offseason (neither heat nor cool needed), keep AC master switch ON despite low solar. Uncheck to turn OFF during offseason."
+        }
       }
     }
   },
@@ -136,6 +196,66 @@
           "add_confidence": "Minimum confidence score needed to add a new zone. Higher = more conservative.",
           "remove_confidence": "Minimum negative confidence score needed to remove a zone. Higher = harder to remove.",
           "enable_diagnostics_sensor": "Creates a sensor exposing full state for troubleshooting."
+        }
+      },
+      "timing": {
+        "title": "Timing & Protection",
+        "description": "Configure delays, manual lock, short-cycle guards, and panic shedding thresholds.",
+        "data": {
+          "action_delay_seconds": "Action Delay (seconds)",
+          "manual_lock_seconds": "Manual Override Lock Duration (seconds)",
+          "short_cycle_on_seconds": "Short Cycle ON Protection (seconds)",
+          "short_cycle_off_seconds": "Short Cycle OFF Protection (seconds)",
+          "panic_threshold": "Panic Threshold (W)",
+          "panic_delay": "Panic Delay (seconds)"
+        },
+        "data_description": {
+          "action_delay_seconds": "Minimum delay between consecutive zone ON/OFF actions to avoid rapid sequencing.",
+          "manual_lock_seconds": "If user manually toggles a zone via Home Assistant UI, it is locked from controller changes for this duration.",
+          "short_cycle_on_seconds": "Minimum time a zone must stay ON before controller can turn it OFF (prevents rapid cycling).",
+          "short_cycle_off_seconds": "Minimum time a zone must stay OFF before controller can turn it ON (prevents rapid cycling).",
+          "panic_threshold": "If grid import exceeds this for panic_delay seconds with multiple zones active, zones are shed sequentially.",
+          "panic_delay": "Seconds of sustained high import before panic shedding begins."
+        }
+      },
+      "comfort": {
+        "title": "Comfort-Based Zone Control",
+        "description": "Map zones to indoor temperature sensors and set comfort targets used to gate zone removals.",
+        "data": {
+          "zone_temp_sensors": "Zone Temperature Sensors (optional)",
+          "max_temp_winter": "Winter Comfort Target (°C)",
+          "min_temp_summer": "Summer Comfort Target (°C)"
+        },
+        "data_description": {
+          "zone_temp_sensors": "Mapping from each zone to its indoor temperature sensor. Used with temperature modulation to prevent premature zone removal.",
+          "max_temp_winter": "Heating comfort cutoff; zones stay on until reaching this temperature in heat mode.",
+          "min_temp_summer": "Cooling comfort cutoff; zones stay on until reaching this temperature in cool mode."
+        }
+      },
+      "auto_season": {
+        "title": "Auto Season Detection — Used for better learning needed power in each season.",
+        "description": "Configure outside temperature thresholds for heat/cool and set seasonal learning thresholds.",
+        "data": {
+          "outside_temperature_sensor": "Outside Temperature Sensor (optional)",
+          "heat_on_below": "Heat ON below (°C)",
+          "heat_off_above": "Heat OFF above (°C)",
+          "cool_on_above": "Cool ON above (°C)",
+          "cool_off_below": "Cool OFF below (°C)",
+          "very_cold_threshold": "Very Cold Threshold (°C)",
+          "chilly_threshold": "Chilly Threshold (°C)",
+          "comfortable_threshold": "Comfortable Threshold (°C)",
+          "master_switch_in_offseason": "Master Switch in Offseason"
+        },
+        "data_description": {
+          "outside_temperature_sensor": "Optional outside temperature for auto season and banded learning.",
+          "heat_on_below": "Auto season: enable heating when outside is below this.",
+          "heat_off_above": "Auto season: stop heating when outside rises above this.",
+          "cool_on_above": "Auto season: enable cooling when outside is above this.",
+          "cool_off_below": "Auto season: stop cooling when outside falls below this.",
+          "very_cold_threshold": "Temperature at or below this is very cold.",
+          "chilly_threshold": "Temperature between this and very cold threshold is chilly.",
+          "comfortable_threshold": "Temperature between this and chilly threshold is comfortable. Above this is very hot.",
+          "master_switch_in_offseason": "When auto-season detects neutral/offseason (neither heat nor cool needed), keep AC master switch ON despite low solar. Uncheck to turn OFF during offseason."
         }
       }
     },
