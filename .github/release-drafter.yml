@@ -4,10 +4,6 @@ tag-template: 'v$NEXT_PATCH_VERSION'
 version-template: $MAJOR.$MINOR.$PATCH
 versioning-strategy: auto
 
-# Rules for auto-bumping versions
-# - "breaking-change" → major bump
-# - "feature" → minor bump
-# - everything else → patch bump
 autolabeler:
   - label: 'breaking-change'
     bump: major
@@ -16,42 +12,19 @@ autolabeler:
 
 categories:
   - title: '🆕 New Sensors & Entities'
-    labels:
-      - 'sensor'
-      - 'binary_sensor'
-      - 'entity'
+    labels: ['sensor', 'binary_sensor', 'entity']
   - title: '⚙️ Options & Config Flow'
-    labels:
-      - 'options'
-      - 'config'
-      - 'ui'
+    labels: ['options', 'config', 'ui']
   - title: '🚀 Features'
-    labels:
-      - 'feature'
-      - 'enhancement'
+    labels: ['feature', 'enhancement']
   - title: '🐛 Bug Fixes'
-    labels:
-      - 'bug'
-      - 'fix'
+    labels: ['bug', 'fix']
   - title: '💡 Diagnostics & Developer'
-    labels:
-      - 'diagnostics'
-      - 'refactor'
-      - 'dev'
+    labels: ['diagnostics', 'refactor', 'dev']
   - title: '🧹 Maintenance'
-    labels:
-      - 'chore'
-      - 'docs'
-      - 'dependencies'
+    labels: ['chore', 'docs', 'dependencies']
 
 change-template: '- $TITLE @$AUTHOR (#$NUMBER)'
 
-template: |
-  ## 🚀 What’s Changed
-  $CHANGES
-
-  ## 👥 Contributors
-  $CONTRIBUTORS
-
-  ---
-  🏠 This release is for the **Solar AC Controller** Home Assistant integration.
+# Instead of inline template, point to your markdown file
+template-path: release_template.md
