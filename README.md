@@ -193,6 +193,7 @@ Add the integration via:
 ## 🛠 Runtime Options (Options Flow)
 
 All configuration parameters can be changed at runtime via **Settings → Devices & Services → Solar AC Controller → Configure**.
+When launched via Reconfigure, the form now pre-fills with your existing data+options values for a faster review.
 
 ### Behavioral Parameters
 - **`manual_lock_seconds`** — Duration a zone remains locked after manual override (default: 1200s / 20 min)

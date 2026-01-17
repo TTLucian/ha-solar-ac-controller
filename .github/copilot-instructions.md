@@ -36,6 +36,7 @@ Purpose: concise, actionable guidance for editing this Home Assistant integratio
 - Set defaults with `vol.Optional(..., default=...)`; avoid `vol.Default` (not a thing).
 - Options are merged over data: always read runtime config from `{**entry.data, **entry.options}`.
 - Zone temp sensors selector: `selector({"entity": {"domain": "sensor", "device_class": ["temperature"]}})`; stored as mapping `zone -> sensor`. Comfort targets configured via `max_temp_winter` / `min_temp_summer` (float, 0.1C increments).
+- Reconfigure path: `async_step_reconfigure` seeds defaults from the existing entry so the initial form pre-fills; keep defaults in sync with options flow values.
 
 ## Entities & Patterns
 - Non‑polling: entities set `_attr_should_poll = False` and register `coordinator.async_add_listener(self.async_write_ha_state)`.

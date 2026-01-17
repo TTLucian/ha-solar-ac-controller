@@ -77,7 +77,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # 1. Get Integration Version
     integration = await async_get_integration(hass, DOMAIN)
-    version = str(integration.version) if integration.version else "0.5.1"
+    version = str(integration.version) if integration.version else "0.5.9"
 
     initial_lp = entry.options.get(
         CONF_INITIAL_LEARNED_POWER,
@@ -106,7 +106,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         config_entry_id=entry.entry_id,
         identifiers={(DOMAIN, entry.entry_id)},
         name="Solar AC Controller",
-        sw_version=version,
         configuration_url="https://github.com/TTLucian/ha-solar-ac-controller",
     )
 

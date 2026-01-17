@@ -68,7 +68,6 @@ class _BaseSolarACSensor(SensorEntity):
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry_id)},
             name="Solar AC Controller",
-            sw_version=getattr(self.coordinator, "version", "0.5.1"),
         )
 
     async def async_added_to_hass(self) -> None:

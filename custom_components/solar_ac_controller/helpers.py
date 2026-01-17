@@ -155,6 +155,7 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
     # Add raw timestamps for automation/debugging
     payload = {
         "version": version,
+        "manifest_version": version,
         "config": config,
         "samples": samples,
         "learned_power": learned_power,
