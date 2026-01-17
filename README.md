@@ -1,6 +1,5 @@
 
 <details>
-<summary>Example Lovelace Dashboard</summary>
 
 <img src="https://user-images.githubusercontent.com/example/lovelace-dashboard.png" alt="Lovelace Dashboard Example" width="600"/>
 
