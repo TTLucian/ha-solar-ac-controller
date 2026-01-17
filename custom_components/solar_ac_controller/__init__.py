@@ -116,10 +116,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "samples": old_data.get("samples", 0),
         }
 
-    store = Store(hass, STORAGE_VERSION, STORAGE_KEY, migrate_fn=migrate_fn)
+    store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
     
     try:
-        stored_data = await store.async_load()
+        old_data = await store.async_load()
+        # Perform migration manually for HA versions without migrate_fn support
+        stored_data = migrate_fn(STORAGE_VERSION, 0, old_data)
+        # Persist migrated payload if it differs from on-disk data
+        try:
+            if isinstance(old_data, dict) and isinstance(stored_data, dict) and old_data != stored_data:
+                await store.async_save(stored_data)
+                _LOGGER.info("Migrated and persisted storage payload for Solar AC Controller")
+        except Exception:
+            _LOGGER.exception("Failed to persist migrated storage payload")
     except NotImplementedError:
         _LOGGER.debug("Storage migration skipped, using defaults")
         stored_data = None
