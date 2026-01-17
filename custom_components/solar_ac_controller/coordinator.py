@@ -395,7 +395,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
         """Main loop executed every 5 seconds."""
         """Main loop executed every 5 seconds."""
 
-        # 1. Read sensors
+        # 1. Read sensors (grid, solar, ac_power)
         grid_state = self.hass.states.get(self.config.get(CONF_GRID_SENSOR))
         solar_state = self.hass.states.get(self.config.get(CONF_SOLAR_SENSOR))
         ac_state = self.hass.states.get(self.config.get(CONF_AC_POWER_SENSOR))
@@ -421,7 +421,22 @@ class SolarACCoordinator(DataUpdateCoordinator):
             "Cycle sensors: grid_raw=%s solar=%s ac_power=%s", grid_raw, solar, ac_power
         )
 
-        # Outside temperature context (delegated to SeasonManager)
+        # 2. Master switch auto-control (based ONLY on solar production)
+        await self._handle_master_switch(solar)
+
+        # 3. If master exists and is OFF -> perform full freeze cleanup then return
+        # This must happen BEFORE any temperature/season reading to ensure complete freeze
+        ac_switch = self.config.get(CONF_AC_SWITCH)
+        if ac_switch:
+            switch_state_obj = self.hass.states.get(ac_switch)
+            if switch_state_obj and switch_state_obj.state == "off":
+                # Ensure any running tasks are cancelled and learning reset
+                await self._perform_freeze_cleanup()
+                self.last_action = "master_off"
+                await self._log("[MASTER_OFF] master switch is off, freezing all calculations")
+                return
+
+        # 4. Outside temperature context (delegated to SeasonManager) - only if master is ON
         outside_temp = self.season_manager.read_outside_temp()
         self.outside_temp = outside_temp
         self.outside_temp_rolling_mean = self.season_manager.rolling_mean
@@ -445,31 +460,17 @@ class SolarACCoordinator(DataUpdateCoordinator):
             self.last_action = "neutral"
             return
 
-        # 2. Master switch auto-control (based ONLY on solar production)
-        await self._handle_master_switch(solar)
-
-        # 3. If master exists and is OFF -> perform full freeze cleanup then return
-        ac_switch = self.config.get(CONF_AC_SWITCH)
-        if ac_switch:
-            switch_state_obj = self.hass.states.get(ac_switch)
-            if switch_state_obj and switch_state_obj.state == "off":
-                # Ensure any running tasks are cancelled and learning reset
-                await self._perform_freeze_cleanup()
-                self.last_action = "master_off"
-                await self._log("[MASTER_OFF] master switch is off, freezing all calculations")
-                return
-
-        # 4. EMA updates
+        # 5. EMA updates
         self._update_ema(grid_raw)
 
-        # 4b. Read zone temperatures for comfort target checking
+        # 5b. Read zone temperatures for comfort target checking
         self._read_zone_temps()
 
-        # 5. Determine zones and detect manual overrides
+        # 6. Determine zones and detect manual overrides
         active_zones = await self.zone_manager.update_zone_states_and_overrides()
         on_count = len(active_zones)
 
-        # 6. Compute required export and confidences
+        # 7. Compute required export and confidences
         next_zone, last_zone = self.zone_manager.select_next_and_last_zone(active_zones)
         required_export = self._compute_required_export(next_zone, mode=self.season_mode, band=self.outside_band)
         export = -self.ema_30s
@@ -496,25 +497,25 @@ class SolarACCoordinator(DataUpdateCoordinator):
 
         now_ts = dt_util.utcnow().timestamp()
 
-        # 7. Learning timeout
+        # 8. Learning timeout
         if self.learning_active and self.learning_start_time:
             if now_ts - self.learning_start_time >= 360:
                 await self._log(f"[LEARNING_TIMEOUT] zone={self.learning_zone}")
                 await self.controller.finish_learning()
                 return
 
-        # 8. Panic logic
+        # 9. Panic logic
         if self.panic_manager.should_panic(on_count):
             await self.panic_manager.schedule_panic(active_zones)
             return
 
-        # 9. Panic cooldown
+        # 10. Panic cooldown
         if self.panic_manager.is_in_cooldown(now_ts):
             self.last_action = "panic_cooldown"
             await self._log("[PANIC_COOLDOWN] skipping add/remove decisions")
             return
 
-        # 10. ADD zone decision
+        # 11. ADD zone decision
         if next_zone and self.decision_engine.should_add_zone(next_zone, required_export):
             await self.action_executor.attempt_add_zone(next_zone, ac_power, export, required_export)
             return
