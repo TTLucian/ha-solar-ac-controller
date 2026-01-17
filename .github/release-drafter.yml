@@ -1,29 +1,57 @@
-name-template: "v$NEXT_PATCH_VERSION"
-tag-template: "v$NEXT_PATCH_VERSION"
+name-template: 'Solar AC Controller v$NEXT_PATCH_VERSION'
+tag-template: 'v$NEXT_PATCH_VERSION'
 
-template: |
-  ## Changes
-  $CHANGES
+version-template: $MAJOR.$MINOR.$PATCH
+versioning-strategy: auto
+
+# Rules for auto-bumping versions
+# - "breaking-change" → major bump
+# - "feature" → minor bump
+# - everything else → patch bump
+autolabeler:
+  - label: 'breaking-change'
+    bump: major
+  - label: 'feature'
+    bump: minor
 
 categories:
-  - title: "🚀 Features"
+  - title: '🆕 New Sensors & Entities'
     labels:
-      - feature
-  - title: "🐛 Fixes"
+      - 'sensor'
+      - 'binary_sensor'
+      - 'entity'
+  - title: '⚙️ Options & Config Flow'
     labels:
-      - bug
-  - title: "🧹 Maintenance"
+      - 'options'
+      - 'config'
+      - 'ui'
+  - title: '🚀 Features'
     labels:
-      - chore
+      - 'feature'
+      - 'enhancement'
+  - title: '🐛 Bug Fixes'
+    labels:
+      - 'bug'
+      - 'fix'
+  - title: '💡 Diagnostics & Developer'
+    labels:
+      - 'diagnostics'
+      - 'refactor'
+      - 'dev'
+  - title: '🧹 Maintenance'
+    labels:
+      - 'chore'
+      - 'docs'
+      - 'dependencies'
 
-change-template: "- $TITLE (#$NUMBER)"
-no-changes-template: "* No changes"
+change-template: '- $TITLE @$AUTHOR (#$NUMBER)'
 
-version-resolver:
-  major:
-    labels: []
-  minor:
-    labels: []
-  patch:
-    labels: []
-  default: patch
+template: |
+  ## 🚀 What’s Changed
+  $CHANGES
+
+  ## 👥 Contributors
+  $CONTRIBUTORS
+
+  ---
+  🏠 This release is for the **Solar AC Controller** Home Assistant integration.
