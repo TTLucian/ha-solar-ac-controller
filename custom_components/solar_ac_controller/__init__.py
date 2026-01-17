@@ -167,6 +167,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         config_entry_id=entry.entry_id,
         identifiers={(DOMAIN, entry.entry_id)},
         name="Solar AC Controller",
+        sw_version=version,
         configuration_url="https://github.com/TTLucian/ha-solar-ac-controller",
     )
 

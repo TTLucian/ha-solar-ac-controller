@@ -297,9 +297,17 @@ then this:
 
 **Created by:** [@TTLucian](https://github.com/TTLucian)  
 **Integration Type:** Service (`integration_type: service`)  
-**Current Version:** 0.5.8 (see [manifest.json](custom_components/solar_ac_controller/manifest.json))  
+**Current Version:** 0.7.2 (see [manifest.json](custom_components/solar_ac_controller/manifest.json))  
 **Storage Version:** 3 (supports per-mode and banded learned power, comfort temperature targets)  
 **Update Interval:** 5 seconds  
 **Platforms:** `sensor`, `binary_sensor`  
+
+### Device Version in Home Assistant
+
+The integration creates a **single logical device** ("Solar AC Controller") that manages all zones. The device version in Home Assistant Settings → Devices & Services comes from **[manifest.json](custom_components/solar_ac_controller/manifest.json)** (the `version` field).
+
+- **Device Version = Integration Version** (shown in HA UI)
+- If you see an old version after updating, restart Home Assistant or delete and re-add the integration
+- Version is fetched at setup time from the manifest
 
 Designed for high-performance, solar-aware HVAC automation with comprehensive observability and production-grade reliability.

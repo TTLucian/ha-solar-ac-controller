@@ -644,6 +644,28 @@ class SolarACCoordinator(DataUpdateCoordinator):
         domain = entity_id.split(".")[0]
         service = "turn_on" if turn_on else "turn_off"
 
+        # For climate entities being turned on: set HVAC mode first based on season
+        if turn_on and domain == "climate" and self.season_mode in ("heat", "cool"):
+            try:
+                await self.hass.services.async_call(
+                    "climate",
+                    "set_hvac_mode",
+                    {"entity_id": entity_id, "hvac_mode": self.season_mode},
+                    blocking=True,
+                )
+                _LOGGER.debug(
+                    "Set HVAC mode to '%s' for %s before turning on",
+                    self.season_mode,
+                    entity_id,
+                )
+            except Exception as e:
+                _LOGGER.warning(
+                    "Failed to set HVAC mode '%s' for %s: %s — will proceed with turn_on",
+                    self.season_mode,
+                    entity_id,
+                    e,
+                )
+
         try:
             await self.hass.services.async_call(
                 domain,
