@@ -103,7 +103,7 @@ Questions or unclear areas? Ask for specific sections to expand (decision thresh
 - Keys: Learned power keyed by zone short name (`entity_id.split('.')[-1]`) for stability across renames.
 
 ## Diagnostics Structure
-- Unified builder: [custom_components/solar_ac_controller/helpers.py](../custom_components/solar_ac_controller/helpers.py#L1) provides `build_diagnostics(coordinator)`, used by both diagnostics sensor and HA diagnostics export.
+- Unified builder: [custom_components/solar_ac_controller/helpers.py](../custom_components/solar_ac_controller/helpers.py) provides `build_diagnostics(coordinator)`, used by both diagnostics sensor and HA diagnostics export.
 - Fields include: version, merged config (`data + options`), samples, learned power (truncated if large), EMAs, last action, next/last zone, required_export and export_margin, zones and modes, locks, panic state/timestamps, master state.
 - Explicit note: `required_export_source = "learned_power"` and `note` clarifies no safety multiplier.
 
@@ -125,13 +125,13 @@ Questions or unclear areas? Ask for specific sections to expand (decision thresh
 - Units: All power values are Watts. Grid import is positive, export negative; evaluate export headroom as `-ema_30s`.
 
 ## Confidence Examples (Add/Remove)
-- Add confidence components (see [coordinator.py](../custom_components/solar_ac_controller/coordinator.py#L529)):
+- Add confidence components (see [coordinator.py](../custom_components/solar_ac_controller/coordinator.py)):
   - `export_margin = export - required_export`
   - `base = clamp(0..40, export_margin / 25)` → more headroom → higher base
   - `sample_bonus = min(20, samples * 2)` → learning progress increases confidence
   - `short_cycle_penalty = -30` if last zone is short‑cycling
   - `last_add_conf = base + 5 + sample_bonus + short_cycle_penalty`
-- Remove confidence components (see [coordinator.py](../custom_components/solar_ac_controller/coordinator.py#L547)):
+- Remove confidence components (see [coordinator.py](../custom_components/solar_ac_controller/coordinator.py)):
   - `base = clamp(0..60, (import_power - 200) / 8)` → sustained import increases base
   - `heavy_import_bonus = 20` if `import_power > 1500`
   - `short_cycle_penalty = -40` if last zone is short‑cycling
@@ -152,4 +152,4 @@ Questions or unclear areas? Ask for specific sections to expand (decision thresh
 - Missing sensors: If any of grid/solar/ac states are missing, coordinator logs and skips the cycle.
 - Panic doesn’t trigger: Ensure `on_count > 1` and `ema_30s > panic_threshold` persists for `panic_delay` seconds. Check binary sensors `Panic State` and `Panic Cooldown`.
 - Master switch behavior: Confirm thresholds and that the configured `ac_switch` exists and is controllable; hysteresis requires `solar_threshold_on > solar_threshold_off`.
-- Storage/migration: If learned values look wrong, review [__init__.py](../custom_components/solar_ac_controller/__init__.py#L1) migration and [const.py](../custom_components/solar_ac_controller/const.py#L1) `STORAGE_VERSION`; learned power is keyed by zone short name.
+- Storage/migration: If learned values look wrong, review [__init__.py](../custom_components/solar_ac_controller/__init__.py) migration and [const.py](../custom_components/solar_ac_controller/const.py) `STORAGE_VERSION`; learned power is keyed by zone short name.
