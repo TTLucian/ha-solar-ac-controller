@@ -75,9 +75,15 @@ class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
+    def __init__(self) -> None:
+        super().__init__()
+        # When invoked via reconfigure, use existing entry data/options as defaults.
+        self._reconfigure_defaults: dict[str, Any] = {}
+
     async def async_step_user(self, user_input: dict[str, Any] | None = None):
         """Initial configuration step."""
         errors: dict[str, str] = {}
+        defaults = dict(self._reconfigure_defaults)
 
         if user_input is not None:
             zones = user_input.get(CONF_ZONES, [])
@@ -115,51 +121,51 @@ class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         # Group advanced options
         advanced_schema = {
-            vol.Optional(CONF_ADD_CONFIDENCE, default=int(DEFAULT_ADD_CONFIDENCE)): _int_field(int(DEFAULT_ADD_CONFIDENCE), minimum=0),
-            vol.Optional(CONF_REMOVE_CONFIDENCE, default=int(DEFAULT_REMOVE_CONFIDENCE)): _int_field(int(DEFAULT_REMOVE_CONFIDENCE), minimum=0),
-            vol.Optional(CONF_ENABLE_DIAGNOSTICS, default=False): bool,
+            vol.Optional(CONF_ADD_CONFIDENCE, default=int(defaults.get(CONF_ADD_CONFIDENCE, DEFAULT_ADD_CONFIDENCE))): _int_field(int(DEFAULT_ADD_CONFIDENCE), minimum=0),
+            vol.Optional(CONF_REMOVE_CONFIDENCE, default=int(defaults.get(CONF_REMOVE_CONFIDENCE, DEFAULT_REMOVE_CONFIDENCE))): _int_field(int(DEFAULT_REMOVE_CONFIDENCE), minimum=0),
+            vol.Optional(CONF_ENABLE_DIAGNOSTICS, default=bool(defaults.get(CONF_ENABLE_DIAGNOSTICS, False))): bool,
         }
         schema = vol.Schema(
             {
-                vol.Required(CONF_SOLAR_SENSOR): selector({"entity": {"domain": "sensor"}}),
-                vol.Required(CONF_GRID_SENSOR): selector({"entity": {"domain": "sensor"}}),
-                vol.Required(CONF_AC_POWER_SENSOR): selector({"entity": {"domain": "sensor"}}),
+                vol.Required(CONF_SOLAR_SENSOR, default=defaults.get(CONF_SOLAR_SENSOR)): selector({"entity": {"domain": "sensor"}}),
+                vol.Required(CONF_GRID_SENSOR, default=defaults.get(CONF_GRID_SENSOR)): selector({"entity": {"domain": "sensor"}}),
+                vol.Required(CONF_AC_POWER_SENSOR, default=defaults.get(CONF_AC_POWER_SENSOR)): selector({"entity": {"domain": "sensor"}}),
 
-                vol.Optional(CONF_OUTSIDE_SENSOR, default=""): selector({"entity": {"domain": "sensor"}}),
+                vol.Optional(CONF_OUTSIDE_SENSOR, default=defaults.get(CONF_OUTSIDE_SENSOR, "")): selector({"entity": {"domain": "sensor"}}),
 
-                vol.Optional(CONF_AC_SWITCH, default=""): selector({"entity": {"domain": "switch"}}),
+                vol.Optional(CONF_AC_SWITCH, default=defaults.get(CONF_AC_SWITCH, "")): selector({"entity": {"domain": "switch"}}),
 
-                vol.Required(CONF_ZONES): selector({
+                vol.Required(CONF_ZONES, default=defaults.get(CONF_ZONES, [])): selector({
                     "entity": {"domain": ["climate", "switch", "fan"], "multiple": True}
                 }),
 
-                vol.Optional(CONF_SOLAR_THRESHOLD_ON, default=int(DEFAULT_SOLAR_THRESHOLD_ON)): _int_field(int(DEFAULT_SOLAR_THRESHOLD_ON), minimum=0),
-                vol.Optional(CONF_SOLAR_THRESHOLD_OFF, default=int(DEFAULT_SOLAR_THRESHOLD_OFF)): _int_field(int(DEFAULT_SOLAR_THRESHOLD_OFF), minimum=0),
+                vol.Optional(CONF_SOLAR_THRESHOLD_ON, default=int(defaults.get(CONF_SOLAR_THRESHOLD_ON, DEFAULT_SOLAR_THRESHOLD_ON))): _int_field(int(DEFAULT_SOLAR_THRESHOLD_ON), minimum=0),
+                vol.Optional(CONF_SOLAR_THRESHOLD_OFF, default=int(defaults.get(CONF_SOLAR_THRESHOLD_OFF, DEFAULT_SOLAR_THRESHOLD_OFF))): _int_field(int(DEFAULT_SOLAR_THRESHOLD_OFF), minimum=0),
 
-                vol.Optional(CONF_HEAT_ON_BELOW, default=float(DEFAULT_HEAT_ON_BELOW)): vol.Coerce(float),
-                vol.Optional(CONF_HEAT_OFF_ABOVE, default=float(DEFAULT_HEAT_OFF_ABOVE)): vol.Coerce(float),
-                vol.Optional(CONF_COOL_ON_ABOVE, default=float(DEFAULT_COOL_ON_ABOVE)): vol.Coerce(float),
-                vol.Optional(CONF_COOL_OFF_BELOW, default=float(DEFAULT_COOL_OFF_BELOW)): vol.Coerce(float),
-                vol.Optional(CONF_BAND_COLD_MAX, default=float(DEFAULT_BAND_COLD_MAX)): vol.Coerce(float),
-                vol.Optional(CONF_BAND_MILD_COLD_MAX, default=float(DEFAULT_BAND_MILD_COLD_MAX)): vol.Coerce(float),
-                vol.Optional(CONF_BAND_MILD_HOT_MAX, default=float(DEFAULT_BAND_MILD_HOT_MAX)): vol.Coerce(float),
+                vol.Optional(CONF_HEAT_ON_BELOW, default=float(defaults.get(CONF_HEAT_ON_BELOW, DEFAULT_HEAT_ON_BELOW))): vol.Coerce(float),
+                vol.Optional(CONF_HEAT_OFF_ABOVE, default=float(defaults.get(CONF_HEAT_OFF_ABOVE, DEFAULT_HEAT_OFF_ABOVE))): vol.Coerce(float),
+                vol.Optional(CONF_COOL_ON_ABOVE, default=float(defaults.get(CONF_COOL_ON_ABOVE, DEFAULT_COOL_ON_ABOVE))): vol.Coerce(float),
+                vol.Optional(CONF_COOL_OFF_BELOW, default=float(defaults.get(CONF_COOL_OFF_BELOW, DEFAULT_COOL_OFF_BELOW))): vol.Coerce(float),
+                vol.Optional(CONF_BAND_COLD_MAX, default=float(defaults.get(CONF_BAND_COLD_MAX, DEFAULT_BAND_COLD_MAX))): vol.Coerce(float),
+                vol.Optional(CONF_BAND_MILD_COLD_MAX, default=float(defaults.get(CONF_BAND_MILD_COLD_MAX, DEFAULT_BAND_MILD_COLD_MAX))): vol.Coerce(float),
+                vol.Optional(CONF_BAND_MILD_HOT_MAX, default=float(defaults.get(CONF_BAND_MILD_HOT_MAX, DEFAULT_BAND_MILD_HOT_MAX))): vol.Coerce(float),
 
-                vol.Optional(CONF_MAX_TEMP_WINTER, default=float(DEFAULT_MAX_TEMP_WINTER)): vol.Coerce(float),
-                vol.Optional(CONF_MIN_TEMP_SUMMER, default=float(DEFAULT_MIN_TEMP_SUMMER)): vol.Coerce(float),
-                vol.Optional(CONF_ZONE_TEMP_SENSORS, default={}): selector({"entity": {"domain": "sensor", "device_class": ["temperature"]}}),
+                vol.Optional(CONF_MAX_TEMP_WINTER, default=float(defaults.get(CONF_MAX_TEMP_WINTER, DEFAULT_MAX_TEMP_WINTER))): vol.Coerce(float),
+                vol.Optional(CONF_MIN_TEMP_SUMMER, default=float(defaults.get(CONF_MIN_TEMP_SUMMER, DEFAULT_MIN_TEMP_SUMMER))): vol.Coerce(float),
+                vol.Optional(CONF_ZONE_TEMP_SENSORS, default=defaults.get(CONF_ZONE_TEMP_SENSORS, {})): selector({"entity": {"domain": "sensor", "device_class": ["temperature"]}}),
 
-                vol.Optional(CONF_PANIC_THRESHOLD, default=int(DEFAULT_PANIC_THRESHOLD)): _int_field(int(DEFAULT_PANIC_THRESHOLD), minimum=0),
-                vol.Optional(CONF_PANIC_DELAY, default=int(DEFAULT_PANIC_DELAY)): _int_field(int(DEFAULT_PANIC_DELAY), minimum=0),
-                vol.Optional(CONF_MANUAL_LOCK_SECONDS, default=int(DEFAULT_MANUAL_LOCK_SECONDS)): _int_field(int(DEFAULT_MANUAL_LOCK_SECONDS), minimum=0),
-                vol.Optional(CONF_SHORT_CYCLE_ON_SECONDS, default=int(DEFAULT_SHORT_CYCLE_ON_SECONDS)): _int_field(int(DEFAULT_SHORT_CYCLE_ON_SECONDS), minimum=0),
-                vol.Optional(CONF_SHORT_CYCLE_OFF_SECONDS, default=int(DEFAULT_SHORT_CYCLE_OFF_SECONDS)): _int_field(int(DEFAULT_SHORT_CYCLE_OFF_SECONDS), minimum=0),
-                vol.Optional(CONF_ACTION_DELAY_SECONDS, default=int(DEFAULT_ACTION_DELAY_SECONDS)): _int_field(int(DEFAULT_ACTION_DELAY_SECONDS), minimum=0),
+                vol.Optional(CONF_PANIC_THRESHOLD, default=int(defaults.get(CONF_PANIC_THRESHOLD, DEFAULT_PANIC_THRESHOLD))): _int_field(int(DEFAULT_PANIC_THRESHOLD), minimum=0),
+                vol.Optional(CONF_PANIC_DELAY, default=int(defaults.get(CONF_PANIC_DELAY, DEFAULT_PANIC_DELAY))): _int_field(int(DEFAULT_PANIC_DELAY), minimum=0),
+                vol.Optional(CONF_MANUAL_LOCK_SECONDS, default=int(defaults.get(CONF_MANUAL_LOCK_SECONDS, DEFAULT_MANUAL_LOCK_SECONDS))): _int_field(int(DEFAULT_MANUAL_LOCK_SECONDS), minimum=0),
+                vol.Optional(CONF_SHORT_CYCLE_ON_SECONDS, default=int(defaults.get(CONF_SHORT_CYCLE_ON_SECONDS, DEFAULT_SHORT_CYCLE_ON_SECONDS))): _int_field(int(DEFAULT_SHORT_CYCLE_ON_SECONDS), minimum=0),
+                vol.Optional(CONF_SHORT_CYCLE_OFF_SECONDS, default=int(defaults.get(CONF_SHORT_CYCLE_OFF_SECONDS, DEFAULT_SHORT_CYCLE_OFF_SECONDS))): _int_field(int(DEFAULT_SHORT_CYCLE_OFF_SECONDS), minimum=0),
+                vol.Optional(CONF_ACTION_DELAY_SECONDS, default=int(defaults.get(CONF_ACTION_DELAY_SECONDS, DEFAULT_ACTION_DELAY_SECONDS))): _int_field(int(DEFAULT_ACTION_DELAY_SECONDS), minimum=0),
 
-                vol.Optional(CONF_ENABLE_AUTO_SEASON, default=DEFAULT_ENABLE_AUTO_SEASON): bool,
-                vol.Optional(CONF_ENABLE_TEMP_MODULATION, default=DEFAULT_ENABLE_TEMP_MODULATION): bool,
-                vol.Optional(CONF_MASTER_OFF_IN_NEUTRAL, default=DEFAULT_MASTER_OFF_IN_NEUTRAL): bool,
+                vol.Optional(CONF_ENABLE_AUTO_SEASON, default=bool(defaults.get(CONF_ENABLE_AUTO_SEASON, DEFAULT_ENABLE_AUTO_SEASON))): bool,
+                vol.Optional(CONF_ENABLE_TEMP_MODULATION, default=bool(defaults.get(CONF_ENABLE_TEMP_MODULATION, DEFAULT_ENABLE_TEMP_MODULATION))): bool,
+                vol.Optional(CONF_MASTER_OFF_IN_NEUTRAL, default=bool(defaults.get(CONF_MASTER_OFF_IN_NEUTRAL, DEFAULT_MASTER_OFF_IN_NEUTRAL))): bool,
 
-                vol.Required(CONF_INITIAL_LEARNED_POWER, default=int(DEFAULT_INITIAL_LEARNED_POWER)): vol.All(vol.Coerce(int), vol.Range(min=0)),
+                vol.Required(CONF_INITIAL_LEARNED_POWER, default=int(defaults.get(CONF_INITIAL_LEARNED_POWER, DEFAULT_INITIAL_LEARNED_POWER))): vol.All(vol.Coerce(int), vol.Range(min=0)),
             }
         )
         # Add advanced options as a separate group (shown after main fields)
@@ -177,6 +183,18 @@ class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     async def async_step_import(self, user_input: dict[str, Any]):
+        return await self.async_step_user(user_input)
+
+    async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None):
+        """Handle reconfigure flow by seeding defaults from existing entry."""
+        entry_id = self.context.get("entry_id")
+        entry = self.hass.config_entries.async_get_entry(entry_id) if entry_id else None
+        if entry:
+            self._reconfigure_defaults = {**entry.data, **entry.options}
+            self.context["title_placeholders"] = {"name": entry.title}
+        else:
+            self._reconfigure_defaults = {}
+
         return await self.async_step_user(user_input)
 
     @staticmethod
