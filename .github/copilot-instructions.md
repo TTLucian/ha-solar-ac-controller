@@ -1,227 +1,186 @@
 <!-- Copilot / AI agent instructions for contributors and automation -->
-# Solar AC Controller — AI coding agent guide
+# Solar AC Controller — AI Coding Agent Guide (2026)
 
-Purpose: help AI agents be immediately productive when editing this Home Assistant integration.
+Purpose: concise, actionable guidance for editing this Home Assistant integration.
 
-Big picture
-  - `custom_components/solar_ac_controller/coordinator.py` — the central DataUpdateCoordinator. Runs every 5s, reads sensors, computes EMAs, decides add/remove/panic actions.
-  - `custom_components/solar_ac_controller/controller.py` — encapsulates learning and persistent logic (start/finish learning, reset, storage writes).
-  - `custom_components/solar_ac_controller/sensor.py`, `binary_sensor.py`, `diagnostics.py` — entity factories and debug/diagnostic exposures. Entities register listeners with `coordinator.async_add_listener` and are non-polling.
-  - `custom_components/solar_ac_controller/__init__.py` — config entry setup, `Store` usage, shared `coordinator` instance, service registration (`reset_learning`, `force_relearn`), and device registration.
+## Big Picture
+- `coordinator.py`: Central DataUpdateCoordinator. Runs every 5s, reads sensors, updates `ema_30s/ema_5m`, decides add/remove/panic, master switch logic.
+- `controller.py`: Learning engine + persistence helpers. `start_learning()` stores baseline; `finish_learning()` computes delta, updates `learned_power` (per-mode), persists.
+- `__init__.py`: Config entry setup, `Store` load/migration, coordinator creation, device registration, `reset_learning` service.
+- `sensor.py` / `binary_sensor.py`: Non‑polling entities that read coordinator state via `async_add_listener`.
+- `helpers.py` + `diagnostics.py`: Unified diagnostics; `build_diagnostics(coordinator)` feeds both sensor attrs and HA export.
 
-Data & control flow (concrete):
+## Data & Decisions
+- Inputs: `solar_sensor`, `grid_sensor`, `ac_power_sensor` (Watts). Grid import is positive; export is negative.
+- EMA: `ema_30s = 0.25*grid + 0.75*ema_30s`, `ema_5m = 0.03*grid + 0.97*ema_5m`.
+- Required export = learned power for `next_zone` (no multiplier). Export headroom = `-ema_30s - required_export`.
+- Priority: zone order from config is the priority; first is highest for add, last active (unlocked) is candidate for remove.
+- Locks & guards: manual override lock (`manual_lock_seconds`), short‑cycle delays (`short_cycle_on_seconds`, `short_cycle_off_seconds`), sequential action delay (`action_delay_seconds`).
+- Panic: triggers when `ema_30s > panic_threshold` for `panic_delay` seconds and multiple zones are on; sheds sequentially.
 
-  The coordinator calls the appropriate `turn_on`/`turn_off` service for the entity's domain and falls back to `climate` when needed.
- - Manual override lock: when a zone is manually changed the coordinator sets a lock to avoid fighting the user. The default lock is 1200s (20 minutes) and is configurable via the `manual_lock_seconds` option.
- - Manual override lock: when a zone is manually changed the coordinator sets a lock to avoid fighting the user. The default lock is 1200s (20 minutes) and is configurable via the `manual_lock_seconds` option.
- - Short-cycle protection: separate configurable delays apply after a zone was turned `on` vs `off`. Use `short_cycle_on_seconds` and `short_cycle_off_seconds` options to tune how long the controller avoids rapid add/remove decisions after a recent change.
- - Short-cycle protection: separate configurable delays apply after a zone was turned `on` vs `off`. Use `short_cycle_on_seconds` and `short_cycle_off_seconds` options to tune how long the controller avoids rapid add/remove decisions after a recent change.
- - Sequential action delay: to avoid hammering cloud APIs when the integration turns multiple zones in sequence (for example during panic shed), use `action_delay_seconds` to add a delay between consecutive `turn_on`/`turn_off` calls (default 3s).
+## Storage & Migration
+- On‑disk payload: `{"learned_power": {zone: {default|heat|cool: float}}, "samples": int}`.
+- `const.py`: increment `STORAGE_VERSION` on schema changes; migration lives in `__init__._async_migrate_data()`.
+- Coordinator persists via `_persist_learned_values()`; controller calls it after learning.
 
-Integration/service points to reference in edits
+## Config & Options Flow
+- Use selectors directly: `selector({"entity": {"domain": ["climate","switch","fan"], "multiple": True}})` for zones.
+- Set defaults with `vol.Optional(..., default=...)`; avoid `vol.Default` (not a thing).
+- Options are merged over data: always read runtime config from `{**entry.data, **entry.options}`.
 
-Developer workflows & commands (discovered)
-```bash
-pip install -r requirements_dev.txt
-black .
-pylint custom_components/solar_ac_controller
-```
-
-  - All power sensors are expected in Watts (`W`).
-  - `grid_sensor` reports grid import as positive, export as negative. The coordinator treats export as `-ema_30s` when computing available export for zone add decisions.
- - Panic configuration:
-   - `panic_threshold` (W, positive = grid import) — controller enters panic when `ema_30s > panic_threshold` and `on_count > 1`.
-   - `panic_delay` (seconds) — how long the condition must persist before panic executes.
-   - Recommended defaults: `panic_threshold=1500`, `panic_delay=30`.
-
-What to watch for when editing
-
-Examples (copyable patterns)
-  - subclass `_BaseSolarACSensor` in `sensor.py` and read `self.coordinator.ema_30s` in `state`.
-  - call `await self.controller.start_learning(zone, ac_power_before)` then call an HA service with `await self.hass.services.async_call(..., blocking=True)`.
-
-<!-- Copilot / AI agent instructions for contributors and automation -->
-# Solar AC Controller — AI Coding Agent Guide
-
-## Table of Contents
-1. [Purpose](#purpose)
-2. [Big Picture & Architecture](#big-picture--architecture)
-3. [Data & Control Flow](#data--control-flow)
-4. [Project Conventions & Patterns](#project-conventions--patterns)
-5. [Integration/Service Reference Points](#integrationservice-reference-points)
-6. [Developer Workflows](#developer-workflows)
-7. [Sensors, Units, and Panic Config](#sensors-units-and-panic-config)
-8. [Editing & Coding Conventions](#editing--coding-conventions)
-9. [Examples (Copyable Patterns)](#examples-copyable-patterns)
-10. [2026 Integration Lessons & Error Fixes](#2026-integration-lessons--error-fixes)
-11. [Contributing & Update Policy](#contributing--update-policy)
-
----
-
-## Purpose
-Help AI agents and contributors be immediately productive when editing this Home Assistant integration.
-
-## Big Picture & Architecture
-- Home Assistant "service" integration. Main pieces:
-  - `coordinator.py`: Central DataUpdateCoordinator (runs every 5s, reads sensors, computes EMAs, decides add/remove/panic actions)
-  - `controller.py`: Learning and persistent logic (start/finish learning, reset, storage writes)
-  - `sensor.py`, `binary_sensor.py`, `diagnostics.py`: Entity factories and debug/diagnostic exposures. Entities register listeners with `coordinator.async_add_listener` and are non-polling.
-  - `__init__.py`: Config entry setup, `Store` usage, shared `coordinator` instance, service registration, device registration.
-
-## Data & Control Flow
-- External sensors (solar, grid, ac power) → coordinator `_async_update_data` → compute `ema_30s/ema_5m` → decide actions
-- On add/remove, coordinator calls Home Assistant services: `climate.turn_on/off`, `switch.turn_on/off` (see `_add_zone`, `_remove_zone`, `_handle_master_switch`)
-- Learned values are kept in `coordinator.learned_power` and persisted via `Store` (see `__init__.py` and `controller._save`)
-
-## Project Conventions & Patterns
-- **Zones:** List of HA entity IDs (e.g., `climate.*`, `switch.*`, `fan.*`). Zone "short name" is extracted by `zone.split('.')[-1]`; learned values keyed by short name. The order of zones selected in the config/options flow is preserved and used as zone priority throughout the integration (first = highest priority).
-- **Manual override lock:** When a zone is manually changed, the coordinator sets a lock to avoid fighting the user. Default lock is 1200s (20 min), configurable via `manual_lock_seconds`.
-- **Short-cycle protection:** Separate configurable delays after a zone is turned `on` vs `off` (`short_cycle_on_seconds`, `short_cycle_off_seconds`).
-- **Sequential action delay:** Use `action_delay_seconds` to add a delay between consecutive `turn_on`/`turn_off` calls (default 3s).
-- **Options flow:** Runtime options are merged over stored data in `__init__.py` with `config = {**entry.data, **entry.options}` — always read options from `config` after that merge.
-- **Coordinator-centric design:** State and behavior live on `SolarACCoordinator` (EMA, learned_power, samples, locks, last_action). Entities read state from the coordinator and call `async_write_ha_state` via `async_add_listener`.
-- **Logging:** Use structured tag taxonomy in `_log` calls (e.g., `[LEARNING_BOOTSTRAP]`, `[PANIC_SHED]`).
-- **Non-polling entities:** Set `_attr_should_poll = False` and rely on coordinator callbacks.
-
-## Integration/Service Reference Points
-- `__init__.py`: Config entry lifecycle, service registration, `Store` usage
-- `coordinator.py`: Main loop, decision logic, EMAs, panic and learning flow
-- `controller.py`: Learning algorithm and persistence
-- `sensor.py`: How entity classes expose coordinator data and register listeners
-- `manifest.json`: Integration metadata (integration_type, platforms)
-
-## Developer Workflows
-- **Formatting & linting:**
-  ```bash
-  pip install -r requirements_dev.txt
-  black .
-  pylint custom_components/solar_ac_controller
-  ```
-- **Tests:** Run unit tests with `pytest` if present.
-- **Home Assistant:** Intended to run inside Home Assistant; manual install steps in `README.md`.
-
-## Sensors, Units, and Panic Config
-- All power sensors are expected in Watts (`W`).
-- `grid_sensor` reports grid import as positive, export as negative. The coordinator treats export as `-ema_30s` when computing available export for zone add decisions.
-- **Panic configuration:**
-  - `panic_threshold` (W, positive = grid import): Controller enters panic when `ema_30s > panic_threshold` and `on_count > 1`.
-  - `panic_delay` (seconds): How long the condition must persist before panic executes.
-  - Recommended defaults: `panic_threshold=1500`, `panic_delay=30`.
-
-## Editing & Coding Conventions
-- Maintain coordinator as single source of truth. Avoid duplicating decision logic across entities.
-- Preserve `async` semantics — use `async_call` with `blocking=True` only where existing code expects synchronous completion (see `_add_zone` / `_remove_zone`).
-- When changing storage layout, increment `STORAGE_VERSION` in `const.py` and add migration reasoning in commit message. Example:
-  ```python
-  # In const.py
-  STORAGE_VERSION = 2  # Incremented for new learned_power structure
-  ```
-- Unit of learned values: `learned_power` values are whole-Watt integers; ensure computations and stored values remain numeric.
-- Use type hints (PEP 484/526) and Google-style docstrings throughout for maintainability.
-- Use `_LOGGER.exception` for error logging, especially for storage/setup errors.
-- Use consistent bullet/numbering style and code blocks for all code/config examples.
-
-## Examples (Copyable Patterns)
-- **Add a new sensor that reflects `ema_30s`:**
+## Entities & Patterns
+- Non‑polling: entities set `_attr_should_poll = False` and register `coordinator.async_add_listener(self.async_write_ha_state)`.
+- Minimal `DeviceInfo`: `identifiers={(DOMAIN, entry.entry_id)}`; version sourced from coordinator.
+- Example sensor:
   ```python
   class MyEMASensor(_BaseSolarACSensor):
       @property
       def state(self):
           return self.coordinator.ema_30s
   ```
-- **Start a controller action from coordinator:**
+- Learning call sequence:
   ```python
   await self.controller.start_learning(zone, ac_power_before)
   await self.hass.services.async_call(..., blocking=True)
   ```
-- **Minimal DeviceInfo for new entities:**
-  ```python
-  from homeassistant.helpers.device_registry import DeviceInfo
-  self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, entry.entry_id)})
+
+## Developer Workflow
+- Formatting & linting:
+  ```bash
+  pip install -r requirements_dev.txt
+  black .
+  pylint custom_components/solar_ac_controller
   ```
-- **Error handling in async_setup_entry:**
-  ```python
-  try:
-      old_data = await store.async_load()
-      stored_data = await migrate_fn(STORAGE_VERSION, 0, old_data)
-  except Exception:
-      _LOGGER.exception("Failed to load stored data")
-      stored_data = None
-  ```
+- Install/run: This is a Home Assistant service integration. See README for manual or HACS install.
 
-## 2026 Integration Lessons & Error Fixes
+## Diagnostics
+- Prefer `helpers.build_diagnostics(coordinator)`; it documents `required_export` equals learned power (no multiplier) and keeps sensor/export in sync.
 
-### Config Flow & Options Flow
-- Always pass a list of domains directly to the entity selector for multi-domain selection. Do **not** use `selector({"select": ...})[...][...]`—this causes a TypeError. Example:
-  ```python
-  selector({"entity": {"domain": ["climate", "switch", "fan"], "multiple": True}})
-  ```
-- Set defaults in the schema using `vol.Optional(..., default=...)`, not with `vol.Default` (which does not exist in voluptuous).
+## Gotchas
+- Treat grid export as `-ema_30s` when evaluating add decisions.
+- Respect zone locks when selecting next/last zones.
+- `diagnostic.py` exists but `sensor.py` already exposes a diagnostics entity guarded by `enable_diagnostics_sensor`.
 
-### Store Usage & Data Migration
-- Use `Store.async_load()` to load stored data. If migration is needed, call your migration function manually after loading. Do **not** use `async_load_with_migration` (not present in HA Store).
-  ```python
-  old_data = await store.async_load()
-  stored_data = await migrate_fn(STORAGE_VERSION, 0, old_data)
-  ```
-
-### Zone Order & Priority
-- The order of zones selected in the config/options flow is preserved and used as zone priority throughout the integration. The first zone in the list has the highest priority for add/remove decisions.
-
-### Diagnostics & Device Registry
-- All entities should use `DeviceInfo` for device registry. Do not set manufacturer/model fields unless required. Use consistent device registration for all entities.
-- Diagnostics sensor and JSON export should be unified and reflect the same state.
-
-### Error Handling & Logging
-- Always log exceptions with `_LOGGER.exception` for storage and setup errors.
-- If a config flow or options flow error occurs, check for selector misuse or missing voluptuous features.
-
-### General Coding Conventions
-- Maintain coordinator as the single source of truth for state and logic.
-- Use type hints and docstrings throughout for maintainability.
-- When changing storage layout, increment `STORAGE_VERSION` and document migration reasoning.
-- All power values are in Watts (W); grid import is positive, export is negative.
-
-## Contributing & Update Policy
-- Propose changes via PR; run all tests and linters before submitting.
-- For architectural or design questions, contact the maintainer.
-- Update this document after major refactors, Home Assistant version changes, or when new best practices are established.
+Questions or unclear areas? Ask for specific sections to expand (decision thresholds, panic flow, learning bootstrap, or service call patterns).
 
 ---
 
-If anything here is unclear or you need more details (tests, CI, or reasoning for a specific logic branch), tell me which area to expand and I will iterate.
+## Detailed Decision Engine
+- Add decision: Adds `next_zone` only if it’s unlocked, not short‑cycling, `export_margin >= 0` (i.e., headroom), and confidence meets `add_confidence`.
+- Remove decision: Removes `last_zone` only if it’s unlocked, not short‑cycling, import pressure high and confidence meets `remove_confidence`.
+- Confidence: Coordinator computes `last_add_conf` and `last_remove_conf`, then `confidence = last_add_conf - last_remove_conf`. Thresholds are `add_confidence` and `remove_confidence` from Options.
+- EMA updates every cycle: `ema_30s = 0.25*grid + 0.75*ema_30s`, `ema_5m = 0.03*grid + 0.97*ema_5m`. Use `ema_30s` for “responsive” decisions and `ema_5m` to gauge sustained import.
+- Required export: Exactly the learned power for `next_zone` (no multiplier). Export margin: `-ema_30s - required_export`.
 
-# 2026 Integration Lessons & Error Fixes
+## Learning Lifecycle
+- Start: `controller.start_learning(zone, ac_power_before)` records baseline (from AC power sensor) and timestamps; `coordinator.learning_active = True`.
+- Finish: `controller.finish_learning()` reads current AC power (or falls back to `ema_30s`), computes `delta = |ac_now - ac_before|`, infers mode (`heat`/`cool`/`default`), updates `learned_power[zone_short]`, increments `samples`, and persists via `coordinator._persist_learned_values()`.
+- Timeout: Coordinator auto‑finishes learning after ~360s to avoid indefinite states.
+- Reset: Service `solar_ac_controller.reset_learning` clears runtime learning state and storage payload to empty defaults.
 
-## Config Flow & Options Flow
-- When using Home Assistant selectors, always pass a list of domains directly to the entity selector for multi-domain selection. Do **not** use `selector({"select": ...})[...][...]`—this causes a TypeError. Example:
-  ```python
-  selector({"entity": {"domain": ["climate", "switch", "fan"], "multiple": True}})
+## Panic Flow
+- Trigger: When multiple zones are ON and `ema_30s > panic_threshold` for at least `panic_delay` seconds.
+- Action: Panic sheds zones sequentially (respecting `action_delay_seconds`), prioritizing last active and unlocked zones.
+- Cooldown: `last_panic_ts` starts a cooldown window (~120s) during which add/remove decisions are suppressed to let the system stabilize.
+
+## Master Switch Hysteresis
+- Optional master switch (`ac_switch`): Coordinator turns master ON when `solar_sensor >= solar_threshold_on` and OFF when below `solar_threshold_off` (hysteresis prevents oscillation).
+- When master is OFF: Coordinator cancels in‑flight tasks, resets learning state, and after `_EMA_RESET_AFTER_OFF_SECONDS` (~600s) resets EMA to 0 for a clean restart.
+
+## Zone Selection and Locks
+- Priority: `next_zone` is the first in configured order that’s currently OFF and not locked. `last_zone` is the most recently active (reverse order) that’s not locked.
+- Manual override: If a zone’s HA state changes without matching a recent controller action, coordinator sets `zone_manual_lock_until[zone] = now + manual_lock_seconds`.
+- Short‑cycle protection: Tracks `zone_last_changed` with type `on`/`off` and disallows opposite transitions until the respective delay elapses (`short_cycle_on_seconds`, `short_cycle_off_seconds`).
+
+## Service Calls and Domains
+- Entities considered “active” when HA state is `heat`, `cool`, or `on` across domains.
+- Climate vs Switch/Fan: Coordinator selects service domains when turning zones on/off (e.g., `climate.turn_on`, `switch.turn_off`). Keep service calls sequential and respect `action_delay_seconds`.
+- Learning and actions: Typical sequence is start learning → service call to turn a zone ON → finish learning after stabilization.
+
+## Storage and Migration Details
+- Payload: `{ "learned_power": { zone_short: { default|heat|cool: float } }, "samples": int }`.
+- Migration: `__init__._async_migrate_data()` normalizes prior shapes (numeric → dict, missing modes → add `default|heat|cool`). Coordinator also migrates legacy `learned_power` if encountered at runtime and persists.
+- Keys: Learned power keyed by zone short name (`entity_id.split('.')[-1]`) for stability across renames.
+
+## Diagnostics Structure
+- Unified builder: [custom_components/solar_ac_controller/helpers.py](custom_components/solar_ac_controller/helpers.py#L1) provides `build_diagnostics(coordinator)`, used by both diagnostics sensor and HA diagnostics export.
+- Fields include: version, merged config (`data + options`), samples, learned power (truncated if large), EMAs, last action, next/last zone, required_export and export_margin, zones and modes, locks, panic state/timestamps, master state.
+- Explicit note: `required_export_source = "learned_power"` and `note` clarifies no safety multiplier.
+
+## Developer Tasks and Commands
+- Lint/format:
+  ```bash
+  pip install -r requirements_dev.txt
+  black .
+  pylint custom_components/solar_ac_controller
   ```
-- Set defaults in the schema using `vol.Optional(..., default=...)`, not with `vol.Default` (which does not exist in voluptuous).
+- Install/run in Home Assistant (manual): Copy [custom_components/solar_ac_controller](custom_components/solar_ac_controller) into HA’s `config/custom_components/`, restart HA, then add the integration.
+- HACS: Add as a custom repository via HACS, install, restart, configure.
 
-## Store Usage & Data Migration
-- Use `Store.async_load()` to load stored data. If migration is needed, call your migration function manually after loading. Do **not** use `async_load_with_migration` (not present in HA Store).
+## Conventions and Anti‑Patterns
+- Read runtime config from `{**entry.data, **entry.options}`; do not read only `entry.data` inside the coordinator.
+- Voluptuous: Use `vol.Optional(..., default=...)`; avoid `vol.Default` (non‑existent). Use `selector({"entity": {"domain": ["climate","switch","fan"], "multiple": True}})` for multi‑domain zone selection.
+- Non‑polling entities: Always set `_attr_should_poll = False` and register a listener `coordinator.async_add_listener(self.async_write_ha_state)`.
+- Error handling: Use `_LOGGER.exception` for storage/setup errors; skip cycles on non‑numeric or unavailable sensor states.
+- Units: All power values are Watts. Grid import is positive, export negative; evaluate export headroom as `-ema_30s`.
+
+## Quick Reference — Options & Defaults
+- Sensors: `solar_sensor`, `grid_sensor`, `ac_power_sensor` (required)
+- Zones: multi‑select domains `[climate, switch, fan]` (order = priority)
+- Master switch: `ac_switch` (optional)
+- Solar thresholds: `solar_threshold_on=1200`, `solar_threshold_off=800`
+- Panic: `panic_threshold=2000`, `panic_delay=60`
+- Locks: `manual_lock_seconds=1200`
+- Short‑cycle: `short_cycle_on_seconds=1200`, `short_cycle_off_seconds=1200`
+- Sequencing: `action_delay_seconds=3`
+- Confidence: `add_confidence=25`, `remove_confidence=10`
+- Learning: `initial_learned_power=1000` (bootstrap)
+- Diagnostics: `enable_diagnostics_sensor=false`
+
+## Appendix — Domain Service Examples
+- Climate:
   ```python
-  old_data = await store.async_load()
-  stored_data = await migrate_fn(STORAGE_VERSION, 0, old_data)
+  await hass.services.async_call("climate", "turn_on", {"entity_id": zone}, blocking=True)
+  await hass.services.async_call("climate", "turn_off", {"entity_id": zone}, blocking=True)
   ```
+- Switch:
+  ```python
+  await hass.services.async_call("switch", "turn_on", {"entity_id": zone}, blocking=True)
+  await hass.services.async_call("switch", "turn_off", {"entity_id": zone}, blocking=True)
+  ```
+- Fan:
+  ```python
+  await hass.services.async_call("fan", "turn_on", {"entity_id": zone}, blocking=True)
+  await hass.services.async_call("fan", "turn_off", {"entity_id": zone}, blocking=True)
+  ```
+- Fallback pattern (as implemented): primary domain call → on failure, retry `climate.turn_on/turn_off`.
 
-## Zone Order & Priority
-- The order of zones selected in the config/options flow is preserved and used as zone priority throughout the integration. The first zone in the list has the highest priority for add/remove decisions.
+## Confidence Examples (Add/Remove)
+- Add confidence components (see [coordinator.py](custom_components/solar_ac_controller/coordinator.py#L529)):
+  - `export_margin = export - required_export`
+  - `base = clamp(0..40, export_margin / 25)` → more headroom → higher base
+  - `sample_bonus = min(20, samples * 2)` → learning progress increases confidence
+  - `short_cycle_penalty = -30` if last zone is short‑cycling
+  - `last_add_conf = base + 5 + sample_bonus + short_cycle_penalty`
+- Remove confidence components (see [coordinator.py](custom_components/solar_ac_controller/coordinator.py#L547)):
+  - `base = clamp(0..60, (import_power - 200) / 8)` → sustained import increases base
+  - `heavy_import_bonus = 20` if `import_power > 1500`
+  - `short_cycle_penalty = -40` if last zone is short‑cycling
+  - `last_remove_conf = base + 5 + heavy_import_bonus + short_cycle_penalty`
+- Unified confidence: `confidence = last_add_conf - last_remove_conf`; thresholds from Options: `add_confidence` (default 25), `remove_confidence` (default 10).
+- Example add: `export = 1200`, `req = 1000` → margin `200` → `base ≈ 8`, `samples=10` → bonus `20` → `last_add_conf ≈ 8 + 5 + 20 = 33` (above 25 → eligible if not short‑cycling).
+- Example remove: `import_power = 1000` → `base ≈ (1000-200)/8 = 100`, clamped to `60` → `heavy_import_bonus = 20` → `last_remove_conf ≈ 60 + 5 + 20 = 85` (above 10 → eligible unless protected).
 
-## Diagnostics & Device Registry
-- All entities should use `DeviceInfo` for device registry. Do not set manufacturer/model fields unless required. Use consistent device registration for all entities.
-- Diagnostics sensor and JSON export should be unified and reflect the same state.
+## Service Call Patterns
+- Primary domain call: `_call_entity_service(entity_id, turn_on)` uses the entity’s domain (`climate`/`switch`/`fan`) with `blocking=True`.
+- Fallback: if primary fails, retries `climate.turn_on/turn_off` and logs a warning.
+- Action timing: After add/remove, coordinator sleeps `action_delay_seconds` (default 3s) to avoid rapid sequences.
+- Learning sequence: `_add_zone` does `controller.start_learning()` → domain service call → updates `zone_last_changed` and short‑cycle type → logs `[LEARNING_START]`.
+- Remove sequence: `_remove_zone` calls domain service → updates short‑cycle type → logs `[ZONE_REMOVE_SUCCESS]`.
 
-## Error Handling & Logging
-- Always log exceptions with `_LOGGER.exception` for storage and setup errors.
-- If a config flow or options flow error occurs, check for selector misuse or missing voluptuous features.
-
-## General Coding Conventions
-- Maintain coordinator as the single source of truth for state and logic.
-- Use type hints and docstrings throughout for maintainability.
-- When changing storage layout, increment `STORAGE_VERSION` and document migration reasoning.
-- All power values are in Watts (W); grid import is positive, export is negative.
-
-If anything here is unclear or you need more details (tests, CI, or reasoning for a specific logic branch), tell me which area to expand and I will iterate.
+## Troubleshooting
+- Non‑numeric/unknown sensor states: Coordinator skips cycle and may set `last_action = "ac_sensor_unavailable"` when AC power sensor is unavailable. Check entities referenced in Options.
+- Missing sensors: If any of grid/solar/ac states are missing, coordinator logs and skips the cycle.
+- Panic doesn’t trigger: Ensure `on_count > 1` and `ema_30s > panic_threshold` persists for `panic_delay` seconds. Check binary sensors `Panic State` and `Panic Cooldown`.
+- Master switch behavior: Confirm thresholds and that the configured `ac_switch` exists and is controllable; hysteresis requires `solar_threshold_on > solar_threshold_off`.
+- Storage/migration: If learned values look wrong, review [__init__.py](custom_components/solar_ac_controller/__init__.py#L1) migration and [const.py](custom_components/solar_ac_controller/const.py#L1) `STORAGE_VERSION`; learned power is keyed by zone short name.
