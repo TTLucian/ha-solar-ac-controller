@@ -47,12 +47,6 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
     The diagnostics payload explicitly documents that required_export is
     the learned power estimate (no safety multiplier).
     """
-    """
-    Build diagnostics payload for Solar AC Controller.
-
-    The diagnostics payload explicitly documents that required_export is
-    the learned power estimate (no safety multiplier).
-    """
     version = getattr(coordinator, "version", None)
     try:
         version = str(version) if version is not None else None

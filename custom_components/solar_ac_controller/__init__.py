@@ -75,9 +75,9 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})
 
-    # 1. Get Integration Version
+    # 1. Get Integration Version from manifest
     integration = await async_get_integration(hass, DOMAIN)
-    version = str(integration.version) if integration.version else "0.5.9"
+    version = str(integration.version) if integration.version else None
 
     initial_lp = entry.options.get(
         CONF_INITIAL_LEARNED_POWER,

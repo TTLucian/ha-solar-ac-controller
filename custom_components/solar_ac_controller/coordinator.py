@@ -94,7 +94,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
         config_entry: Any,
         store: Any,
         stored: dict[str, Any] | None,
-        version: str,
+        version: str | None = None,
     ) -> None:
         super().__init__(
             hass,
