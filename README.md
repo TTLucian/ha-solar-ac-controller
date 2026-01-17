@@ -1,3 +1,17 @@
+
+<details>
+<summary>Example Lovelace Dashboard</summary>
+
+<img src="https://user-images.githubusercontent.com/example/lovelace-dashboard.png" alt="Lovelace Dashboard Example" width="600"/>
+
+</details>
+<p align="center">
+  <img src="https://img.shields.io/github/v/release/TTLucian/ha-solar-ac-controller?style=for-the-badge" />
+  <img src="https://img.shields.io/github/license/TTLucian/ha-solar-ac-controller?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/HACS-Custom-orange.svg?style=for-the-badge" />
+  <img src="https://img.shields.io/github/actions/workflow/status/TTLucian/ha-solar-ac-controller/validate.yml?style=for-the-badge" />
+</p>
+
 # ⚡ Quick Start
 
 1. Install via HACS or copy to custom_components.
@@ -99,19 +113,6 @@ All user-facing strings are translatable. To contribute a translation, submit a 
 Storage migrations are handled automatically. When upgrading, check the release notes for any migration steps. See code comments in `__init__.py` for details.
 
 ## 🖼️ Visuals
-
-<details>
-<summary>Example Lovelace Dashboard</summary>
-
-<img src="https://user-images.githubusercontent.com/example/lovelace-dashboard.png" alt="Lovelace Dashboard Example" width="600"/>
-
-</details>
-<p align="center">
-  <img src="https://img.shields.io/github/v/release/TTLucian/ha-solar-ac-controller?style=for-the-badge" />
-  <img src="https://img.shields.io/github/license/TTLucian/ha-solar-ac-controller?style=for-the-badge" />
-  <img src="https://img.shields.io/badge/HACS-Custom-orange.svg?style=for-the-badge" />
-  <img src="https://img.shields.io/github/actions/workflow/status/TTLucian/ha-solar-ac-controller/validate.yml?style=for-the-badge" />
-</p>
 
 # 🌞 Solar AC Controller — Home Assistant Integration
 
