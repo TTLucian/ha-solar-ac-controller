@@ -228,9 +228,10 @@ class SolarACCoordinator(DataUpdateCoordinator):
         self.min_temp_summer: float = float(self.config_entry.options.get(CONF_MIN_TEMP_SUMMER, self.config_entry.data.get(CONF_MIN_TEMP_SUMMER, DEFAULT_MIN_TEMP_SUMMER)))
         
         # Build zone→sensor mapping from parallel lists
+        zones_list = self.config.get(CONF_ZONES, [])
         zone_temp_sensors_list: list[str] = list(self.config_entry.options.get(CONF_ZONE_TEMP_SENSORS, self.config_entry.data.get(CONF_ZONE_TEMP_SENSORS, [])) or [])
         self.zone_temp_sensors: dict[str, str] = {}
-        for idx, zone_id in enumerate(self.zones):
+        for idx, zone_id in enumerate(zones_list):
             if idx < len(zone_temp_sensors_list) and zone_temp_sensors_list[idx]:
                 self.zone_temp_sensors[zone_id] = zone_temp_sensors_list[idx]
         
