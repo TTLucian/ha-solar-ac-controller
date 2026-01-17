@@ -1,6 +1,6 @@
 ---
 name: Bug Report
-about: Report a problem with the Solar AC Controller
+about: Report a problem
 labels: bug
 ---
 

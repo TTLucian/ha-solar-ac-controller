@@ -1,4 +1,4 @@
-# 🚀 Solar AC Controller – Version {{version}}
+# 🚀 – Version {{version}}
 
 ## Changes
 - Summary of changes here
