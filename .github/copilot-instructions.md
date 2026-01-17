@@ -80,6 +80,7 @@ Questions or unclear areas? Ask for specific sections to expand (decision thresh
 
 ---
 
+
 ## Detailed Decision Engine
 - Add decision: Adds `next_zone` only if it’s unlocked, not short‑cycling, `export_margin >= 0` (i.e., headroom), and confidence meets `add_confidence`.
 - Remove decision: Removes `last_zone` only if it’s unlocked, not short‑cycling, import pressure high and confidence meets `remove_confidence`.
