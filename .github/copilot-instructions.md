@@ -19,11 +19,12 @@ Purpose: concise, actionable guidance for editing this Home Assistant integratio
 - Panic: triggers when `ema_30s > panic_threshold` for `panic_delay` seconds and multiple zones are on; sheds sequentially.
 
 ## Season & Temperature Bands
-- Optional `outside_temperature_sensor`; if missing, auto-season is disabled and logic reverts to export-only decisions.
+- Optional `outside_temperature_sensor`; **if missing, auto-season is automatically disabled** and logic reverts to export-only decisions.
+- **SeasonManager** tracks 7-day temperature history and computes `rolling_mean` each cycle; `update_season_mode()` uses rolling mean (if available) for hysteresis-based season decisions.
 - Auto-season uses hysteresis: heat when `<= heat_on_below`, cool when `>= cool_on_above`, neutral in between with turn-off option via `master_off_in_neutral`.
 - Bands: `cold < mild_cold < mild_hot < hot` (defaults 5/15/25°C) and are used for banded learned power lookups.
 - Learned power persists per mode **and** band in `learned_power_bands`; fall back to per-mode `learned_power` then `initial_learned_power`.
-- Temperature modulation is guarded by `enable_temperature_modulation`; if indoor temps are unavailable, controller falls back to binary control.
+- **Temperature modulation** is guarded by `enable_temperature_modulation`; **if no zone temp sensors are configured, this flag is automatically disabled**. If indoor temps are unavailable, controller falls back to binary control.
 - Comfort targets (optional indoor sensors): `max_temp_winter` (default 22C) and `min_temp_summer` (default 20C) gate removals. Mapping via `zone_temp_sensors` (zone entity_id -> temp sensor). Missing or unavailable sensors are treated as not-at-target (keeps zones on). Neutral mode does not block removals. All targets use 0.1C precision.
 
 ## Storage & Migration
@@ -65,13 +66,15 @@ Purpose: concise, actionable guidance for editing this Home Assistant integratio
 
 ## Diagnostics
 - Prefer `helpers.build_diagnostics(coordinator)`; it documents `required_export` equals learned power (no multiplier) and keeps sensor/export in sync.
-- Diagnostics payload includes `max_temp_winter`, `min_temp_summer`, `zone_current_temps` (rounded), and `all_zones_at_target`.
+- Diagnostics payload includes: version, merged config (`data + options`), samples, learned power (truncated if large), EMAs, outside temp + **rolling mean**, last action, next/last zone, required_export and export_margin, zones and modes, locks, panic state/timestamps, master state, comfort targets, and zone temperatures.
 
 ## Gotchas
 - Treat grid export as `-ema_30s` when evaluating add decisions.
 - Respect zone locks when selecting next/last zones.
 - `diagnostic.py` exists but `sensor.py` already exposes a diagnostics entity guarded by `enable_diagnostics_sensor`.
 - Removal is blocked until all active zones hit comfort targets when temp sensors are configured (heat: >= max_temp_winter; cool: <= min_temp_summer; neutral: no block; missing sensor -> keep on).
+- Auto-season is automatically disabled if `outside_temperature_sensor` is not configured (SeasonManager checks at init).
+- Temperature modulation is automatically disabled if `zone_temp_sensors` is empty (Coordinator checks at init).
 
 Questions or unclear areas? Ask for specific sections to expand (decision thresholds, panic flow, learning bootstrap, or service call patterns).
 

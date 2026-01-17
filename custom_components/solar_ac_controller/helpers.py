@@ -72,6 +72,7 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
     ema_5m = _safe_float(getattr(coordinator, "ema_5m", None), 0.0)
 
     outside_temp = _safe_float(getattr(coordinator, "outside_temp", None), None)
+    outside_temp_rolling_mean = _safe_float(getattr(coordinator, "outside_temp_rolling_mean", None), None)
     outside_band = getattr(coordinator, "outside_band", None)
     season_mode = getattr(coordinator, "season_mode", None)
     enable_auto_season = bool(getattr(coordinator, "enable_auto_season", False))
@@ -161,6 +162,7 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
         "ema_30s": ema_30s,
         "ema_5m": ema_5m,
         "outside_temp": outside_temp,
+        "outside_temp_rolling_mean": outside_temp_rolling_mean,
         "outside_band": outside_band,
         "season_mode": season_mode,
         "enable_auto_season": enable_auto_season,

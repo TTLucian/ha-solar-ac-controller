@@ -203,6 +203,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
 
         # Outdoor/season context
         self.outside_temp: float | None = None
+        self.outside_temp_rolling_mean: float | None = None
         self.outside_band: str | None = None
         self.season_mode: str | None = None
         self.enable_auto_season: bool = bool(
@@ -227,6 +228,11 @@ class SolarACCoordinator(DataUpdateCoordinator):
         self.min_temp_summer: float = float(self.config_entry.options.get(CONF_MIN_TEMP_SUMMER, self.config_entry.data.get(CONF_MIN_TEMP_SUMMER, DEFAULT_MIN_TEMP_SUMMER)))
         self.zone_temp_sensors: dict[str, str] = dict(self.config_entry.options.get(CONF_ZONE_TEMP_SENSORS, self.config_entry.data.get(CONF_ZONE_TEMP_SENSORS, {})) or {})
         self.zone_current_temps: dict[str, float | None] = {}  # zone_id -> current temp or None
+
+        # Disable temperature modulation if no zone temp sensors configured
+        if not self.zone_temp_sensors:
+            self.enable_temp_modulation = False
+            _LOGGER.debug("Temperature modulation disabled: no zone temperature sensors configured")
 
         # Initialize SeasonManager for outdoor temp and season mode handling
         from .season import SeasonManager
@@ -418,6 +424,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
         # Outside temperature context (delegated to SeasonManager)
         outside_temp = self.season_manager.read_outside_temp()
         self.outside_temp = outside_temp
+        self.outside_temp_rolling_mean = self.season_manager.rolling_mean
         self.outside_band = self.season_manager.select_outside_band(outside_temp)
         self.season_mode = self.season_manager.update_season_mode(outside_temp)
 
