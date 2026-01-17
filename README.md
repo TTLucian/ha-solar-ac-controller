@@ -1,8 +1,3 @@
-
-<details>
-
-<img src="https://user-images.githubusercontent.com/example/lovelace-dashboard.png" alt="Lovelace Dashboard Example" width="600"/>
-
 </details>
 <p align="center">
   <img src="https://img.shields.io/github/v/release/TTLucian/ha-solar-ac-controller?style=for-the-badge" />
