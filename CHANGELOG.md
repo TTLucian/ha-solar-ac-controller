@@ -6,12 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 ## [0.6.0] — 2026-01-17 — 7-Day Rolling Mean & Temperature-Aware Control
+
 ### ✨ Major Features
 - **7-day rolling mean for season switching**: Outside temperature is now smoothed over 7 days to reduce jitter during weather transitions; falls back to instantaneous temp if history is short or sensor unavailable.
 - **Explicit auto-disable for missing sensors**: Auto-season is automatically disabled if outside temperature sensor is missing; temperature modulation is automatically disabled if zone temperature sensors are not configured. No silent fallback—clear logging explains why features are disabled.
 - **Temperature-aware removal gating**: Comfort targets (`max_temp_winter` / `min_temp_summer`) now explicitly block zone removal until all active zones reach their targets; missing sensors assume "not at target" to conservatively keep zones on.
 
 ### Changed
+
 - SeasonManager now tracks 7-day temperature history (deque, max 10,080 samples) and computes rolling mean each cycle; `update_season_mode()` uses rolling mean for hysteresis-based decisions.
 - Coordinator exposes `outside_temp_rolling_mean` and reads from season manager each cycle.
 - Diagnostics payload includes `outside_temp_rolling_mean` for visibility into season decision inputs.
@@ -20,10 +22,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - README documents 7-day rolling mean feature and temperature bands; Copilot instructions updated with rolling mean behavior and auto-disable logic.
 
 ### Fixed
+
 - Temperature-aware decisions now have explicit guards: removing zones respects comfort targets across all seasons.
 
 ## [0.5.9] — 2026-01-17 — Reconfigure defaults & diagnostics clarity
+
 ### Changed
+
 - Reconfigure flow seeds defaults from existing entry data/options (zones, thresholds, comfort targets) so the form pre-fills during Configure/Reconfigure; strings updated to cover comfort targets and zone temp sensors.
 - Comfort/season UX: options labels/descriptions now mention `max_temp_winter`, `min_temp_summer`, and `zone_temp_sensors`; Copilot instructions note `async_step_reconfigure` and keeping defaults in sync; README documents the pre-fill behavior.
 - Diagnostics: payload now includes `manifest_version` derived from the manifest alongside the existing `version`, improving support visibility of installed build; no behavior change to decision logic.
@@ -33,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Manual overrides: manual lock duration respected when users toggle zones; neutral mode can turn master off when configured.
 
 ## v0.2.2 — 2026-01-09 — Unified Confidence Model, Stability Improvements, Sensor Cleanup
+
 ### ✨ Major Changes
 Replaced the dual‑axis confidence system (add_confidence, remove_confidence) with a single unified signed confidence axis:
 
