@@ -22,6 +22,7 @@ class SolarACDiagnosticEntity(SensorEntity):
         self.coordinator = coordinator
         self._entry_id = entry_id
         self._attr_unique_id = f"{self._entry_id}_diagnostics"
+        self._unsub: Callable[[], None] | None = None
 
 
     @property
@@ -33,8 +34,6 @@ class SolarACDiagnosticEntity(SensorEntity):
             name="Solar AC Controller",
             configuration_url="https://github.com/TTLucian/ha-solar-ac-controller",
         )
-
-        self._unsub: Callable[[], None] | None = None
 
     @property
     def available(self) -> bool:
