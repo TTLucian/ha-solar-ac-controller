@@ -85,13 +85,44 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
 
     # 2. Storage Setup
-    async def migrate_fn(old_major, old_minor, old_data):
-        return await _async_migrate_data(old_major, old_minor, old_data, initial_lp)
+    def migrate_fn(old_major, old_minor, old_data):
+        """Synchronous migration wrapper for Home Assistant Store."""
+        if not isinstance(old_data, dict):
+            return {"learned_power": {}, "learned_power_bands": {}, "samples": 0}
+        
+        learned_power = old_data.get("learned_power", {})
+        learned_power_bands = old_data.get("learned_power_bands", {}) or {}
+        if not isinstance(learned_power, dict):
+            learned_power = {}
+
+        modified = False
+        for zone, val in list(learned_power.items()):
+            if val is None:
+                learned_power[zone] = {"default": initial_lp, "heat": initial_lp, "cool": initial_lp}
+                modified = True
+            elif isinstance(val, (int, float)):
+                v = float(val)
+                learned_power[zone] = {"default": v, "heat": v, "cool": v}
+                modified = True
+            elif isinstance(val, dict):
+                for mode in ["default", "heat", "cool"]:
+                    if mode not in val:
+                        val[mode] = initial_lp
+                        modified = True
+        
+        return {
+            "learned_power": learned_power,
+            "learned_power_bands": learned_power_bands if isinstance(learned_power_bands, dict) else {},
+            "samples": old_data.get("samples", 0),
+        }
 
     store = Store(hass, STORAGE_VERSION, STORAGE_KEY, migrate_fn=migrate_fn)
     
     try:
         stored_data = await store.async_load()
+    except NotImplementedError:
+        _LOGGER.debug("Storage migration skipped, using defaults")
+        stored_data = None
     except Exception:
         _LOGGER.exception("Failed to load stored data")
         stored_data = None
