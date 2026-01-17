@@ -195,8 +195,10 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
 
     # Extensibility: auto-discover simple coordinator attributes not already included
     known_keys = set(payload.keys())
+    # Exclude coordinator attributes we've already processed with human formatting
+    excluded_attrs = {"master_off_since", "last_panic_ts", "learning_start_time"}
     for attr in dir(coordinator):
-        if attr.startswith("_") or attr in known_keys:
+        if attr.startswith("_") or attr in known_keys or attr in excluded_attrs:
             continue
         try:
             val = getattr(coordinator, attr)
