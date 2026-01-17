@@ -28,14 +28,14 @@ from .const import (
     CONF_OUTSIDE_SENSOR,
     CONF_ENABLE_AUTO_SEASON,
     CONF_ENABLE_TEMP_MODULATION,
-    CONF_MASTER_OFF_IN_NEUTRAL,
+    CONF_MASTER_SWITCH_IN_OFFSEASON,
     CONF_HEAT_ON_BELOW,
     CONF_HEAT_OFF_ABOVE,
     CONF_COOL_ON_ABOVE,
     CONF_COOL_OFF_BELOW,
-    CONF_BAND_COLD_MAX,
-    CONF_BAND_MILD_COLD_MAX,
-    CONF_BAND_MILD_HOT_MAX,
+    CONF_VERY_COLD_THRESHOLD,
+    CONF_CHILLY_THRESHOLD,
+    CONF_COMFORTABLE_THRESHOLD,
     CONF_MAX_TEMP_WINTER,
     CONF_MIN_TEMP_SUMMER,
     CONF_ZONE_TEMP_SENSORS,
@@ -52,14 +52,14 @@ from .const import (
     DEFAULT_INITIAL_LEARNED_POWER,
     DEFAULT_ENABLE_AUTO_SEASON,
     DEFAULT_ENABLE_TEMP_MODULATION,
-    DEFAULT_MASTER_OFF_IN_NEUTRAL,
+    DEFAULT_MASTER_SWITCH_IN_OFFSEASON,
     DEFAULT_HEAT_ON_BELOW,
     DEFAULT_HEAT_OFF_ABOVE,
     DEFAULT_COOL_ON_ABOVE,
     DEFAULT_COOL_OFF_BELOW,
-    DEFAULT_BAND_COLD_MAX,
-    DEFAULT_BAND_MILD_COLD_MAX,
-    DEFAULT_BAND_MILD_HOT_MAX,
+    DEFAULT_VERY_COLD_THRESHOLD,
+    DEFAULT_CHILLY_THRESHOLD,
+    DEFAULT_COMFORTABLE_THRESHOLD,
     DEFAULT_MAX_TEMP_WINTER,
     DEFAULT_MIN_TEMP_SUMMER,
 )
@@ -79,119 +79,189 @@ class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         super().__init__()
         # When invoked via reconfigure, use existing entry data/options as defaults.
         self._reconfigure_defaults: dict[str, Any] = {}
+        # Store form data across steps
+        self.data: dict[str, Any] = {}
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None):
-        """Initial configuration step."""
+        """Step 1: Core Setup - Zones, sensors, solar thresholds, feature toggles."""
         errors: dict[str, str] = {}
-        defaults = dict(self._reconfigure_defaults)
+        defaults = {**self._reconfigure_defaults, **self.data}
 
         if user_input is not None:
             zones = user_input.get(CONF_ZONES, [])
-            zone_temp_sensors = user_input.get(CONF_ZONE_TEMP_SENSORS, [])
             
             if not zones:
                 errors["base"] = "no_zones"
             else:
-                # Validate zone_temp_sensors list length matches zones if provided
-                if zone_temp_sensors and len(zone_temp_sensors) != len(zones):
-                    errors["base"] = "zone_temp_sensors_mismatch"
-                
-                # Hysteresis validation for solar and temperature thresholds
+                # Hysteresis validation
                 solar_on = int(user_input.get(CONF_SOLAR_THRESHOLD_ON, DEFAULT_SOLAR_THRESHOLD_ON))
                 solar_off = int(user_input.get(CONF_SOLAR_THRESHOLD_OFF, DEFAULT_SOLAR_THRESHOLD_OFF))
-                heat_on = float(user_input.get(CONF_HEAT_ON_BELOW, DEFAULT_HEAT_ON_BELOW))
-                heat_off = float(user_input.get(CONF_HEAT_OFF_ABOVE, DEFAULT_HEAT_OFF_ABOVE))
-                cool_on = float(user_input.get(CONF_COOL_ON_ABOVE, DEFAULT_COOL_ON_ABOVE))
-                cool_off = float(user_input.get(CONF_COOL_OFF_BELOW, DEFAULT_COOL_OFF_BELOW))
-                band_cold = float(user_input.get(CONF_BAND_COLD_MAX, DEFAULT_BAND_COLD_MAX))
-                band_mild_cold = float(user_input.get(CONF_BAND_MILD_COLD_MAX, DEFAULT_BAND_MILD_COLD_MAX))
-                band_mild_hot = float(user_input.get(CONF_BAND_MILD_HOT_MAX, DEFAULT_BAND_MILD_HOT_MAX))
-
+                
                 if solar_off >= solar_on:
                     errors["base"] = "invalid_solar_hysteresis"
-                elif heat_off <= heat_on:
-                    errors["base"] = "invalid_heat_hysteresis"
-                elif cool_on <= cool_off:
-                    errors["base"] = "invalid_cool_hysteresis"
-                elif not (band_cold < band_mild_cold < band_mild_hot):
-                    errors["base"] = "invalid_bands"
-
+            
             if not errors:
-                # Normalize zones and zone_temp_sensors to lists
-                normalized = {**user_input}
-                normalized[CONF_ZONES] = list(zones)
-                normalized[CONF_ZONE_TEMP_SENSORS] = list(zone_temp_sensors) if zone_temp_sensors else []
-                return self.async_create_entry(
-                    title="Solar AC Controller",
-                    data=normalized,
-                )
+                # Store data for next steps
+                self.data = {**self.data, **user_input}
+                # Proceed to timing step
+                return await self.async_step_timing()
 
-        # Get optional sensor defaults, use None if empty/missing to avoid "Unknown entity" errors
-        outside_sensor_default = defaults.get(CONF_OUTSIDE_SENSOR) or None
-        
-        # Group advanced options
-        advanced_schema = {
-            vol.Optional(CONF_ADD_CONFIDENCE, default=int(defaults.get(CONF_ADD_CONFIDENCE, DEFAULT_ADD_CONFIDENCE))): _int_field(int(DEFAULT_ADD_CONFIDENCE), minimum=0),
-            vol.Optional(CONF_REMOVE_CONFIDENCE, default=int(defaults.get(CONF_REMOVE_CONFIDENCE, DEFAULT_REMOVE_CONFIDENCE))): _int_field(int(DEFAULT_REMOVE_CONFIDENCE), minimum=0),
-            vol.Optional(CONF_ENABLE_DIAGNOSTICS, default=bool(defaults.get(CONF_ENABLE_DIAGNOSTICS, False))): bool,
-        }
         schema = vol.Schema(
             {
-                vol.Required(CONF_SOLAR_SENSOR, default=defaults.get(CONF_SOLAR_SENSOR)): selector({"entity": {"domain": "sensor"}}),
-                vol.Required(CONF_GRID_SENSOR, default=defaults.get(CONF_GRID_SENSOR)): selector({"entity": {"domain": "sensor"}}),
-                vol.Required(CONF_AC_POWER_SENSOR, default=defaults.get(CONF_AC_POWER_SENSOR)): selector({"entity": {"domain": "sensor"}}),
-
-                vol.Optional(CONF_OUTSIDE_SENSOR, default=outside_sensor_default): selector({"entity": {"domain": "sensor"}}),
-
-                vol.Optional(CONF_AC_SWITCH, default=defaults.get(CONF_AC_SWITCH, "")): selector({"entity": {"domain": "switch"}}),
-
+                # GROUP 1: What to Control
                 vol.Required(CONF_ZONES, default=defaults.get(CONF_ZONES, [])): selector({
                     "entity": {"domain": ["climate", "switch", "fan"], "multiple": True}
                 }),
-
+                vol.Optional(CONF_AC_SWITCH, default=defaults.get(CONF_AC_SWITCH, "")): selector({"entity": {"domain": "switch"}}),
+                
+                # GROUP 2: Sensors
+                vol.Required(CONF_SOLAR_SENSOR, default=defaults.get(CONF_SOLAR_SENSOR)): selector({"entity": {"domain": "sensor"}}),
+                vol.Required(CONF_GRID_SENSOR, default=defaults.get(CONF_GRID_SENSOR)): selector({"entity": {"domain": "sensor"}}),
+                vol.Required(CONF_AC_POWER_SENSOR, default=defaults.get(CONF_AC_POWER_SENSOR)): selector({"entity": {"domain": "sensor"}}),
+                
+                # GROUP 3: When to Activate
                 vol.Optional(CONF_SOLAR_THRESHOLD_ON, default=int(defaults.get(CONF_SOLAR_THRESHOLD_ON, DEFAULT_SOLAR_THRESHOLD_ON))): _int_field(int(DEFAULT_SOLAR_THRESHOLD_ON), minimum=0),
                 vol.Optional(CONF_SOLAR_THRESHOLD_OFF, default=int(defaults.get(CONF_SOLAR_THRESHOLD_OFF, DEFAULT_SOLAR_THRESHOLD_OFF))): _int_field(int(DEFAULT_SOLAR_THRESHOLD_OFF), minimum=0),
-
-                vol.Optional(CONF_HEAT_ON_BELOW, default=float(defaults.get(CONF_HEAT_ON_BELOW, DEFAULT_HEAT_ON_BELOW))): vol.Coerce(float),
-                vol.Optional(CONF_HEAT_OFF_ABOVE, default=float(defaults.get(CONF_HEAT_OFF_ABOVE, DEFAULT_HEAT_OFF_ABOVE))): vol.Coerce(float),
-                vol.Optional(CONF_COOL_ON_ABOVE, default=float(defaults.get(CONF_COOL_ON_ABOVE, DEFAULT_COOL_ON_ABOVE))): vol.Coerce(float),
-                vol.Optional(CONF_COOL_OFF_BELOW, default=float(defaults.get(CONF_COOL_OFF_BELOW, DEFAULT_COOL_OFF_BELOW))): vol.Coerce(float),
-                vol.Optional(CONF_BAND_COLD_MAX, default=float(defaults.get(CONF_BAND_COLD_MAX, DEFAULT_BAND_COLD_MAX))): vol.Coerce(float),
-                vol.Optional(CONF_BAND_MILD_COLD_MAX, default=float(defaults.get(CONF_BAND_MILD_COLD_MAX, DEFAULT_BAND_MILD_COLD_MAX))): vol.Coerce(float),
-                vol.Optional(CONF_BAND_MILD_HOT_MAX, default=float(defaults.get(CONF_BAND_MILD_HOT_MAX, DEFAULT_BAND_MILD_HOT_MAX))): vol.Coerce(float),
-
-                vol.Optional(CONF_MAX_TEMP_WINTER, default=float(defaults.get(CONF_MAX_TEMP_WINTER, DEFAULT_MAX_TEMP_WINTER))): vol.Coerce(float),
-                vol.Optional(CONF_MIN_TEMP_SUMMER, default=float(defaults.get(CONF_MIN_TEMP_SUMMER, DEFAULT_MIN_TEMP_SUMMER))): vol.Coerce(float),
-                vol.Optional(CONF_ZONE_TEMP_SENSORS, default=defaults.get(CONF_ZONE_TEMP_SENSORS, [])): selector({"entity": {"domain": "sensor", "device_class": ["temperature"], "multiple": True}}),
-
-                vol.Optional(CONF_PANIC_THRESHOLD, default=int(defaults.get(CONF_PANIC_THRESHOLD, DEFAULT_PANIC_THRESHOLD))): _int_field(int(DEFAULT_PANIC_THRESHOLD), minimum=0),
-                vol.Optional(CONF_PANIC_DELAY, default=int(defaults.get(CONF_PANIC_DELAY, DEFAULT_PANIC_DELAY))): _int_field(int(DEFAULT_PANIC_DELAY), minimum=0),
-                vol.Optional(CONF_MANUAL_LOCK_SECONDS, default=int(defaults.get(CONF_MANUAL_LOCK_SECONDS, DEFAULT_MANUAL_LOCK_SECONDS))): _int_field(int(DEFAULT_MANUAL_LOCK_SECONDS), minimum=0),
-                vol.Optional(CONF_SHORT_CYCLE_ON_SECONDS, default=int(defaults.get(CONF_SHORT_CYCLE_ON_SECONDS, DEFAULT_SHORT_CYCLE_ON_SECONDS))): _int_field(int(DEFAULT_SHORT_CYCLE_ON_SECONDS), minimum=0),
-                vol.Optional(CONF_SHORT_CYCLE_OFF_SECONDS, default=int(defaults.get(CONF_SHORT_CYCLE_OFF_SECONDS, DEFAULT_SHORT_CYCLE_OFF_SECONDS))): _int_field(int(DEFAULT_SHORT_CYCLE_OFF_SECONDS), minimum=0),
-                vol.Optional(CONF_ACTION_DELAY_SECONDS, default=int(defaults.get(CONF_ACTION_DELAY_SECONDS, DEFAULT_ACTION_DELAY_SECONDS))): _int_field(int(DEFAULT_ACTION_DELAY_SECONDS), minimum=0),
-
-                vol.Optional(CONF_ENABLE_AUTO_SEASON, default=bool(defaults.get(CONF_ENABLE_AUTO_SEASON, DEFAULT_ENABLE_AUTO_SEASON))): bool,
+                
+                # GROUP 4: How Aggressive to Add/Remove
+                vol.Optional(CONF_ADD_CONFIDENCE, default=int(defaults.get(CONF_ADD_CONFIDENCE, DEFAULT_ADD_CONFIDENCE))): _int_field(int(DEFAULT_ADD_CONFIDENCE), minimum=0),
+                vol.Optional(CONF_REMOVE_CONFIDENCE, default=int(defaults.get(CONF_REMOVE_CONFIDENCE, DEFAULT_REMOVE_CONFIDENCE))): _int_field(int(DEFAULT_REMOVE_CONFIDENCE), minimum=0),
+                vol.Optional(CONF_INITIAL_LEARNED_POWER, default=int(defaults.get(CONF_INITIAL_LEARNED_POWER, DEFAULT_INITIAL_LEARNED_POWER))): vol.All(vol.Coerce(int), vol.Range(min=0)),
+                
+                # GROUP 5: Optional Features
                 vol.Optional(CONF_ENABLE_TEMP_MODULATION, default=bool(defaults.get(CONF_ENABLE_TEMP_MODULATION, DEFAULT_ENABLE_TEMP_MODULATION))): bool,
-                vol.Optional(CONF_MASTER_OFF_IN_NEUTRAL, default=bool(defaults.get(CONF_MASTER_OFF_IN_NEUTRAL, DEFAULT_MASTER_OFF_IN_NEUTRAL))): bool,
-
-                vol.Required(CONF_INITIAL_LEARNED_POWER, default=int(defaults.get(CONF_INITIAL_LEARNED_POWER, DEFAULT_INITIAL_LEARNED_POWER))): vol.All(vol.Coerce(int), vol.Range(min=0)),
+                vol.Optional(CONF_ENABLE_AUTO_SEASON, default=bool(defaults.get(CONF_ENABLE_AUTO_SEASON, DEFAULT_ENABLE_AUTO_SEASON))): bool,
+                vol.Optional(CONF_ENABLE_DIAGNOSTICS, default=bool(defaults.get(CONF_ENABLE_DIAGNOSTICS, False))): bool,
             }
         )
-        # Add advanced options as a separate group (shown after main fields)
-        schema = schema.extend(advanced_schema)
 
         return self.async_show_form(
             step_id="user",
             data_schema=schema,
             errors=errors,
-            description_placeholders={
-                "add_confidence": "Minimum confidence required to add a new zone.",
-                "remove_confidence": "Minimum negative confidence required to remove a zone.",
-                "enable_diagnostics": "Enable a sensor with full controller state for debugging.",
-            },
         )
 
+    async def async_step_timing(self, user_input: dict[str, Any] | None = None):
+        """Step 2: Timing & Protection - Delays and guards."""
+        errors: dict[str, str] = {}
+        defaults = {**self._reconfigure_defaults, **self.data}
+
+        if user_input is not None:
+            panic_th = int(user_input.get(CONF_PANIC_THRESHOLD, DEFAULT_PANIC_THRESHOLD))
+            solar_on = int(self.data.get(CONF_SOLAR_THRESHOLD_ON, DEFAULT_SOLAR_THRESHOLD_ON))
+            
+            if panic_th <= solar_on:
+                errors["base"] = "panic_too_low"
+            
+            if not errors:
+                self.data = {**self.data, **user_input}
+                
+                # Decide next step based on feature toggles
+                if self.data.get(CONF_ENABLE_TEMP_MODULATION):
+                    return await self.async_step_comfort()
+                elif self.data.get(CONF_ENABLE_AUTO_SEASON):
+                    return await self.async_step_auto_season()
+                else:
+                    # Create entry if no conditional steps
+                    return self.async_create_entry(title="Solar AC Controller", data=self.data)
+
+        schema = vol.Schema(
+            {
+                vol.Optional(CONF_ACTION_DELAY_SECONDS, default=int(defaults.get(CONF_ACTION_DELAY_SECONDS, DEFAULT_ACTION_DELAY_SECONDS))): _int_field(int(DEFAULT_ACTION_DELAY_SECONDS), minimum=0),
+                vol.Optional(CONF_MANUAL_LOCK_SECONDS, default=int(defaults.get(CONF_MANUAL_LOCK_SECONDS, DEFAULT_MANUAL_LOCK_SECONDS))): _int_field(int(DEFAULT_MANUAL_LOCK_SECONDS), minimum=0),
+                vol.Optional(CONF_SHORT_CYCLE_ON_SECONDS, default=int(defaults.get(CONF_SHORT_CYCLE_ON_SECONDS, DEFAULT_SHORT_CYCLE_ON_SECONDS))): _int_field(int(DEFAULT_SHORT_CYCLE_ON_SECONDS), minimum=0),
+                vol.Optional(CONF_SHORT_CYCLE_OFF_SECONDS, default=int(defaults.get(CONF_SHORT_CYCLE_OFF_SECONDS, DEFAULT_SHORT_CYCLE_OFF_SECONDS))): _int_field(int(DEFAULT_SHORT_CYCLE_OFF_SECONDS), minimum=0),
+                vol.Optional(CONF_PANIC_THRESHOLD, default=int(defaults.get(CONF_PANIC_THRESHOLD, DEFAULT_PANIC_THRESHOLD))): _int_field(int(DEFAULT_PANIC_THRESHOLD), minimum=0),
+                vol.Optional(CONF_PANIC_DELAY, default=int(defaults.get(CONF_PANIC_DELAY, DEFAULT_PANIC_DELAY))): _int_field(int(DEFAULT_PANIC_DELAY), minimum=0),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="timing",
+            data_schema=schema,
+            errors=errors,
+        )
+
+    async def async_step_comfort(self, user_input: dict[str, Any] | None = None):
+        """Step 3: Comfort-Based Zone Control (conditional on ENABLE_TEMP_MODULATION)."""
+        errors: dict[str, str] = {}
+        defaults = {**self._reconfigure_defaults, **self.data}
+
+        if user_input is not None:
+            zones = self.data.get(CONF_ZONES, [])
+            zone_temp_sensors = user_input.get(CONF_ZONE_TEMP_SENSORS, [])
+            
+            # Validate zone_temp_sensors list length matches zones if provided
+            if zone_temp_sensors and len(zone_temp_sensors) != len(zones):
+                errors["base"] = "zone_temp_sensors_mismatch"
+            
+            if not errors:
+                self.data = {**self.data, **user_input}
+                
+                # Next step: auto-season if enabled, else create entry
+                if self.data.get(CONF_ENABLE_AUTO_SEASON):
+                    return await self.async_step_auto_season()
+                else:
+                    return self.async_create_entry(title="Solar AC Controller", data=self.data)
+
+        schema = vol.Schema(
+            {
+                vol.Optional(CONF_ZONE_TEMP_SENSORS, default=defaults.get(CONF_ZONE_TEMP_SENSORS, [])): selector({"entity": {"domain": "sensor", "device_class": ["temperature"], "multiple": True}}),
+                vol.Optional(CONF_MAX_TEMP_WINTER, default=float(defaults.get(CONF_MAX_TEMP_WINTER, DEFAULT_MAX_TEMP_WINTER))): vol.Coerce(float),
+                vol.Optional(CONF_MIN_TEMP_SUMMER, default=float(defaults.get(CONF_MIN_TEMP_SUMMER, DEFAULT_MIN_TEMP_SUMMER))): vol.Coerce(float),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="comfort",
+            data_schema=schema,
+            errors=errors,
+        )
+
+    async def async_step_auto_season(self, user_input: dict[str, Any] | None = None):
+        """Step 4: Auto-Season Detection (conditional on ENABLE_AUTO_SEASON)."""
+        errors: dict[str, str] = {}
+        defaults = {**self._reconfigure_defaults, **self.data}
+
+        if user_input is not None:
+            heat_on = float(user_input.get(CONF_HEAT_ON_BELOW, DEFAULT_HEAT_ON_BELOW))
+            heat_off = float(user_input.get(CONF_HEAT_OFF_ABOVE, DEFAULT_HEAT_OFF_ABOVE))
+            cool_on = float(user_input.get(CONF_COOL_ON_ABOVE, DEFAULT_COOL_ON_ABOVE))
+            cool_off = float(user_input.get(CONF_COOL_OFF_BELOW, DEFAULT_COOL_OFF_BELOW))
+            very_cold = float(user_input.get(CONF_VERY_COLD_THRESHOLD, DEFAULT_VERY_COLD_THRESHOLD))
+            chilly = float(user_input.get(CONF_CHILLY_THRESHOLD, DEFAULT_CHILLY_THRESHOLD))
+            comfortable = float(user_input.get(CONF_COMFORTABLE_THRESHOLD, DEFAULT_COMFORTABLE_THRESHOLD))
+            
+            if heat_off <= heat_on:
+                errors["base"] = "invalid_heat_hysteresis"
+            elif cool_on <= cool_off:
+                errors["base"] = "invalid_cool_hysteresis"
+            elif not (very_cold < chilly < comfortable):
+                errors["base"] = "invalid_bands"
+            
+            if not errors:
+                self.data = {**self.data, **user_input}
+                return self.async_create_entry(title="Solar AC Controller", data=self.data)
+
+        schema = vol.Schema(
+            {
+                vol.Optional(CONF_OUTSIDE_SENSOR, default=defaults.get(CONF_OUTSIDE_SENSOR) or None): selector({"entity": {"domain": "sensor"}}),
+                vol.Optional(CONF_HEAT_ON_BELOW, default=float(defaults.get(CONF_HEAT_ON_BELOW, DEFAULT_HEAT_ON_BELOW))): vol.Coerce(float),
+                vol.Optional(CONF_HEAT_OFF_ABOVE, default=float(defaults.get(CONF_HEAT_OFF_ABOVE, DEFAULT_HEAT_OFF_ABOVE))): vol.Coerce(float),
+                vol.Optional(CONF_COOL_ON_ABOVE, default=float(defaults.get(CONF_COOL_ON_ABOVE, DEFAULT_COOL_ON_ABOVE))): vol.Coerce(float),
+                vol.Optional(CONF_COOL_OFF_BELOW, default=float(defaults.get(CONF_COOL_OFF_BELOW, DEFAULT_COOL_OFF_BELOW))): vol.Coerce(float),
+                vol.Optional(CONF_VERY_COLD_THRESHOLD, default=float(defaults.get(CONF_VERY_COLD_THRESHOLD, DEFAULT_VERY_COLD_THRESHOLD))): vol.Coerce(float),
+                vol.Optional(CONF_CHILLY_THRESHOLD, default=float(defaults.get(CONF_CHILLY_THRESHOLD, DEFAULT_CHILLY_THRESHOLD))): vol.Coerce(float),
+                vol.Optional(CONF_COMFORTABLE_THRESHOLD, default=float(defaults.get(CONF_COMFORTABLE_THRESHOLD, DEFAULT_COMFORTABLE_THRESHOLD))): vol.Coerce(float),
+                vol.Optional(CONF_MASTER_SWITCH_IN_OFFSEASON, default=bool(defaults.get(CONF_MASTER_SWITCH_IN_OFFSEASON, DEFAULT_MASTER_SWITCH_IN_OFFSEASON))): bool,
+            }
+        )
+
+        return self.async_show_form(
+            step_id="auto_season",
+            data_schema=schema,
+            errors=errors,
+        )
     async def async_step_import(self, user_input: dict[str, Any]):
         return await self.async_step_user(user_input)
 
@@ -218,141 +288,182 @@ class SolarACOptionsFlowHandler(config_entries.OptionsFlow):
 
     def __init__(self, config_entry: config_entries.ConfigEntry):
         self.entry = config_entry
+        self.data: dict[str, Any] = {}
 
     @property
     def _current(self) -> dict[str, Any]:
         return {**self.entry.data, **self.entry.options}
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None):
+        """First step of options (same as initial user setup)."""
         errors: dict[str, str] = {}
-        current = self._current
+        defaults = self._current
 
         if user_input is not None:
-            solar_on = int(user_input.get(CONF_SOLAR_THRESHOLD_ON, DEFAULT_SOLAR_THRESHOLD_ON))
-            solar_off = int(user_input.get(CONF_SOLAR_THRESHOLD_OFF, DEFAULT_SOLAR_THRESHOLD_OFF))
-            panic_th = int(user_input.get(CONF_PANIC_THRESHOLD, DEFAULT_PANIC_THRESHOLD))
             zones = user_input.get(CONF_ZONES, [])
+            
+            if not zones:
+                errors["base"] = "no_zones"
+            else:
+                # Hysteresis validation
+                solar_on = int(user_input.get(CONF_SOLAR_THRESHOLD_ON, DEFAULT_SOLAR_THRESHOLD_ON))
+                solar_off = int(user_input.get(CONF_SOLAR_THRESHOLD_OFF, DEFAULT_SOLAR_THRESHOLD_OFF))
+                
+                if solar_off >= solar_on:
+                    errors["base"] = "invalid_solar_hysteresis"
+            
+            if not errors:
+                self.data = {**self.data, **user_input}
+                return await self.async_step_timing()
+
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_ZONES, default=defaults.get(CONF_ZONES, [])): selector({
+                    "entity": {"domain": ["climate", "switch", "fan"], "multiple": True}
+                }),
+                vol.Required(CONF_SOLAR_SENSOR, default=defaults.get(CONF_SOLAR_SENSOR)): selector({"entity": {"domain": "sensor"}}),
+                vol.Required(CONF_GRID_SENSOR, default=defaults.get(CONF_GRID_SENSOR)): selector({"entity": {"domain": "sensor"}}),
+                vol.Required(CONF_AC_POWER_SENSOR, default=defaults.get(CONF_AC_POWER_SENSOR)): selector({"entity": {"domain": "sensor"}}),
+                vol.Optional(CONF_AC_SWITCH, default=defaults.get(CONF_AC_SWITCH, "")): selector({"entity": {"domain": "switch"}}),
+                
+                vol.Optional(CONF_SOLAR_THRESHOLD_ON, default=int(defaults.get(CONF_SOLAR_THRESHOLD_ON, DEFAULT_SOLAR_THRESHOLD_ON))): _int_field(int(DEFAULT_SOLAR_THRESHOLD_ON), minimum=0),
+                vol.Optional(CONF_SOLAR_THRESHOLD_OFF, default=int(defaults.get(CONF_SOLAR_THRESHOLD_OFF, DEFAULT_SOLAR_THRESHOLD_OFF))): _int_field(int(DEFAULT_SOLAR_THRESHOLD_OFF), minimum=0),
+                
+                vol.Optional(CONF_ADD_CONFIDENCE, default=int(defaults.get(CONF_ADD_CONFIDENCE, DEFAULT_ADD_CONFIDENCE))): _int_field(int(DEFAULT_ADD_CONFIDENCE), minimum=0),
+                vol.Optional(CONF_REMOVE_CONFIDENCE, default=int(defaults.get(CONF_REMOVE_CONFIDENCE, DEFAULT_REMOVE_CONFIDENCE))): _int_field(int(DEFAULT_REMOVE_CONFIDENCE), minimum=0),
+                
+                vol.Optional(CONF_INITIAL_LEARNED_POWER, default=int(defaults.get(CONF_INITIAL_LEARNED_POWER, DEFAULT_INITIAL_LEARNED_POWER))): vol.All(vol.Coerce(int), vol.Range(min=0)),
+                
+                vol.Optional(CONF_ENABLE_TEMP_MODULATION, default=bool(defaults.get(CONF_ENABLE_TEMP_MODULATION, DEFAULT_ENABLE_TEMP_MODULATION))): bool,
+                vol.Optional(CONF_ENABLE_AUTO_SEASON, default=bool(defaults.get(CONF_ENABLE_AUTO_SEASON, DEFAULT_ENABLE_AUTO_SEASON))): bool,
+                vol.Optional(CONF_ENABLE_DIAGNOSTICS, default=bool(defaults.get(CONF_ENABLE_DIAGNOSTICS, False))): bool,
+            }
+        )
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=schema,
+            errors=errors,
+        )
+
+    async def async_step_timing(self, user_input: dict[str, Any] | None = None):
+        """Step 2: Timing & Protection."""
+        errors: dict[str, str] = {}
+        defaults = {**self._current, **self.data}
+
+        if user_input is not None:
+            panic_th = int(user_input.get(CONF_PANIC_THRESHOLD, DEFAULT_PANIC_THRESHOLD))
+            solar_on = int(self.data.get(CONF_SOLAR_THRESHOLD_ON, DEFAULT_SOLAR_THRESHOLD_ON))
+            
+            if panic_th <= solar_on:
+                errors["base"] = "panic_too_low"
+            
+            if not errors:
+                self.data = {**self.data, **user_input}
+                
+                # Decide next step based on feature toggles
+                if self.data.get(CONF_ENABLE_TEMP_MODULATION):
+                    return await self.async_step_comfort()
+                elif self.data.get(CONF_ENABLE_AUTO_SEASON):
+                    return await self.async_step_auto_season()
+                else:
+                    # Create entry if no conditional steps
+                    return self.async_create_entry(title="", data=self.data)
+
+        schema = vol.Schema(
+            {
+                vol.Optional(CONF_ACTION_DELAY_SECONDS, default=int(defaults.get(CONF_ACTION_DELAY_SECONDS, DEFAULT_ACTION_DELAY_SECONDS))): _int_field(int(DEFAULT_ACTION_DELAY_SECONDS), minimum=0),
+                vol.Optional(CONF_MANUAL_LOCK_SECONDS, default=int(defaults.get(CONF_MANUAL_LOCK_SECONDS, DEFAULT_MANUAL_LOCK_SECONDS))): _int_field(int(DEFAULT_MANUAL_LOCK_SECONDS), minimum=0),
+                vol.Optional(CONF_SHORT_CYCLE_ON_SECONDS, default=int(defaults.get(CONF_SHORT_CYCLE_ON_SECONDS, DEFAULT_SHORT_CYCLE_ON_SECONDS))): _int_field(int(DEFAULT_SHORT_CYCLE_ON_SECONDS), minimum=0),
+                vol.Optional(CONF_SHORT_CYCLE_OFF_SECONDS, default=int(defaults.get(CONF_SHORT_CYCLE_OFF_SECONDS, DEFAULT_SHORT_CYCLE_OFF_SECONDS))): _int_field(int(DEFAULT_SHORT_CYCLE_OFF_SECONDS), minimum=0),
+                vol.Optional(CONF_PANIC_THRESHOLD, default=int(defaults.get(CONF_PANIC_THRESHOLD, DEFAULT_PANIC_THRESHOLD))): _int_field(int(DEFAULT_PANIC_THRESHOLD), minimum=0),
+                vol.Optional(CONF_PANIC_DELAY, default=int(defaults.get(CONF_PANIC_DELAY, DEFAULT_PANIC_DELAY))): _int_field(int(DEFAULT_PANIC_DELAY), minimum=0),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="timing",
+            data_schema=schema,
+            errors=errors,
+        )
+
+    async def async_step_comfort(self, user_input: dict[str, Any] | None = None):
+        """Step 3: Comfort-Based Zone Control (conditional)."""
+        errors: dict[str, str] = {}
+        defaults = {**self._current, **self.data}
+
+        if user_input is not None:
+            zones = self.data.get(CONF_ZONES, [])
             zone_temp_sensors = user_input.get(CONF_ZONE_TEMP_SENSORS, [])
+            
+            # Validate zone_temp_sensors list length matches zones if provided
+            if zone_temp_sensors and len(zone_temp_sensors) != len(zones):
+                errors["base"] = "zone_temp_sensors_mismatch"
+            
+            if not errors:
+                self.data = {**self.data, **user_input}
+                
+                # Next step: auto-season if enabled, else create entry
+                if self.data.get(CONF_ENABLE_AUTO_SEASON):
+                    return await self.async_step_auto_season()
+                else:
+                    return self.async_create_entry(title="", data=self.data)
+
+        schema = vol.Schema(
+            {
+                vol.Optional(CONF_ZONE_TEMP_SENSORS, default=defaults.get(CONF_ZONE_TEMP_SENSORS, [])): selector({"entity": {"domain": "sensor", "device_class": ["temperature"], "multiple": True}}),
+                vol.Optional(CONF_MAX_TEMP_WINTER, default=float(defaults.get(CONF_MAX_TEMP_WINTER, DEFAULT_MAX_TEMP_WINTER))): vol.Coerce(float),
+                vol.Optional(CONF_MIN_TEMP_SUMMER, default=float(defaults.get(CONF_MIN_TEMP_SUMMER, DEFAULT_MIN_TEMP_SUMMER))): vol.Coerce(float),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="comfort",
+            data_schema=schema,
+            errors=errors,
+        )
+
+    async def async_step_auto_season(self, user_input: dict[str, Any] | None = None):
+        """Step 4: Auto-Season Detection (conditional)."""
+        errors: dict[str, str] = {}
+        defaults = {**self._current, **self.data}
+
+        if user_input is not None:
             heat_on = float(user_input.get(CONF_HEAT_ON_BELOW, DEFAULT_HEAT_ON_BELOW))
             heat_off = float(user_input.get(CONF_HEAT_OFF_ABOVE, DEFAULT_HEAT_OFF_ABOVE))
             cool_on = float(user_input.get(CONF_COOL_ON_ABOVE, DEFAULT_COOL_ON_ABOVE))
             cool_off = float(user_input.get(CONF_COOL_OFF_BELOW, DEFAULT_COOL_OFF_BELOW))
-            band_cold = float(user_input.get(CONF_BAND_COLD_MAX, DEFAULT_BAND_COLD_MAX))
-            band_mild_cold = float(user_input.get(CONF_BAND_MILD_COLD_MAX, DEFAULT_BAND_MILD_COLD_MAX))
-            band_mild_hot = float(user_input.get(CONF_BAND_MILD_HOT_MAX, DEFAULT_BAND_MILD_HOT_MAX))
-
-            if not zones:
-                errors["base"] = "no_zones"
-            elif zone_temp_sensors and len(zone_temp_sensors) != len(zones):
-                errors["base"] = "zone_temp_sensors_mismatch"
-            elif solar_off >= solar_on:
-                errors["base"] = "invalid_solar_hysteresis"
-            elif panic_th <= solar_on:
-                errors["base"] = "panic_too_low"
-            elif heat_off <= heat_on:
+            very_cold = float(user_input.get(CONF_VERY_COLD_THRESHOLD, DEFAULT_VERY_COLD_THRESHOLD))
+            chilly = float(user_input.get(CONF_CHILLY_THRESHOLD, DEFAULT_CHILLY_THRESHOLD))
+            comfortable = float(user_input.get(CONF_COMFORTABLE_THRESHOLD, DEFAULT_COMFORTABLE_THRESHOLD))
+            
+            if heat_off <= heat_on:
                 errors["base"] = "invalid_heat_hysteresis"
             elif cool_on <= cool_off:
                 errors["base"] = "invalid_cool_hysteresis"
-            elif not (band_cold < band_mild_cold < band_mild_hot):
+            elif not (very_cold < chilly < comfortable):
                 errors["base"] = "invalid_bands"
-            else:
-                # Normalize and coerce numeric options
-                new_options = {
-                    CONF_SOLAR_SENSOR: user_input[CONF_SOLAR_SENSOR],
-                    CONF_GRID_SENSOR: user_input[CONF_GRID_SENSOR],
-                    CONF_AC_POWER_SENSOR: user_input[CONF_AC_POWER_SENSOR],
-                    CONF_AC_SWITCH: user_input.get(CONF_AC_SWITCH, ""),
-                    CONF_OUTSIDE_SENSOR: user_input.get(CONF_OUTSIDE_SENSOR, ""),
-                    CONF_ZONES: list(zones),
-                    CONF_SOLAR_THRESHOLD_ON: solar_on,
-                    CONF_SOLAR_THRESHOLD_OFF: solar_off,
-                    CONF_HEAT_ON_BELOW: heat_on,
-                    CONF_HEAT_OFF_ABOVE: heat_off,
-                    CONF_COOL_ON_ABOVE: cool_on,
-                    CONF_COOL_OFF_BELOW: cool_off,
-                    CONF_BAND_COLD_MAX: band_cold,
-                    CONF_BAND_MILD_COLD_MAX: band_mild_cold,
-                    CONF_BAND_MILD_HOT_MAX: band_mild_hot,
-                    CONF_MAX_TEMP_WINTER: float(user_input.get(CONF_MAX_TEMP_WINTER, DEFAULT_MAX_TEMP_WINTER)),
-                    CONF_MIN_TEMP_SUMMER: float(user_input.get(CONF_MIN_TEMP_SUMMER, DEFAULT_MIN_TEMP_SUMMER)),
-                    CONF_ZONE_TEMP_SENSORS: user_input.get(CONF_ZONE_TEMP_SENSORS, {}),
-                    CONF_PANIC_THRESHOLD: panic_th,
-                    CONF_PANIC_DELAY: int(user_input.get(CONF_PANIC_DELAY, DEFAULT_PANIC_DELAY)),
-                    CONF_MANUAL_LOCK_SECONDS: int(user_input.get(CONF_MANUAL_LOCK_SECONDS, DEFAULT_MANUAL_LOCK_SECONDS)),
-                    CONF_SHORT_CYCLE_ON_SECONDS: int(user_input.get(CONF_SHORT_CYCLE_ON_SECONDS, DEFAULT_SHORT_CYCLE_ON_SECONDS)),
-                    CONF_SHORT_CYCLE_OFF_SECONDS: int(user_input.get(CONF_SHORT_CYCLE_OFF_SECONDS, DEFAULT_SHORT_CYCLE_OFF_SECONDS)),
-                    CONF_ACTION_DELAY_SECONDS: int(user_input.get(CONF_ACTION_DELAY_SECONDS, DEFAULT_ACTION_DELAY_SECONDS)),
-                    CONF_ADD_CONFIDENCE: int(user_input.get(CONF_ADD_CONFIDENCE, DEFAULT_ADD_CONFIDENCE)),
-                    CONF_REMOVE_CONFIDENCE: int(user_input.get(CONF_REMOVE_CONFIDENCE, DEFAULT_REMOVE_CONFIDENCE)),
+            
+            if not errors:
+                self.data = {**self.data, **user_input}
+                return self.async_create_entry(title="", data=self.data)
 
-                    # Diagnostics toggle is saved in options
-                    CONF_ENABLE_DIAGNOSTICS: bool(user_input.get(CONF_ENABLE_DIAGNOSTICS, False)),
-
-                    CONF_ENABLE_AUTO_SEASON: bool(user_input.get(CONF_ENABLE_AUTO_SEASON, DEFAULT_ENABLE_AUTO_SEASON)),
-                    CONF_ENABLE_TEMP_MODULATION: bool(user_input.get(CONF_ENABLE_TEMP_MODULATION, DEFAULT_ENABLE_TEMP_MODULATION)),
-                    CONF_MASTER_OFF_IN_NEUTRAL: bool(user_input.get(CONF_MASTER_OFF_IN_NEUTRAL, DEFAULT_MASTER_OFF_IN_NEUTRAL)),
-
-                    CONF_INITIAL_LEARNED_POWER: int(user_input.get(CONF_INITIAL_LEARNED_POWER, DEFAULT_INITIAL_LEARNED_POWER)),
-                    CONF_ZONE_TEMP_SENSORS: list(zone_temp_sensors) if zone_temp_sensors else [],
-                }
-                return self.async_create_entry(title="", data=new_options)
-
-            current = user_input
-
-        return self._show_main_form(current, errors)
-
-    def _show_main_form(self, data: dict[str, Any], errors: dict[str, str]):
-        # Get optional sensor defaults, use None if empty/missing to avoid "Unknown entity" errors
-        outside_sensor_default = data.get(CONF_OUTSIDE_SENSOR) or None
-        
         schema = vol.Schema(
             {
-                vol.Required(CONF_SOLAR_SENSOR, default=data.get(CONF_SOLAR_SENSOR)): selector({"entity": {"domain": "sensor"}}),
-                vol.Required(CONF_GRID_SENSOR, default=data.get(CONF_GRID_SENSOR)): selector({"entity": {"domain": "sensor"}}),
-                vol.Required(CONF_AC_POWER_SENSOR, default=data.get(CONF_AC_POWER_SENSOR)): selector({"entity": {"domain": "sensor"}}),
-
-                vol.Optional(CONF_OUTSIDE_SENSOR, default=outside_sensor_default): selector({"entity": {"domain": "sensor"}}),
-
-                vol.Optional(CONF_AC_SWITCH, default=data.get(CONF_AC_SWITCH, "")): selector({"entity": {"domain": "switch"}}),
-
-                vol.Required(CONF_ZONES, default=data.get(CONF_ZONES, [])): selector({
-                    "entity": {"domain": ["climate", "switch", "fan"], "multiple": True}
-                }),
-
-                vol.Optional(CONF_SOLAR_THRESHOLD_ON, default=data.get(CONF_SOLAR_THRESHOLD_ON, int(DEFAULT_SOLAR_THRESHOLD_ON))): _int_field(int(DEFAULT_SOLAR_THRESHOLD_ON), minimum=0),
-                vol.Optional(CONF_SOLAR_THRESHOLD_OFF, default=data.get(CONF_SOLAR_THRESHOLD_OFF, int(DEFAULT_SOLAR_THRESHOLD_OFF))): _int_field(int(DEFAULT_SOLAR_THRESHOLD_OFF), minimum=0),
-
-                vol.Optional(CONF_HEAT_ON_BELOW, default=data.get(CONF_HEAT_ON_BELOW, float(DEFAULT_HEAT_ON_BELOW))): vol.Coerce(float),
-                vol.Optional(CONF_HEAT_OFF_ABOVE, default=data.get(CONF_HEAT_OFF_ABOVE, float(DEFAULT_HEAT_OFF_ABOVE))): vol.Coerce(float),
-                vol.Optional(CONF_COOL_ON_ABOVE, default=data.get(CONF_COOL_ON_ABOVE, float(DEFAULT_COOL_ON_ABOVE))): vol.Coerce(float),
-                vol.Optional(CONF_COOL_OFF_BELOW, default=data.get(CONF_COOL_OFF_BELOW, float(DEFAULT_COOL_OFF_BELOW))): vol.Coerce(float),
-                vol.Optional(CONF_BAND_COLD_MAX, default=data.get(CONF_BAND_COLD_MAX, float(DEFAULT_BAND_COLD_MAX))): vol.Coerce(float),
-                vol.Optional(CONF_BAND_MILD_COLD_MAX, default=data.get(CONF_BAND_MILD_COLD_MAX, float(DEFAULT_BAND_MILD_COLD_MAX))): vol.Coerce(float),
-                vol.Optional(CONF_BAND_MILD_HOT_MAX, default=data.get(CONF_BAND_MILD_HOT_MAX, float(DEFAULT_BAND_MILD_HOT_MAX))): vol.Coerce(float),
-
-                vol.Optional(CONF_MAX_TEMP_WINTER, default=data.get(CONF_MAX_TEMP_WINTER, float(DEFAULT_MAX_TEMP_WINTER))): vol.Coerce(float),
-                vol.Optional(CONF_MIN_TEMP_SUMMER, default=data.get(CONF_MIN_TEMP_SUMMER, float(DEFAULT_MIN_TEMP_SUMMER))): vol.Coerce(float),
-                vol.Optional(CONF_ZONE_TEMP_SENSORS, default=data.get(CONF_ZONE_TEMP_SENSORS, [])): selector({"entity": {"domain": "sensor", "device_class": ["temperature"], "multiple": True}}),
-
-                vol.Optional(CONF_PANIC_THRESHOLD, default=data.get(CONF_PANIC_THRESHOLD, int(DEFAULT_PANIC_THRESHOLD))): _int_field(int(DEFAULT_PANIC_THRESHOLD), minimum=0),
-                vol.Optional(CONF_PANIC_DELAY, default=data.get(CONF_PANIC_DELAY, int(DEFAULT_PANIC_DELAY))): _int_field(int(DEFAULT_PANIC_DELAY), minimum=0),
-                vol.Optional(CONF_MANUAL_LOCK_SECONDS, default=data.get(CONF_MANUAL_LOCK_SECONDS, int(DEFAULT_MANUAL_LOCK_SECONDS))): _int_field(int(DEFAULT_MANUAL_LOCK_SECONDS), minimum=0),
-                vol.Optional(CONF_SHORT_CYCLE_ON_SECONDS, default=data.get(CONF_SHORT_CYCLE_ON_SECONDS, int(DEFAULT_SHORT_CYCLE_ON_SECONDS))): _int_field(int(DEFAULT_SHORT_CYCLE_ON_SECONDS), minimum=0),
-                vol.Optional(CONF_SHORT_CYCLE_OFF_SECONDS, default=data.get(CONF_SHORT_CYCLE_OFF_SECONDS, int(DEFAULT_SHORT_CYCLE_OFF_SECONDS))): _int_field(int(DEFAULT_SHORT_CYCLE_OFF_SECONDS), minimum=0),
-                vol.Optional(CONF_ACTION_DELAY_SECONDS, default=data.get(CONF_ACTION_DELAY_SECONDS, int(DEFAULT_ACTION_DELAY_SECONDS))): _int_field(int(DEFAULT_ACTION_DELAY_SECONDS), minimum=0),
-
-                vol.Optional(CONF_ADD_CONFIDENCE, default=data.get(CONF_ADD_CONFIDENCE, int(DEFAULT_ADD_CONFIDENCE))): _int_field(int(DEFAULT_ADD_CONFIDENCE), minimum=0),
-                vol.Optional(CONF_REMOVE_CONFIDENCE, default=data.get(CONF_REMOVE_CONFIDENCE, int(DEFAULT_REMOVE_CONFIDENCE))): _int_field(int(DEFAULT_REMOVE_CONFIDENCE), minimum=0),
-
-                # Diagnostics toggle included in options UI
-                vol.Optional(CONF_ENABLE_DIAGNOSTICS, default=data.get(CONF_ENABLE_DIAGNOSTICS, False)): bool,
-
-                vol.Optional(CONF_ENABLE_AUTO_SEASON, default=data.get(CONF_ENABLE_AUTO_SEASON, DEFAULT_ENABLE_AUTO_SEASON)): bool,
-                vol.Optional(CONF_ENABLE_TEMP_MODULATION, default=data.get(CONF_ENABLE_TEMP_MODULATION, DEFAULT_ENABLE_TEMP_MODULATION)): bool,
-                vol.Optional(CONF_MASTER_OFF_IN_NEUTRAL, default=data.get(CONF_MASTER_OFF_IN_NEUTRAL, DEFAULT_MASTER_OFF_IN_NEUTRAL)): bool,
-
-                vol.Optional(CONF_INITIAL_LEARNED_POWER, default=data.get(CONF_INITIAL_LEARNED_POWER, int(DEFAULT_INITIAL_LEARNED_POWER))): vol.All(vol.Coerce(int), vol.Range(min=0)),
+                vol.Optional(CONF_OUTSIDE_SENSOR, default=defaults.get(CONF_OUTSIDE_SENSOR) or None): selector({"entity": {"domain": "sensor"}}),
+                vol.Optional(CONF_HEAT_ON_BELOW, default=float(defaults.get(CONF_HEAT_ON_BELOW, DEFAULT_HEAT_ON_BELOW))): vol.Coerce(float),
+                vol.Optional(CONF_HEAT_OFF_ABOVE, default=float(defaults.get(CONF_HEAT_OFF_ABOVE, DEFAULT_HEAT_OFF_ABOVE))): vol.Coerce(float),
+                vol.Optional(CONF_COOL_ON_ABOVE, default=float(defaults.get(CONF_COOL_ON_ABOVE, DEFAULT_COOL_ON_ABOVE))): vol.Coerce(float),
+                vol.Optional(CONF_COOL_OFF_BELOW, default=float(defaults.get(CONF_COOL_OFF_BELOW, DEFAULT_COOL_OFF_BELOW))): vol.Coerce(float),
+                vol.Optional(CONF_VERY_COLD_THRESHOLD, default=float(defaults.get(CONF_VERY_COLD_THRESHOLD, DEFAULT_VERY_COLD_THRESHOLD))): vol.Coerce(float),
+                vol.Optional(CONF_CHILLY_THRESHOLD, default=float(defaults.get(CONF_CHILLY_THRESHOLD, DEFAULT_CHILLY_THRESHOLD))): vol.Coerce(float),
+                vol.Optional(CONF_COMFORTABLE_THRESHOLD, default=float(defaults.get(CONF_COMFORTABLE_THRESHOLD, DEFAULT_COMFORTABLE_THRESHOLD))): vol.Coerce(float),
+                vol.Optional(CONF_MASTER_SWITCH_IN_OFFSEASON, default=bool(defaults.get(CONF_MASTER_SWITCH_IN_OFFSEASON, DEFAULT_MASTER_SWITCH_IN_OFFSEASON))): bool,
             }
         )
 
-        return self.async_show_form(step_id="init", data_schema=schema, errors=errors)
+        return self.async_show_form(
+            step_id="auto_season",
+            data_schema=schema,
+            errors=errors,
+        )

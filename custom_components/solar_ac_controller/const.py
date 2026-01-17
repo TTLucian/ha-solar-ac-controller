@@ -25,16 +25,16 @@ CONF_OUTSIDE_SENSOR = "outside_temperature_sensor"
 CONF_ENABLE_AUTO_SEASON = "enable_auto_season"
 CONF_ENABLE_TEMP_MODULATION = "enable_temperature_modulation"
 CONF_SEASON_OVERRIDE = "season_override"
-CONF_MASTER_OFF_IN_NEUTRAL = "master_off_in_neutral"
+CONF_MASTER_SWITCH_IN_OFFSEASON = "master_switch_in_offseason"
 
 # Temperature bands (C)
 CONF_HEAT_ON_BELOW = "heat_on_below"
 CONF_HEAT_OFF_ABOVE = "heat_off_above"
 CONF_COOL_ON_ABOVE = "cool_on_above"
 CONF_COOL_OFF_BELOW = "cool_off_below"
-CONF_BAND_COLD_MAX = "band_cold_max"
-CONF_BAND_MILD_COLD_MAX = "band_mild_cold_max"
-CONF_BAND_MILD_HOT_MAX = "band_mild_hot_max"
+CONF_VERY_COLD_THRESHOLD = "very_cold_threshold"
+CONF_CHILLY_THRESHOLD = "chilly_threshold"
+CONF_COMFORTABLE_THRESHOLD = "comfortable_threshold"
 
 # Solar thresholds (W)
 CONF_SOLAR_THRESHOLD_ON = "solar_threshold_on"
@@ -90,9 +90,9 @@ DEFAULT_COOL_ON_ABOVE = 26.0
 DEFAULT_COOL_OFF_BELOW = 23.0
 
 # Outdoor temperature bands (C) - 0.1 increment precision
-DEFAULT_BAND_COLD_MAX = 5.0
-DEFAULT_BAND_MILD_COLD_MAX = 15.0
-DEFAULT_BAND_MILD_HOT_MAX = 25.0
+DEFAULT_VERY_COLD_THRESHOLD = 5.0
+DEFAULT_CHILLY_THRESHOLD = 15.0
+DEFAULT_COMFORTABLE_THRESHOLD = 25.0
 
 # Comfort temperature targets (C) - 0.1 increment precision
 DEFAULT_MAX_TEMP_WINTER = 22.0
@@ -100,7 +100,7 @@ DEFAULT_MIN_TEMP_SUMMER = 20.0
 
 DEFAULT_ENABLE_AUTO_SEASON = True
 DEFAULT_ENABLE_TEMP_MODULATION = True
-DEFAULT_MASTER_OFF_IN_NEUTRAL = False
+DEFAULT_MASTER_SWITCH_IN_OFFSEASON = False
 
 # Storage
 # Use a literal storage key so the on-disk filename remains stable even if DOMAIN changes.

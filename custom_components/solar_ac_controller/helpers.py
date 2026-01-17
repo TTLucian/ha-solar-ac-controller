@@ -77,7 +77,7 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
     season_mode = getattr(coordinator, "season_mode", None)
     enable_auto_season = bool(getattr(coordinator, "enable_auto_season", False))
     enable_temp_modulation = bool(getattr(coordinator, "enable_temp_modulation", False))
-    master_off_in_neutral = bool(getattr(coordinator, "master_off_in_neutral", False))
+    master_switch_in_offseason = bool(getattr(coordinator, "master_switch_in_offseason", False))
 
     last_action = getattr(coordinator, "last_action", None)
     next_zone = getattr(coordinator, "next_zone", None)
@@ -167,7 +167,7 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
         "season_mode": season_mode,
         "enable_auto_season": enable_auto_season,
         "enable_temp_modulation": enable_temp_modulation,
-        "master_off_in_neutral": master_off_in_neutral,
+        "master_switch_in_offseason": master_switch_in_offseason,
         "last_action": last_action,
         "next_zone": next_zone,
         "last_zone": last_zone,

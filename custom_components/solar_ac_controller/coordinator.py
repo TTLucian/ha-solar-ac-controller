@@ -30,14 +30,14 @@ from .const import (
     CONF_OUTSIDE_SENSOR,
     CONF_ENABLE_AUTO_SEASON,
     CONF_ENABLE_TEMP_MODULATION,
-    CONF_MASTER_OFF_IN_NEUTRAL,
+    CONF_MASTER_SWITCH_IN_OFFSEASON,
     CONF_HEAT_ON_BELOW,
     CONF_HEAT_OFF_ABOVE,
     CONF_COOL_ON_ABOVE,
     CONF_COOL_OFF_BELOW,
-    CONF_BAND_COLD_MAX,
-    CONF_BAND_MILD_COLD_MAX,
-    CONF_BAND_MILD_HOT_MAX,
+    CONF_VERY_COLD_THRESHOLD,
+    CONF_CHILLY_THRESHOLD,
+    CONF_COMFORTABLE_THRESHOLD,
     CONF_MAX_TEMP_WINTER,
     CONF_MIN_TEMP_SUMMER,
     CONF_ZONE_TEMP_SENSORS,
@@ -54,14 +54,14 @@ from .const import (
     DEFAULT_REMOVE_CONFIDENCE,
     DEFAULT_ENABLE_AUTO_SEASON,
     DEFAULT_ENABLE_TEMP_MODULATION,
-    DEFAULT_MASTER_OFF_IN_NEUTRAL,
+    DEFAULT_MASTER_SWITCH_IN_OFFSEASON,
     DEFAULT_HEAT_ON_BELOW,
     DEFAULT_HEAT_OFF_ABOVE,
     DEFAULT_COOL_ON_ABOVE,
     DEFAULT_COOL_OFF_BELOW,
-    DEFAULT_BAND_COLD_MAX,
-    DEFAULT_BAND_MILD_COLD_MAX,
-    DEFAULT_BAND_MILD_HOT_MAX,
+    DEFAULT_VERY_COLD_THRESHOLD,
+    DEFAULT_CHILLY_THRESHOLD,
+    DEFAULT_COMFORTABLE_THRESHOLD,
     DEFAULT_MAX_TEMP_WINTER,
     DEFAULT_MIN_TEMP_SUMMER,
 )
@@ -212,16 +212,16 @@ class SolarACCoordinator(DataUpdateCoordinator):
         self.enable_temp_modulation: bool = bool(
             self.config_entry.options.get(CONF_ENABLE_TEMP_MODULATION, self.config_entry.data.get(CONF_ENABLE_TEMP_MODULATION, DEFAULT_ENABLE_TEMP_MODULATION))
         )
-        self.master_off_in_neutral: bool = bool(
-            self.config_entry.options.get(CONF_MASTER_OFF_IN_NEUTRAL, self.config_entry.data.get(CONF_MASTER_OFF_IN_NEUTRAL, DEFAULT_MASTER_OFF_IN_NEUTRAL))
+        self.master_switch_in_offseason: bool = bool(
+            self.config_entry.options.get(CONF_MASTER_SWITCH_IN_OFFSEASON, self.config_entry.data.get(CONF_MASTER_SWITCH_IN_OFFSEASON, DEFAULT_MASTER_SWITCH_IN_OFFSEASON))
         )
         self.heat_on_below: float = float(self.config_entry.options.get(CONF_HEAT_ON_BELOW, self.config_entry.data.get(CONF_HEAT_ON_BELOW, DEFAULT_HEAT_ON_BELOW)))
         self.heat_off_above: float = float(self.config_entry.options.get(CONF_HEAT_OFF_ABOVE, self.config_entry.data.get(CONF_HEAT_OFF_ABOVE, DEFAULT_HEAT_OFF_ABOVE)))
         self.cool_on_above: float = float(self.config_entry.options.get(CONF_COOL_ON_ABOVE, self.config_entry.data.get(CONF_COOL_ON_ABOVE, DEFAULT_COOL_ON_ABOVE)))
         self.cool_off_below: float = float(self.config_entry.options.get(CONF_COOL_OFF_BELOW, self.config_entry.data.get(CONF_COOL_OFF_BELOW, DEFAULT_COOL_OFF_BELOW)))
-        self.band_cold_max: float = float(self.config_entry.options.get(CONF_BAND_COLD_MAX, self.config_entry.data.get(CONF_BAND_COLD_MAX, DEFAULT_BAND_COLD_MAX)))
-        self.band_mild_cold_max: float = float(self.config_entry.options.get(CONF_BAND_MILD_COLD_MAX, self.config_entry.data.get(CONF_BAND_MILD_COLD_MAX, DEFAULT_BAND_MILD_COLD_MAX)))
-        self.band_mild_hot_max: float = float(self.config_entry.options.get(CONF_BAND_MILD_HOT_MAX, self.config_entry.data.get(CONF_BAND_MILD_HOT_MAX, DEFAULT_BAND_MILD_HOT_MAX)))
+        self.very_cold_threshold: float = float(self.config_entry.options.get(CONF_VERY_COLD_THRESHOLD, self.config_entry.data.get(CONF_VERY_COLD_THRESHOLD, DEFAULT_VERY_COLD_THRESHOLD)))
+        self.chilly_threshold: float = float(self.config_entry.options.get(CONF_CHILLY_THRESHOLD, self.config_entry.data.get(CONF_CHILLY_THRESHOLD, DEFAULT_CHILLY_THRESHOLD)))
+        self.comfortable_threshold: float = float(self.config_entry.options.get(CONF_COMFORTABLE_THRESHOLD, self.config_entry.data.get(CONF_COMFORTABLE_THRESHOLD, DEFAULT_COMFORTABLE_THRESHOLD)))
 
         # Comfort temperature targets (C)
         self.max_temp_winter: float = float(self.config_entry.options.get(CONF_MAX_TEMP_WINTER, self.config_entry.data.get(CONF_MAX_TEMP_WINTER, DEFAULT_MAX_TEMP_WINTER)))
@@ -251,9 +251,9 @@ class SolarACCoordinator(DataUpdateCoordinator):
             heat_off_above=self.heat_off_above,
             cool_on_above=self.cool_on_above,
             cool_off_below=self.cool_off_below,
-            band_cold_max=self.band_cold_max,
-            band_mild_cold_max=self.band_mild_cold_max,
-            band_mild_hot_max=self.band_mild_hot_max,
+            band_cold_max=self.very_cold_threshold,
+            band_mild_cold_max=self.chilly_threshold,
+            band_mild_hot_max=self.comfortable_threshold,
             enable_auto_season=self.enable_auto_season,
         )
 
@@ -452,7 +452,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
         self.season_mode = self.season_manager.update_season_mode(outside_temp)
 
         # Neutral mode freeze if configured
-        if self.season_mode == "neutral" and self.master_off_in_neutral:
+        if self.season_mode == "neutral" and not self.master_switch_in_offseason:
             ac_switch_cfg = self.config.get(CONF_AC_SWITCH)
             if ac_switch_cfg:
                 try:
