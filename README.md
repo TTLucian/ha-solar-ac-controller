@@ -7,69 +7,72 @@
 </p>
 
 
-A smart, adaptive controller that manages multi‑zone AC systems based on solar production, grid import/export, and learned compressor behavior.
+A smart, adaptive Home Assistant integration that manages multi-zone AC systems based on real-time solar production, grid import/export, and learned compressor behavior.
 
 This integration automatically:
 
-- Turns AC zones on/off based on available solar power  
-- Learns each zone’s compressor delta (W)  
-- Avoids short‑cycling  
-- Detects manual overrides  
-- Performs panic shedding when grid import spikes  
-- Exposes full diagnostics and observability sensors  
-- Provides a complete Options Flow for reconfiguration  
+- **Dynamically controls AC zones** based on available solar export and grid conditions
+- **Learns each zone's power consumption** using an adaptive EMA (Exponential Moving Average) algorithm
+- **Prevents short-cycling** with configurable delays for both ON and OFF transitions
+- **Detects manual overrides** and locks zones to respect user control
+- **Performs panic shedding** when grid import exceeds configurable thresholds
+- **Optional master AC switch control** based on solar production thresholds
+- **Exposes comprehensive diagnostics** through sensors and JSON export
+- **Provides runtime reconfiguration** via Options Flow without restart
 
-Designed for high‑performance, solar‑aware HVAC automation.
+Designed as a Home Assistant **service integration** for high-performance, solar-aware HVAC automation.
 
 ---
 
 ## 🚀 Features
 
-### 🌞 Solar‑aware zone control  
-Zones activate in priority order based on real‑time solar export and grid import.
+### 🌞 Solar-aware zone control  
+Zones activate **in priority order** (based on config order) using real-time solar export and grid import data. The controller maintains separate EMAs (30-second and 5-minute) for responsive yet stable decision-making.
 
 ### 🧠 Adaptive learning engine  
-Each zone’s compressor delta is learned using a bootstrap + EMA model, improving accuracy over time.
+Each zone's power consumption is learned using a **per-mode (heat/cool) EMA model** with bootstrap initialization. The system tracks samples and continuously refines estimates as zones operate, improving accuracy over time.
 
 ### 🔒 Manual override detection  
-If a user manually changes a zone, the controller locks that zone for a configurable period.
+When a zone state changes outside the controller's actions, a **configurable lock** (default 20 minutes) prevents the controller from modifying that zone, respecting user intent.
 
 ### 🆘 Panic shedding  
-If grid import exceeds a threshold, the controller safely shuts down zones to protect the inverter and installation.
+When grid import exceeds a configured threshold **and persists for the panic delay**, the controller **sequentially sheds zones** (with configurable inter-action delays) to protect the inverter from overload.
+
+### 🔌 Optional master switch control  
+If configured, the controller can automatically turn the master AC switch ON when solar production exceeds `solar_threshold_on` and OFF when it drops below `solar_threshold_off`, using hysteresis to prevent oscillation.
 
 ### 📊 Full observability  
-The integration exposes a rich set of sensors and diagnostics so you can see exactly what the controller is doing and why.
+Exposes **20+ sensors and binary sensors** showing EMAs, confidence scores, zone states, panic status, learning activity, and more. Optional diagnostics sensor provides complete internal state as JSON attributes.
 
 ---
 
 ## 📡 Exposed Entities
 
-### **Sensors**
-- Active zones  
-- Next zone  
-- Last zone  
-- Last action  
-- EMA 30s  
-- EMA 5m  
-- Add confidence  
-- Remove confidence  
-- Required export  
-- Export margin  
-- Import power  
-- Learned compressor power per zone  
-- Master‑off timestamp  
-- Last panic timestamp  
-- Panic cooldown active  
+### **Sensors** (Power values in Watts)
+- **Active Zones** — Comma-separated list of currently running zones
+- **Next Zone** — The zone that will be added next if conditions allow
+- **Last Zone** — The most recently active zone
+- **Last Action** — Most recent controller action (e.g., `added_zone`, `removed_zone`, `panic`, `no_action`)
+- **EMA 30s** — 30-second exponential moving average of grid power
+- **EMA 5m** — 5-minute exponential moving average of grid power
+- **Confidence** — Current decision confidence score (points)
+- **Confidence Thresholds** — Shows add/remove confidence thresholds as attributes
+- **Required Export** — Minimum export needed to add the next zone
+- **Export Margin** — Current export headroom above required export
+- **Import Power** — Current import power (mirrors EMA 5m)
+- **Panic Cooldown Active** — Status of panic cooldown timer ("yes"/"no")
+- **Learned Power [zone]** — Per-zone learned power consumption (one sensor per configured zone)
+- **Diagnostics** (optional) — JSON snapshot of complete controller state
 
 ### **Binary Sensors**
-- Learning active  
-- Panic state  
-- Panic cooldown  
-- Short‑cycling  
-- Manual lock active  
-- Exporting  
-- Importing  
-- Master switch OFF  
+- **Learning Active** — Whether a learning cycle is in progress
+- **Panic State** — Whether panic shedding is currently active
+- **Panic Cooldown** — Whether panic cooldown period is active
+- **Short Cycling** — Whether any zone is in short-cycle protection
+- **Manual Lock Active** — Whether any zone is manually locked
+- **Exporting** — Grid export active (EMA 30s < 0)
+- **Importing** — Grid import active (EMA 30s > 0)
+- **Master Switch** — State of the optional master AC switch  
 
 ## 🔍 Diagnostics
 The Solar AC Controller provides a unified diagnostics system designed to help with troubleshooting, performance tuning, and understanding the controller’s internal decision engine. Diagnostics are available in two complementary forms:
@@ -149,67 +152,71 @@ Only integration configuration and runtime controller state are included.
 ### Initial Setup
 Add the integration via:
 
-`Settings → Devices & Services → Add Integration → Solar AC Controller`
+**Settings → Devices & Services → Add Integration → Solar AC Controller**
 
-You will configure:
+### Required Configuration
+- **Solar sensor** — Entity measuring solar production (W)
+- **Grid sensor** — Entity measuring grid power (W, positive=import, negative=export)
+- **AC power sensor** — Entity measuring total AC power consumption (W)
+- **Zones** — Multi-select of `climate`, `switch`, or `fan` entities (order = priority)
 
-- Solar sensor
-- Grid sensor
-- AC power sensor
-- Master AC switch (optional)
-- Zones (multi‑select)
-- Solar ON threshold
-- Solar OFF threshold
-- Panic threshold
-- Panic delay
-- Initial learned power
-- Confidence thresholds
+### Optional Configuration
+- **Master AC switch** — Optional switch entity to control entire AC system
+- **Solar ON threshold** (default: 1200W) — Solar production required to enable master switch
+- **Solar OFF threshold** (default: 800W) — Solar production below which master switch turns off
+- **Panic threshold** (default: 2000W) — Grid import level triggering panic shedding
+- **Panic delay** (default: 60s) — How long panic condition must persist
+- **Manual lock seconds** (default: 1200s) — Duration zones are locked after manual changes
+- **Short cycle ON seconds** (default: 1200s) — Minimum ON time before allowing OFF
+- **Short cycle OFF seconds** (default: 1200s) — Minimum OFF time before allowing ON
+- **Action delay seconds** (default: 3s) — Delay between consecutive service calls
+- **Add confidence** (default: 25 points) — Minimum confidence to add zones
+- **Remove confidence** (default: 10 points) — Minimum negative confidence to remove zones
+- **Initial learned power** (default: 1000W) — Bootstrap estimate before learning completes
+- **Enable diagnostics sensor** (default: disabled) — Optional JSON diagnostics sensor
 
 ---
 
 ## 🛠 Runtime Options (Options Flow)
 
-All key behavioral parameters can be changed at runtime:
+All configuration parameters can be changed at runtime via **Settings → Devices & Services → Solar AC Controller → Configure**.
 
-- `manual_lock_seconds` — Duration (in seconds) for which a zone is locked after a manual user override. During this time, the controller will not modify that zone.
-- `short_cycle_on_seconds` — Minimum time a zone must remain ON before the controller is allowed to turn it OFF. Prevents compressor short‑cycling.
-- `short_cycle_off_seconds` — Minimum time a zone must remain OFF before the controller is allowed to turn it ON. Also protects against short‑cycling.
-- `action_delay_seconds` — Delay between Home Assistant service calls when switching zones. Ensures clean sequencing and avoids overwhelming devices.
-- `panic_threshold` — Grid import level (in watts) that triggers panic shedding. If import exceeds this threshold, zones are shut down to protect the inverter.
-- `panic_delay` — How long the panic condition must persist before shedding begins. Prevents false positives during brief spikes.
-- `solar_threshold_on` - The minimum solar production (in watts) required before the controller is allowed to turn ON the master AC switch. When solar stays above this value, the system considers solar “strong enough” to run AC.
-- `solar_threshold_off` - The solar production level (in watts) below which the controller will schedule a master AC shutdown. This forms the lower half of the solar hysteresis band and prevents rapid toggling during cloud fluctuations.
-- `add_confidence` - The minimum confidence score required before the controller is allowed to add (enable) the next zone.Confidence is derived from export margin, learned compressor power, EMA trends, and short‑cycle penalties.
-- `remove_confidence` - The negative confidence threshold that triggers zone removal (turning off the last active zone). High import, low export, or short‑cycling conditions increase the likelihood of removal.
-- `initial_learned_power` - The starting estimate (in watts) for each zone’s compressor delta before the learning engine has collected enough samples. This value is used during the bootstrap phase and gradually replaced with learned data.
+### Behavioral Parameters
+- **`manual_lock_seconds`** — Duration a zone remains locked after manual override (default: 1200s / 20 min)
+- **`short_cycle_on_seconds`** — Minimum ON time before allowing OFF transition (default: 1200s)
+- **`short_cycle_off_seconds`** — Minimum OFF time before allowing ON transition (default: 1200s)
+- **`action_delay_seconds`** — Inter-service-call delay for sequential zone actions (default: 3s)
 
-Changes apply immediately without restarting the integration.
+### Threshold Parameters (Watts)
+- **`panic_threshold`** — Grid import level triggering panic shedding (default: 2000W)
+- **`panic_delay`** — Persistence time before panic activates (default: 60s)
+- **`solar_threshold_on`** — Solar production to enable master switch (default: 1200W)
+- **`solar_threshold_off`** — Solar production to disable master switch (default: 800W)
+
+### Decision Engine Parameters
+- **`add_confidence`** — Minimum confidence score to add zones (default: 25 points)
+- **`remove_confidence`** — Negative confidence threshold to remove zones (default: 10 points)
+- **`initial_learned_power`** — Bootstrap estimate before learning completes (default: 1000W)
+
+### Diagnostics
+- **`enable_diagnostics_sensor`** — Toggle optional diagnostics sensor (default: disabled)
+
+**Changes apply immediately** after saving — no integration reload required.
 
 ---
 
 ## 🧩 Services
 
-### - `solar_ac_controller.reset_learning`
-Cancels any active learning cycle and resets runtime learning state.
+### `solar_ac_controller.reset_learning`
+Cancels any active learning cycle and clears runtime learning state. This service does **not** reset stored learned power values — use the Options Flow to modify `initial_learned_power` or manually edit `.storage/solar_ac_controller` to reset stored data.
 
-### - `solar_ac_controller.force_relearn`
-Forces relearning for:
-
-- A specific zone (`zone:` provided)  
-- All zones (no `zone:` provided)  
-
-**Example (single zone):**
+**Example:**
 ```yaml
-service: solar_ac_controller.force_relearn
-data:
-  zone: climate.living_room
-```
-Example (all zones):
-
-```yaml
-service: solar_ac_controller.force_relearn
+service: solar_ac_controller.reset_learning
 data: {}
 ```
+
+> **Note:** Only the `reset_learning` service is currently implemented. Additional learning control services may be added in future releases.
 
 
 ## 🧪 Recommended Tests
@@ -236,31 +243,23 @@ EMA updates
 Abort conditions (manual lock, missing sensors, invalid values)
 
 ## 📦 Installation
-Manual Installation
-Copy custom_components/solar_ac_controller into your HA config directory.
 
-Restart Home Assistant.
+### Manual Installation
+1. Copy the `custom_components/solar_ac_controller` folder into your Home Assistant `config/custom_components/` directory
+2. Restart Home Assistant
+3. Add the integration via **Settings → Devices & Services → Add Integration → Solar AC Controller**
 
-Add the integration via the UI.
+### HACS Installation (Custom Repository)
+1. Open **HACS → Integrations**
+2. Click the **three-dot menu** → **Custom repositories**
+3. Add repository:
+   - **URL:** `https://github.com/TTLucian/ha-solar-ac-controller`
+   - **Category:** Integration
+4. Click **Install** on the Solar AC Controller card
+5. Restart Home Assistant
+6. Add the integration via **Settings → Devices & Services → Add Integration**
 
-HACS (Custom Repository)
-Open HACS → Integrations
-
-Three‑dot menu → Custom repositories
-
-Add:
-
-```Code
-https://github.com/TTLucian/ha-solar-ac-controller
-Category: Integration
-```
-Install
-
-Restart Home Assistant
-
-Add the integration via the UI
-
-Or click this:
+### Quick Links
 
 [![Add Solar AC Controller to HACS](https://img.shields.io/badge/HACS-Add%20Solar%20AC%20Controller-blue?style=for-the-badge)](https://my.home-assistant.io/redirect/hacs_repository/?owner=TTLucian&repository=ha-solar-ac-controller&category=integration)
 
@@ -269,6 +268,13 @@ then this:
 [![Add Solar AC Controller Integration](https://img.shields.io/badge/Home%20Assistant-Add%20Integration-blue?style=for-the-badge&logo=homeassistant)](https://my.home-assistant.io/redirect/config_flow_start?domain=solar_ac_controller)
 
 
-## 🙌 Credits
-Created by @TTLucian.
-Designed for high‑performance, solar‑aware HVAC automation with strong observability.
+## 🙌 Credits & Technical Details
+
+**Created by:** [@TTLucian](https://github.com/TTLucian)  
+**Integration Type:** Service (`integration_type: service`)  
+**Current Version:** 0.5.7 (see [manifest.json](custom_components/solar_ac_controller/manifest.json))  
+**Storage Version:** 2 (supports per-mode learned power structure)  
+**Update Interval:** 5 seconds  
+**Platforms:** `sensor`, `binary_sensor`  
+
+Designed for high-performance, solar-aware HVAC automation with comprehensive observability and production-grade reliability.
