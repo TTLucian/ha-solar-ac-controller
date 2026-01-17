@@ -5,6 +5,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
+## [0.5.9] — 2026-01-17 — Reconfigure defaults & diagnostics clarity
+### Changed
+- Reconfigure flow seeds defaults from existing entry data/options (zones, thresholds, comfort targets) so the form pre-fills during Configure/Reconfigure; strings updated to cover comfort targets and zone temp sensors.
+- Comfort/season UX: options labels/descriptions now mention `max_temp_winter`, `min_temp_summer`, and `zone_temp_sensors`; Copilot instructions note `async_step_reconfigure` and keeping defaults in sync; README documents the pre-fill behavior.
+- Diagnostics: payload now includes `manifest_version` derived from the manifest alongside the existing `version`, improving support visibility of installed build; no behavior change to decision logic.
+- Device metadata: removed `sw_version` from all DeviceInfo (sensors, binary sensors, diagnostics, device registry) to prevent duplicate devices; kept identifiers stable; manifest bumped to 0.5.9 with fallback aligned.
+- Season/comfort clarifications: document that auto-season uses hysteresis and outside bands, with comfort gates (`max_temp_winter`/`min_temp_summer`) blocking removals until all active zones reach targets; missing temp sensors fall back to solar-only control.
+- Learning and bands: reaffirm per-mode, per-band learned power (cold/mild_cold/mild_hot/hot) with fallback to mode default and initial learned power when band data is missing.
+- Manual overrides: manual lock duration respected when users toggle zones; neutral mode can turn master off when configured.
+
 ## v0.2.2 — 2026-01-09 — Unified Confidence Model, Stability Improvements, Sensor Cleanup
 ### ✨ Major Changes
 Replaced the dual‑axis confidence system (add_confidence, remove_confidence) with a single unified signed confidence axis:
