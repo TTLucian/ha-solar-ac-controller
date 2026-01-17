@@ -141,6 +141,7 @@
     },
     "error": {
       "no_zones": "You must define at least one zone.",
+      "zone_temp_sensors_mismatch": "Number of zone temperature sensors must match number of zones (or leave empty).",
       "invalid_solar_hysteresis": "Solar OFF threshold must be lower than Solar ON threshold.",
       "invalid_heat_hysteresis": "Heat OFF must be above Heat ON.",
       "invalid_cool_hysteresis": "Cool ON must be above Cool OFF.",

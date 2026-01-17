@@ -87,9 +87,15 @@ class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             zones = user_input.get(CONF_ZONES, [])
+            zone_temp_sensors = user_input.get(CONF_ZONE_TEMP_SENSORS, [])
+            
             if not zones:
                 errors["base"] = "no_zones"
             else:
+                # Validate zone_temp_sensors list length matches zones if provided
+                if zone_temp_sensors and len(zone_temp_sensors) != len(zones):
+                    errors["base"] = "zone_temp_sensors_mismatch"
+                
                 # Hysteresis validation for solar and temperature thresholds
                 solar_on = int(user_input.get(CONF_SOLAR_THRESHOLD_ON, DEFAULT_SOLAR_THRESHOLD_ON))
                 solar_off = int(user_input.get(CONF_SOLAR_THRESHOLD_OFF, DEFAULT_SOLAR_THRESHOLD_OFF))
@@ -111,9 +117,10 @@ class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     errors["base"] = "invalid_bands"
 
             if not errors:
-                # Normalize zones to list of strings
+                # Normalize zones and zone_temp_sensors to lists
                 normalized = {**user_input}
                 normalized[CONF_ZONES] = list(zones)
+                normalized[CONF_ZONE_TEMP_SENSORS] = list(zone_temp_sensors) if zone_temp_sensors else []
                 return self.async_create_entry(
                     title="Solar AC Controller",
                     data=normalized,
@@ -155,7 +162,7 @@ class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
                 vol.Optional(CONF_MAX_TEMP_WINTER, default=float(defaults.get(CONF_MAX_TEMP_WINTER, DEFAULT_MAX_TEMP_WINTER))): vol.Coerce(float),
                 vol.Optional(CONF_MIN_TEMP_SUMMER, default=float(defaults.get(CONF_MIN_TEMP_SUMMER, DEFAULT_MIN_TEMP_SUMMER))): vol.Coerce(float),
-                vol.Optional(CONF_ZONE_TEMP_SENSORS, default=defaults.get(CONF_ZONE_TEMP_SENSORS, {})): dict,
+                vol.Optional(CONF_ZONE_TEMP_SENSORS, default=defaults.get(CONF_ZONE_TEMP_SENSORS, [])): selector({"entity": {"domain": "sensor", "device_class": ["temperature"], "multiple": True}}),
 
                 vol.Optional(CONF_PANIC_THRESHOLD, default=int(defaults.get(CONF_PANIC_THRESHOLD, DEFAULT_PANIC_THRESHOLD))): _int_field(int(DEFAULT_PANIC_THRESHOLD), minimum=0),
                 vol.Optional(CONF_PANIC_DELAY, default=int(defaults.get(CONF_PANIC_DELAY, DEFAULT_PANIC_DELAY))): _int_field(int(DEFAULT_PANIC_DELAY), minimum=0),
@@ -225,6 +232,7 @@ class SolarACOptionsFlowHandler(config_entries.OptionsFlow):
             solar_off = int(user_input.get(CONF_SOLAR_THRESHOLD_OFF, DEFAULT_SOLAR_THRESHOLD_OFF))
             panic_th = int(user_input.get(CONF_PANIC_THRESHOLD, DEFAULT_PANIC_THRESHOLD))
             zones = user_input.get(CONF_ZONES, [])
+            zone_temp_sensors = user_input.get(CONF_ZONE_TEMP_SENSORS, [])
             heat_on = float(user_input.get(CONF_HEAT_ON_BELOW, DEFAULT_HEAT_ON_BELOW))
             heat_off = float(user_input.get(CONF_HEAT_OFF_ABOVE, DEFAULT_HEAT_OFF_ABOVE))
             cool_on = float(user_input.get(CONF_COOL_ON_ABOVE, DEFAULT_COOL_ON_ABOVE))
@@ -235,6 +243,8 @@ class SolarACOptionsFlowHandler(config_entries.OptionsFlow):
 
             if not zones:
                 errors["base"] = "no_zones"
+            elif zone_temp_sensors and len(zone_temp_sensors) != len(zones):
+                errors["base"] = "zone_temp_sensors_mismatch"
             elif solar_off >= solar_on:
                 errors["base"] = "invalid_solar_hysteresis"
             elif panic_th <= solar_on:
@@ -283,6 +293,7 @@ class SolarACOptionsFlowHandler(config_entries.OptionsFlow):
                     CONF_MASTER_OFF_IN_NEUTRAL: bool(user_input.get(CONF_MASTER_OFF_IN_NEUTRAL, DEFAULT_MASTER_OFF_IN_NEUTRAL)),
 
                     CONF_INITIAL_LEARNED_POWER: int(user_input.get(CONF_INITIAL_LEARNED_POWER, DEFAULT_INITIAL_LEARNED_POWER)),
+                    CONF_ZONE_TEMP_SENSORS: list(zone_temp_sensors) if zone_temp_sensors else [],
                 }
                 return self.async_create_entry(title="", data=new_options)
 
@@ -321,7 +332,7 @@ class SolarACOptionsFlowHandler(config_entries.OptionsFlow):
 
                 vol.Optional(CONF_MAX_TEMP_WINTER, default=data.get(CONF_MAX_TEMP_WINTER, float(DEFAULT_MAX_TEMP_WINTER))): vol.Coerce(float),
                 vol.Optional(CONF_MIN_TEMP_SUMMER, default=data.get(CONF_MIN_TEMP_SUMMER, float(DEFAULT_MIN_TEMP_SUMMER))): vol.Coerce(float),
-                vol.Optional(CONF_ZONE_TEMP_SENSORS, default=data.get(CONF_ZONE_TEMP_SENSORS, {})): dict,
+                vol.Optional(CONF_ZONE_TEMP_SENSORS, default=data.get(CONF_ZONE_TEMP_SENSORS, [])): selector({"entity": {"domain": "sensor", "device_class": ["temperature"], "multiple": True}}),
 
                 vol.Optional(CONF_PANIC_THRESHOLD, default=data.get(CONF_PANIC_THRESHOLD, int(DEFAULT_PANIC_THRESHOLD))): _int_field(int(DEFAULT_PANIC_THRESHOLD), minimum=0),
                 vol.Optional(CONF_PANIC_DELAY, default=data.get(CONF_PANIC_DELAY, int(DEFAULT_PANIC_DELAY))): _int_field(int(DEFAULT_PANIC_DELAY), minimum=0),

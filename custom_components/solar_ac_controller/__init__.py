@@ -15,6 +15,8 @@ from .const import (
     STORAGE_KEY,
     STORAGE_VERSION,
     CONF_INITIAL_LEARNED_POWER,
+    CONF_ZONES,
+    CONF_ZONE_TEMP_SENSORS,
     DEFAULT_INITIAL_LEARNED_POWER,
 )
 
@@ -74,6 +76,26 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})
+
+    # Migrate zone_temp_sensors from dict (old format) to list (new format)
+    needs_update = False
+    new_data = {**entry.data}
+    new_options = {**entry.options}
+    
+    for data_dict in [new_data, new_options]:
+        zone_temp_sensors = data_dict.get(CONF_ZONE_TEMP_SENSORS)
+        if zone_temp_sensors and isinstance(zone_temp_sensors, dict):
+            # Convert dict mapping to parallel list
+            zones = data_dict.get(CONF_ZONES, [])
+            zone_temp_sensors_list = []
+            for zone_id in zones:
+                zone_temp_sensors_list.append(zone_temp_sensors.get(zone_id, ""))
+            data_dict[CONF_ZONE_TEMP_SENSORS] = zone_temp_sensors_list
+            needs_update = True
+            _LOGGER.info("Migrated zone_temp_sensors from dict to list format")
+    
+    if needs_update:
+        hass.config_entries.async_update_entry(entry, data=new_data, options=new_options)
 
     # 1. Get Integration Version from manifest
     integration = await async_get_integration(hass, DOMAIN)

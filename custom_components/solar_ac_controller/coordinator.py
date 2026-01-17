@@ -226,7 +226,14 @@ class SolarACCoordinator(DataUpdateCoordinator):
         # Comfort temperature targets (C)
         self.max_temp_winter: float = float(self.config_entry.options.get(CONF_MAX_TEMP_WINTER, self.config_entry.data.get(CONF_MAX_TEMP_WINTER, DEFAULT_MAX_TEMP_WINTER)))
         self.min_temp_summer: float = float(self.config_entry.options.get(CONF_MIN_TEMP_SUMMER, self.config_entry.data.get(CONF_MIN_TEMP_SUMMER, DEFAULT_MIN_TEMP_SUMMER)))
-        self.zone_temp_sensors: dict[str, str] = dict(self.config_entry.options.get(CONF_ZONE_TEMP_SENSORS, self.config_entry.data.get(CONF_ZONE_TEMP_SENSORS, {})) or {})
+        
+        # Build zone→sensor mapping from parallel lists
+        zone_temp_sensors_list: list[str] = list(self.config_entry.options.get(CONF_ZONE_TEMP_SENSORS, self.config_entry.data.get(CONF_ZONE_TEMP_SENSORS, [])) or [])
+        self.zone_temp_sensors: dict[str, str] = {}
+        for idx, zone_id in enumerate(self.zones):
+            if idx < len(zone_temp_sensors_list) and zone_temp_sensors_list[idx]:
+                self.zone_temp_sensors[zone_id] = zone_temp_sensors_list[idx]
+        
         self.zone_current_temps: dict[str, float | None] = {}  # zone_id -> current temp or None
 
         # Disable temperature modulation if no zone temp sensors configured
