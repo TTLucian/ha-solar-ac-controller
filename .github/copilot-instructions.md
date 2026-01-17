@@ -18,8 +18,16 @@ Purpose: concise, actionable guidance for editing this Home Assistant integratio
 - Locks & guards: manual override lock (`manual_lock_seconds`), short‑cycle delays (`short_cycle_on_seconds`, `short_cycle_off_seconds`), sequential action delay (`action_delay_seconds`).
 - Panic: triggers when `ema_30s > panic_threshold` for `panic_delay` seconds and multiple zones are on; sheds sequentially.
 
+## Season & Temperature Bands
+- Optional `outside_temperature_sensor`; if missing, auto-season is disabled and logic reverts to export-only decisions.
+- Auto-season uses hysteresis: heat when `<= heat_on_below`, cool when `>= cool_on_above`, neutral in between with turn-off option via `master_off_in_neutral`.
+- Bands: `cold < mild_cold < mild_hot < hot` (defaults 5/15/25°C) and are used for banded learned power lookups.
+- Learned power persists per mode **and** band in `learned_power_bands`; fall back to per-mode `learned_power` then `initial_learned_power`.
+- Temperature modulation is guarded by `enable_temperature_modulation`; if indoor temps are unavailable, controller falls back to binary control.
+- Comfort targets (optional indoor sensors): `max_temp_winter` (default 22C) and `min_temp_summer` (default 20C) gate removals. Mapping via `zone_temp_sensors` (zone entity_id -> temp sensor). Missing or unavailable sensors are treated as not-at-target (keeps zones on). Neutral mode does not block removals. All targets use 0.1C precision.
+
 ## Storage & Migration
-- On‑disk payload: `{"learned_power": {zone: {default|heat|cool: float}}, "samples": int}`.
+- On‑disk payload: `{"learned_power": {zone: {default|heat|cool: float}}, "learned_power_bands": {...}, "samples": int}`.
 - `const.py`: increment `STORAGE_VERSION` on schema changes; migration lives in `__init__._async_migrate_data()`.
 - Coordinator persists via `_persist_learned_values()`; controller calls it after learning.
 
@@ -27,6 +35,7 @@ Purpose: concise, actionable guidance for editing this Home Assistant integratio
 - Use selectors directly: `selector({"entity": {"domain": ["climate","switch","fan"], "multiple": True}})` for zones.
 - Set defaults with `vol.Optional(..., default=...)`; avoid `vol.Default` (not a thing).
 - Options are merged over data: always read runtime config from `{**entry.data, **entry.options}`.
+- Zone temp sensors selector: `selector({"entity": {"domain": "sensor", "device_class": ["temperature"]}})`; stored as mapping `zone -> sensor`. Comfort targets configured via `max_temp_winter` / `min_temp_summer` (float, 0.1C increments).
 
 ## Entities & Patterns
 - Non‑polling: entities set `_attr_should_poll = False` and register `coordinator.async_add_listener(self.async_write_ha_state)`.
@@ -55,11 +64,13 @@ Purpose: concise, actionable guidance for editing this Home Assistant integratio
 
 ## Diagnostics
 - Prefer `helpers.build_diagnostics(coordinator)`; it documents `required_export` equals learned power (no multiplier) and keeps sensor/export in sync.
+- Diagnostics payload includes `max_temp_winter`, `min_temp_summer`, `zone_current_temps` (rounded), and `all_zones_at_target`.
 
 ## Gotchas
 - Treat grid export as `-ema_30s` when evaluating add decisions.
 - Respect zone locks when selecting next/last zones.
 - `diagnostic.py` exists but `sensor.py` already exposes a diagnostics entity guarded by `enable_diagnostics_sensor`.
+- Removal is blocked until all active zones hit comfort targets when temp sensors are configured (heat: >= max_temp_winter; cool: <= min_temp_summer; neutral: no block; missing sensor -> keep on).
 
 Questions or unclear areas? Ask for specific sections to expand (decision thresholds, panic flow, learning bootstrap, or service call patterns).
 
@@ -71,6 +82,7 @@ Questions or unclear areas? Ask for specific sections to expand (decision thresh
 - Confidence: Coordinator computes `last_add_conf` and `last_remove_conf`, then `confidence = last_add_conf - last_remove_conf`. Thresholds are `add_confidence` and `remove_confidence` from Options.
 - EMA updates every cycle: `ema_30s = 0.25*grid + 0.75*ema_30s`, `ema_5m = 0.03*grid + 0.97*ema_5m`. Use `ema_30s` for “responsive” decisions and `ema_5m` to gauge sustained import.
 - Required export: Exactly the learned power for `next_zone` (no multiplier). Export margin: `-ema_30s - required_export`.
+- Comfort gating for removal: `coordinator._all_active_zones_at_target(active_zones)` must be true to remove when temp sensors exist (heat uses >= max_temp_winter; cool uses <= min_temp_summer; neutral always False). Missing sensor -> False. Temps read each cycle into `zone_current_temps` via `_read_zone_temps`.
 
 ## Learning Lifecycle
 - Start: `controller.start_learning(zone, ac_power_before)` records baseline (from AC power sensor) and timestamps; `coordinator.learning_active = True`.

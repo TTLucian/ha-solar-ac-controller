@@ -19,6 +19,22 @@ CONF_GRID_SENSOR = "grid_sensor"
 CONF_AC_POWER_SENSOR = "ac_power_sensor"
 CONF_AC_SWITCH = "ac_switch"
 CONF_ZONES = "zones"
+CONF_OUTSIDE_SENSOR = "outside_temperature_sensor"
+
+# Season / mode control
+CONF_ENABLE_AUTO_SEASON = "enable_auto_season"
+CONF_ENABLE_TEMP_MODULATION = "enable_temperature_modulation"
+CONF_SEASON_OVERRIDE = "season_override"
+CONF_MASTER_OFF_IN_NEUTRAL = "master_off_in_neutral"
+
+# Temperature bands (C)
+CONF_HEAT_ON_BELOW = "heat_on_below"
+CONF_HEAT_OFF_ABOVE = "heat_off_above"
+CONF_COOL_ON_ABOVE = "cool_on_above"
+CONF_COOL_OFF_BELOW = "cool_off_below"
+CONF_BAND_COLD_MAX = "band_cold_max"
+CONF_BAND_MILD_COLD_MAX = "band_mild_cold_max"
+CONF_BAND_MILD_HOT_MAX = "band_mild_hot_max"
 
 # Solar thresholds (W)
 CONF_SOLAR_THRESHOLD_ON = "solar_threshold_on"
@@ -38,6 +54,11 @@ CONF_REMOVE_CONFIDENCE = "remove_confidence"
 
 # Learning system
 CONF_INITIAL_LEARNED_POWER = "initial_learned_power"
+
+# Comfort/zone temperature targets
+CONF_MAX_TEMP_WINTER = "max_temp_winter"
+CONF_MIN_TEMP_SUMMER = "min_temp_summer"
+CONF_ZONE_TEMP_SENSORS = "zone_temp_sensors"
 
 # Enable diagnostics sensor toggle (kept original name for backward compatibility)
 CONF_ENABLE_DIAGNOSTICS = "enable_diagnostics_sensor"
@@ -62,9 +83,28 @@ DEFAULT_ACTION_DELAY_SECONDS = 3  # seconds
 DEFAULT_ADD_CONFIDENCE = 25
 DEFAULT_REMOVE_CONFIDENCE = 10
 
+# Season defaults (C) - 0.1 increment precision
+DEFAULT_HEAT_ON_BELOW = 12.0
+DEFAULT_HEAT_OFF_ABOVE = 15.0
+DEFAULT_COOL_ON_ABOVE = 26.0
+DEFAULT_COOL_OFF_BELOW = 23.0
+
+# Outdoor temperature bands (C) - 0.1 increment precision
+DEFAULT_BAND_COLD_MAX = 5.0
+DEFAULT_BAND_MILD_COLD_MAX = 15.0
+DEFAULT_BAND_MILD_HOT_MAX = 25.0
+
+# Comfort temperature targets (C) - 0.1 increment precision
+DEFAULT_MAX_TEMP_WINTER = 22.0
+DEFAULT_MIN_TEMP_SUMMER = 20.0
+
+DEFAULT_ENABLE_AUTO_SEASON = True
+DEFAULT_ENABLE_TEMP_MODULATION = True
+DEFAULT_MASTER_OFF_IN_NEUTRAL = False
+
 # Storage
 # Use a literal storage key so the on-disk filename remains stable even if DOMAIN changes.
 STORAGE_KEY = "solar_ac_controller"
-# Bumped storage version to support migration to per-mode learned_power structure.
+# Bumped storage version to support migration to per-mode learned_power structure and banded season learning.
 # Increment this integer whenever the on-disk schema changes and implement a corresponding migration.
-STORAGE_VERSION = 2
+STORAGE_VERSION = 3

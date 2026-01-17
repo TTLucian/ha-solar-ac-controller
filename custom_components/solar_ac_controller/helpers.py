@@ -77,6 +77,13 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
     ema_30s = _safe_float(getattr(coordinator, "ema_30s", None), 0.0)
     ema_5m = _safe_float(getattr(coordinator, "ema_5m", None), 0.0)
 
+    outside_temp = _safe_float(getattr(coordinator, "outside_temp", None), None)
+    outside_band = getattr(coordinator, "outside_band", None)
+    season_mode = getattr(coordinator, "season_mode", None)
+    enable_auto_season = bool(getattr(coordinator, "enable_auto_season", False))
+    enable_temp_modulation = bool(getattr(coordinator, "enable_temp_modulation", False))
+    master_off_in_neutral = bool(getattr(coordinator, "master_off_in_neutral", False))
+
     last_action = getattr(coordinator, "last_action", None)
     next_zone = getattr(coordinator, "next_zone", None)
     last_zone = getattr(coordinator, "last_zone", None)
@@ -137,6 +144,14 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
     master_off_since_ts = getattr(coordinator, "master_off_since", None)
     master_off = _human_delta(master_off_since_ts)
 
+    # Comfort temperature targets
+    max_temp_winter = _safe_float(getattr(coordinator, "max_temp_winter", None), None)
+    min_temp_summer = _safe_float(getattr(coordinator, "min_temp_summer", None), None)
+    zone_current_temps = dict(getattr(coordinator, "zone_current_temps", {}) or {})
+    # Sanitize zone temps to remove None values and round for readability
+    zone_temps_rounded = {k: round(v, 1) if v is not None else None for k, v in zone_current_temps.items()}
+    all_zones_at_target = bool(getattr(coordinator, "_all_active_zones_at_target", lambda x: False)(active_zones))
+
     # Add raw timestamps for automation/debugging
     payload = {
         "version": version,
@@ -150,6 +165,12 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
         "ac_power_before": ac_power_before,
         "ema_30s": ema_30s,
         "ema_5m": ema_5m,
+        "outside_temp": outside_temp,
+        "outside_band": outside_band,
+        "season_mode": season_mode,
+        "enable_auto_season": enable_auto_season,
+        "enable_temp_modulation": enable_temp_modulation,
+        "master_off_in_neutral": master_off_in_neutral,
         "last_action": last_action,
         "next_zone": next_zone,
         "last_zone": last_zone,
@@ -169,6 +190,10 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
         "panic_cooldown_active": panic_cooldown_active,
         "master_off": master_off,
         "master_off_since_ts": master_off_since_ts,
+        "max_temp_winter": max_temp_winter,
+        "min_temp_summer": min_temp_summer,
+        "zone_current_temps": zone_temps_rounded,
+        "all_zones_at_target": all_zones_at_target,
     }
 
     # Extensibility: auto-discover simple coordinator attributes not already included
