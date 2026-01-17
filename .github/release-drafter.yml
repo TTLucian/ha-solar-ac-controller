@@ -26,5 +26,8 @@ categories:
 
 change-template: '- $TITLE @$AUTHOR (#$NUMBER)'
 
-# Instead of inline template, point to your markdown file
-template-path: release_template.md
+# Use inline template for full compatibility with release-drafter
+template: |
+  ## 🚀 Version $NEXT_PATCH_VERSION
+
+  $CHANGES
