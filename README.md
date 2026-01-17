@@ -1,3 +1,4 @@
+# 🌞 Solar AC Controller — Home Assistant Integration
 <p align="center">
   <img src="https://img.shields.io/github/v/release/TTLucian/ha-solar-ac-controller?style=for-the-badge" />
   <img src="https://img.shields.io/github/license/TTLucian/ha-solar-ac-controller?style=for-the-badge" />
@@ -5,109 +6,6 @@
   <img src="https://img.shields.io/github/actions/workflow/status/TTLucian/ha-solar-ac-controller/validate.yml?style=for-the-badge" />
 </p>
 
-# ⚡ Quick Start
-
-1. Install via HACS or copy to custom_components.
-2. Restart Home Assistant.
-3. Go to Settings → Devices & Services → Add Integration → Solar AC Controller.
-4. Select your solar, grid, and AC sensors, and zones.
-5. Save and enjoy solar-optimized AC automation!
-
-## 📝 Example Configuration (UI)
-
-<details>
-<summary>Example: Options Flow</summary>
-
-<img src="https://user-images.githubusercontent.com/example/options-flow.png" alt="Options Flow Example" width="600"/>
-
-Or YAML (for reference):
-
-```yaml
-solar_sensor: sensor.solar_power
-grid_sensor: sensor.grid_power
-ac_power_sensor: sensor.ac_power
-ac_switch: switch.ac_master
-zones:
-  - climate.living_room
-  - climate.bedroom
-solar_threshold_on: 1200
-solar_threshold_off: 800
-panic_threshold: 1500
-panic_delay: 30
-initial_learned_power: 1200
-add_confidence: 25
-remove_confidence: 10
-manual_lock_seconds: 1200
-short_cycle_on_seconds: 1200
-short_cycle_off_seconds: 1200
-action_delay_seconds: 3
-enable_diagnostics_sensor: false
-```
-</details>
-
-## 🛠️ Extensibility
-
-Supported zone domains are now configurable! By default, you can use `climate`, `switch`, or `fan` entities as zones. To add more, edit the integration’s config flow or open a feature request.
-
-## ❓ Troubleshooting & FAQ
-
-**Why do I see two devices?**
-  - This can happen if device names or identifiers were inconsistent in a previous version. Remove old devices and reload the integration after upgrading.
-
-**How do I reset learning?**
-  - Use the `solar_ac_controller.reset_learning` service from Developer Tools → Services.
-
-**What if my sensors are unavailable?**
-  - The controller will skip cycles and log a warning. Check your sensor states in Developer Tools.
-
-**How do I enable diagnostics?**
-  - Go to the integration’s options and toggle “Enable Diagnostics Sensor.”
-
-## 🧪 Testing & CI
-
-Automated tests are recommended! Run with:
-
-```bash
-pytest
-```
-
-Lint and format with:
-
-```bash
-black .
-pylint custom_components/solar_ac_controller
-```
-
-CI status: ![GitHub Actions](https://img.shields.io/github/actions/workflow/status/TTLucian/ha-solar-ac-controller/validate.yml?style=flat-square)
-
-## 🤝 Contributing
-
-Contributions are welcome! Please:
-
-- Format code with `black`
-- Lint with `pylint`
-- Add/expand tests if possible
-- Document any storage migrations in code and commit messages
-
-Open issues or pull requests on [GitHub](https://github.com/TTLucian/ha-solar-ac-controller/issues).
-
-## 🔗 Links & Resources
-
-- [Home Assistant Docs](https://www.home-assistant.io/integrations/)
-- [GitHub Issues](https://github.com/TTLucian/ha-solar-ac-controller/issues)
-- [Discussions/Help](https://github.com/TTLucian/ha-solar-ac-controller/discussions)
-
-## 🌍 Localization
-
-All user-facing strings are translatable. To contribute a translation, submit a PR editing `translations/en.json` or add a new language file.
-
-## 🗃️ Versioning & Upgrades
-
-Storage migrations are handled automatically. When upgrading, check the release notes for any migration steps. See code comments in `__init__.py` for details.
-
-## 🖼️ Visuals
-
-# 🌞 Solar AC Controller — Home Assistant Integration
 
 A smart, adaptive controller that manages multi‑zone AC systems based on solar production, grid import/export, and learned compressor behavior.
 
