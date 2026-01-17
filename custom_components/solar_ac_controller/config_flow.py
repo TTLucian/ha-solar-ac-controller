@@ -119,6 +119,9 @@ class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     data=normalized,
                 )
 
+        # Get optional sensor defaults, use None if empty/missing to avoid "Unknown entity" errors
+        outside_sensor_default = defaults.get(CONF_OUTSIDE_SENSOR) or None
+        
         # Group advanced options
         advanced_schema = {
             vol.Optional(CONF_ADD_CONFIDENCE, default=int(defaults.get(CONF_ADD_CONFIDENCE, DEFAULT_ADD_CONFIDENCE))): _int_field(int(DEFAULT_ADD_CONFIDENCE), minimum=0),
@@ -131,7 +134,7 @@ class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required(CONF_GRID_SENSOR, default=defaults.get(CONF_GRID_SENSOR)): selector({"entity": {"domain": "sensor"}}),
                 vol.Required(CONF_AC_POWER_SENSOR, default=defaults.get(CONF_AC_POWER_SENSOR)): selector({"entity": {"domain": "sensor"}}),
 
-                vol.Optional(CONF_OUTSIDE_SENSOR, default=defaults.get(CONF_OUTSIDE_SENSOR, "")): selector({"entity": {"domain": "sensor"}}),
+                vol.Optional(CONF_OUTSIDE_SENSOR, default=outside_sensor_default): selector({"entity": {"domain": "sensor"}}),
 
                 vol.Optional(CONF_AC_SWITCH, default=defaults.get(CONF_AC_SWITCH, "")): selector({"entity": {"domain": "switch"}}),
 
@@ -152,7 +155,7 @@ class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
                 vol.Optional(CONF_MAX_TEMP_WINTER, default=float(defaults.get(CONF_MAX_TEMP_WINTER, DEFAULT_MAX_TEMP_WINTER))): vol.Coerce(float),
                 vol.Optional(CONF_MIN_TEMP_SUMMER, default=float(defaults.get(CONF_MIN_TEMP_SUMMER, DEFAULT_MIN_TEMP_SUMMER))): vol.Coerce(float),
-                vol.Optional(CONF_ZONE_TEMP_SENSORS, default=defaults.get(CONF_ZONE_TEMP_SENSORS, {})): selector({"entity": {"domain": "sensor", "device_class": ["temperature"]}}),
+                vol.Optional(CONF_ZONE_TEMP_SENSORS, default=defaults.get(CONF_ZONE_TEMP_SENSORS, {})): dict,
 
                 vol.Optional(CONF_PANIC_THRESHOLD, default=int(defaults.get(CONF_PANIC_THRESHOLD, DEFAULT_PANIC_THRESHOLD))): _int_field(int(DEFAULT_PANIC_THRESHOLD), minimum=0),
                 vol.Optional(CONF_PANIC_DELAY, default=int(defaults.get(CONF_PANIC_DELAY, DEFAULT_PANIC_DELAY))): _int_field(int(DEFAULT_PANIC_DELAY), minimum=0),
@@ -288,13 +291,16 @@ class SolarACOptionsFlowHandler(config_entries.OptionsFlow):
         return self._show_main_form(current, errors)
 
     def _show_main_form(self, data: dict[str, Any], errors: dict[str, str]):
+        # Get optional sensor defaults, use None if empty/missing to avoid "Unknown entity" errors
+        outside_sensor_default = data.get(CONF_OUTSIDE_SENSOR) or None
+        
         schema = vol.Schema(
             {
                 vol.Required(CONF_SOLAR_SENSOR, default=data.get(CONF_SOLAR_SENSOR)): selector({"entity": {"domain": "sensor"}}),
                 vol.Required(CONF_GRID_SENSOR, default=data.get(CONF_GRID_SENSOR)): selector({"entity": {"domain": "sensor"}}),
                 vol.Required(CONF_AC_POWER_SENSOR, default=data.get(CONF_AC_POWER_SENSOR)): selector({"entity": {"domain": "sensor"}}),
 
-                vol.Optional(CONF_OUTSIDE_SENSOR, default=data.get(CONF_OUTSIDE_SENSOR, "")): selector({"entity": {"domain": "sensor"}}),
+                vol.Optional(CONF_OUTSIDE_SENSOR, default=outside_sensor_default): selector({"entity": {"domain": "sensor"}}),
 
                 vol.Optional(CONF_AC_SWITCH, default=data.get(CONF_AC_SWITCH, "")): selector({"entity": {"domain": "switch"}}),
 
@@ -315,7 +321,7 @@ class SolarACOptionsFlowHandler(config_entries.OptionsFlow):
 
                 vol.Optional(CONF_MAX_TEMP_WINTER, default=data.get(CONF_MAX_TEMP_WINTER, float(DEFAULT_MAX_TEMP_WINTER))): vol.Coerce(float),
                 vol.Optional(CONF_MIN_TEMP_SUMMER, default=data.get(CONF_MIN_TEMP_SUMMER, float(DEFAULT_MIN_TEMP_SUMMER))): vol.Coerce(float),
-                vol.Optional(CONF_ZONE_TEMP_SENSORS, default=data.get(CONF_ZONE_TEMP_SENSORS, {})): selector({"entity": {"domain": "sensor", "device_class": ["temperature"]}}),
+                vol.Optional(CONF_ZONE_TEMP_SENSORS, default=data.get(CONF_ZONE_TEMP_SENSORS, {})): dict,
 
                 vol.Optional(CONF_PANIC_THRESHOLD, default=data.get(CONF_PANIC_THRESHOLD, int(DEFAULT_PANIC_THRESHOLD))): _int_field(int(DEFAULT_PANIC_THRESHOLD), minimum=0),
                 vol.Optional(CONF_PANIC_DELAY, default=data.get(CONF_PANIC_DELAY, int(DEFAULT_PANIC_DELAY))): _int_field(int(DEFAULT_PANIC_DELAY), minimum=0),
