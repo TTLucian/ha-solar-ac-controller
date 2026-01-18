@@ -97,7 +97,7 @@ async def _validate_zone_temp_sensors(
     return None
 
 
-class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[misc]
     """Handle the initial setup of the Solar AC Controller."""
 
     VERSION = 1
@@ -333,8 +333,8 @@ class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             validation_error = await _validate_zone_temp_sensors(
                 self.hass, zones, zone_temp_sensors
             )
-                if validation_error:
-                    errors["base"] = validation_error
+            if validation_error:
+                errors["base"] = validation_error
 
             if not errors:
                 self.data = {**self.data, **user_input}
@@ -632,8 +632,8 @@ class SolarACOptionsFlowHandler(config_entries.OptionsFlow):
             validation_error = await _validate_zone_temp_sensors(
                 self.hass, zones, zone_temp_sensors
             )
-                if validation_error:
-                    errors["base"] = validation_error
+            if validation_error:
+                errors["base"] = validation_error
 
             if not errors:
                 self.data = {**self.data, **user_input}
