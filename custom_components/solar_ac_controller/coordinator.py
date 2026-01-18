@@ -519,6 +519,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
 
         # Smooth update
         updated = (ALPHA * new_sample) + ((1.0 - ALPHA) * current)
+        updated = round(updated)  # store whole watts only
 
         # Update mode-specific and default values
         if mode:
@@ -538,15 +539,15 @@ class SolarACCoordinator(DataUpdateCoordinator):
             mode_map = self.learned_power_bands[zone_name].get(mode or "default")
             if not isinstance(mode_map, dict):
                 mode_map = {}
-            mode_map[band] = float(updated)
+            mode_map[band] = updated
             self.learned_power_bands[zone_name][mode or "default"] = mode_map
 
     async def _persist_learned_values(self) -> None:
         """Persist learned values to storage."""
         try:
             payload = {
-                "learned_power": dict(self.learned_power),
-                "learned_power_bands": dict(self.learned_power_bands),
+                "learned_power": self._rounded_power(self.learned_power),
+                "learned_power_bands": self._rounded_power(self.learned_power_bands),
                 "samples": int(self.samples),
             }
             await self.store.async_save(payload)
@@ -556,6 +557,15 @@ class SolarACCoordinator(DataUpdateCoordinator):
                 await self._log(f"[STORAGE_ERROR] {exc}")
             except Exception:
                 _LOGGER.exception("Failed to write storage error to coordinator log")
+
+    def _rounded_power(self, value: Any) -> Any:
+        """Recursively round power values to whole watts for clean storage."""
+        if isinstance(value, dict):
+            return {k: self._rounded_power(v) for k, v in value.items()}
+        try:
+            return int(round(float(value)))
+        except Exception:
+            return value
 
     # -------------------------------------------------------------------------
     # Minimal async logging hook used by coordinator and controller

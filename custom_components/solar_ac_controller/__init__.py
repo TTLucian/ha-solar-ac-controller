@@ -135,6 +135,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             _LOGGER.exception("Failed to save migrated storage payload")
         stored_data = migrated
 
+    # Final cleanup: round learned power to whole watts for clean display
+    try:
+        def _round_map(val):
+            if isinstance(val, dict):
+                return {k: _round_map(v) for k, v in val.items()}
+            return int(round(float(val)))
+
+        stored_data["learned_power"] = _round_map(stored_data.get("learned_power", {}))
+        stored_data["learned_power_bands"] = _round_map(
+            stored_data.get("learned_power_bands", {})
+        )
+        await store.async_save(stored_data)
+    except Exception:
+        _LOGGER.debug("Skipped rounding cleanup during storage load")
+
     # 3. Create Device (The "Master" record)
     device_registry = dr.async_get(hass)
     device_registry.async_get_or_create(

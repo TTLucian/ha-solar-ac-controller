@@ -169,9 +169,9 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
     except Exception:
         panic_cooldown_active = False
 
-    master_off_since_ts = getattr(coordinator, "master_off_since", None)
-    master_off = _human_delta(master_off_since_ts)
-    master_off_since_at = _iso_ts(master_off_since_ts)
+    master_off_since_raw = getattr(coordinator, "master_off_since", None)
+    master_off_since_at = _iso_ts(master_off_since_raw)
+    master_off = _human_delta(master_off_since_raw)
 
     # Last action timestamps/durations if available
     last_action_start_ts = getattr(coordinator, "last_action_start_ts", None)
@@ -237,7 +237,6 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
         "panic_cooldown_active": panic_cooldown_active,
         "master_off": master_off,
         "master_off_since_at": master_off_since_at,
-        "master_off_since_ts": master_off_since_ts,
         "max_temp_winter": max_temp_winter,
         "min_temp_summer": min_temp_summer,
         "zone_current_temps": zone_temps_rounded,
@@ -252,6 +251,7 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
         "last_panic_ts",
         "learning_start_time",
         "last_action_start_ts",
+        "name",
     }
     for attr in dir(coordinator):
         if attr.startswith("_") or attr in known_keys or attr in excluded_attrs:
