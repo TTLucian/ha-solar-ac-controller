@@ -31,6 +31,9 @@ CONF_COMFORTABLE_THRESHOLD = "comfortable_threshold"
 CONF_SOLAR_THRESHOLD_ON = "solar_threshold_on"
 CONF_SOLAR_THRESHOLD_OFF = "solar_threshold_off"
 
+# Feature toggles
+CONF_ENABLE_TEMP_MODULATION = "enable_temperature_modulation"
+
 # Behavioral tuning
 CONF_PANIC_THRESHOLD = "panic_threshold"
 CONF_PANIC_DELAY = "panic_delay"
