@@ -319,17 +319,20 @@ class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             zones = self.data.get(CONF_ZONES, [])
             zone_temp_sensors = user_input.get(CONF_ZONE_TEMP_SENSORS, [])
-            zone_manual_power = user_input.get(CONF_ZONE_MANUAL_POWER, [])
+            zone_manual_power = user_input.get(CONF_ZONE_MANUAL_POWER) or ""
 
-            # Validate zone_temp_sensors list length matches zones if provided
-            if zone_temp_sensors and len(zone_temp_sensors) != len(zones):
-                errors["base"] = "zone_temp_sensors_mismatch"
+            # Normalize/pad sensor list to zone length, allow blanks for climate zones
+            if zone_temp_sensors and len(zone_temp_sensors) < len(zones):
+                zone_temp_sensors = list(zone_temp_sensors) + [""] * (
+                    len(zones) - len(zone_temp_sensors)
+                )
+            if len(zone_temp_sensors) > len(zones):
+                zone_temp_sensors = zone_temp_sensors[: len(zones)]
 
             # Validate non-climate zones have external sensors
-            if not errors:
-                validation_error = await _validate_zone_temp_sensors(
-                    self.hass, zones, zone_temp_sensors
-                )
+            validation_error = await _validate_zone_temp_sensors(
+                self.hass, zones, zone_temp_sensors
+            )
                 if validation_error:
                     errors["base"] = validation_error
 
@@ -338,6 +341,14 @@ class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return self.async_create_entry(
                     title="Solar AC Controller", data=self.data
                 )
+
+        zone_manual_default = defaults.get(CONF_ZONE_MANUAL_POWER, "")
+        if isinstance(zone_manual_default, (list, tuple)):
+            zone_manual_default = ", ".join(str(v) for v in zone_manual_default)
+        elif zone_manual_default is None:
+            zone_manual_default = ""
+        else:
+            zone_manual_default = str(zone_manual_default)
 
         schema = vol.Schema(
             {
@@ -355,7 +366,7 @@ class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 ),
                 vol.Optional(
                     CONF_ZONE_MANUAL_POWER,
-                    default=defaults.get(CONF_ZONE_MANUAL_POWER, []),
+                    default=zone_manual_default,
                 ): selector({"text": {"multiline": False}}),
                 vol.Optional(
                     CONF_MAX_TEMP_WINTER,
@@ -607,23 +618,34 @@ class SolarACOptionsFlowHandler(config_entries.OptionsFlow):
         if user_input is not None:
             zones = self.data.get(CONF_ZONES, [])
             zone_temp_sensors = user_input.get(CONF_ZONE_TEMP_SENSORS, [])
-            zone_manual_power = user_input.get(CONF_ZONE_MANUAL_POWER, [])
+            zone_manual_power = user_input.get(CONF_ZONE_MANUAL_POWER) or ""
 
-            # Validate zone_temp_sensors list length matches zones if provided
-            if zone_temp_sensors and len(zone_temp_sensors) != len(zones):
-                errors["base"] = "zone_temp_sensors_mismatch"
+            # Normalize/pad sensor list to zone length, allow blanks for climate zones
+            if zone_temp_sensors and len(zone_temp_sensors) < len(zones):
+                zone_temp_sensors = list(zone_temp_sensors) + [""] * (
+                    len(zones) - len(zone_temp_sensors)
+                )
+            if len(zone_temp_sensors) > len(zones):
+                zone_temp_sensors = zone_temp_sensors[: len(zones)]
 
             # Validate non-climate zones have external sensors
-            if not errors:
-                validation_error = await _validate_zone_temp_sensors(
-                    self.hass, zones, zone_temp_sensors
-                )
+            validation_error = await _validate_zone_temp_sensors(
+                self.hass, zones, zone_temp_sensors
+            )
                 if validation_error:
                     errors["base"] = validation_error
 
             if not errors:
                 self.data = {**self.data, **user_input}
                 return self.async_create_entry(title="", data=self.data)
+
+        zone_manual_default = defaults.get(CONF_ZONE_MANUAL_POWER, "")
+        if isinstance(zone_manual_default, (list, tuple)):
+            zone_manual_default = ", ".join(str(v) for v in zone_manual_default)
+        elif zone_manual_default is None:
+            zone_manual_default = ""
+        else:
+            zone_manual_default = str(zone_manual_default)
 
         schema = vol.Schema(
             {
@@ -641,7 +663,7 @@ class SolarACOptionsFlowHandler(config_entries.OptionsFlow):
                 ),
                 vol.Optional(
                     CONF_ZONE_MANUAL_POWER,
-                    default=defaults.get(CONF_ZONE_MANUAL_POWER, []),
+                    default=zone_manual_default,
                 ): selector({"text": {"multiline": False}}),
                 vol.Optional(
                     CONF_MAX_TEMP_WINTER,
