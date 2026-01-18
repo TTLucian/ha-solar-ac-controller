@@ -114,58 +114,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         entry.data.get(CONF_INITIAL_LEARNED_POWER, DEFAULT_INITIAL_LEARNED_POWER),
     )
 
-    # 2. Storage Setup
-    def migrate_fn(old_major, old_minor, old_data):
-        """Synchronous migration wrapper for Home Assistant Store."""
-        if not isinstance(old_data, dict):
-            return {"learned_power": {}, "learned_power_bands": {}, "samples": 0}
-
-        learned_power = old_data.get("learned_power", {})
-        learned_power_bands = old_data.get("learned_power_bands", {}) or {}
-        if not isinstance(learned_power, dict):
-            learned_power = {}
-
-        modified = False
-        for zone, val in list(learned_power.items()):
-            if val is None:
-                learned_power[zone] = {
-                    "default": initial_lp,
-                    "heat": initial_lp,
-                    "cool": initial_lp,
-                }
-                modified = True
-            elif isinstance(val, (int, float)):
-                v = float(val)
-                learned_power[zone] = {"default": v, "heat": v, "cool": v}
-                modified = True
-            elif isinstance(val, dict):
-                for mode in ["default", "heat", "cool"]:
-                    if mode not in val:
-                        val[mode] = initial_lp
-                        modified = True
-
-        return {
-            "learned_power": learned_power,
-            "learned_power_bands": (
-                learned_power_bands if isinstance(learned_power_bands, dict) else {}
-            ),
-            "samples": old_data.get("samples", 0),
-        }
-
-    store = Store(hass, STORAGE_VERSION, STORAGE_KEY, migrate_fn=migrate_fn)
+    # 2. Storage Setup (manual migration because Store no longer accepts migrate_fn)
+    store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
 
     try:
-        # Store.async_load() automatically calls migrate_fn with correct old/new versions
         stored_data = await store.async_load()
-    except NotImplementedError:
-        _LOGGER.debug("Storage migration skipped, using defaults")
-        stored_data = None
-    except Exception:
-        _LOGGER.exception("Failed to load stored data")
+    except Exception:  # pragma: no cover - defensive
+        _LOGGER.exception("Failed to load stored data; falling back to defaults")
         stored_data = None
 
     if stored_data is None:
         stored_data = {"learned_power": {}, "learned_power_bands": {}, "samples": 0}
+
+    migrated = await _async_migrate_data(0, 0, stored_data, initial_lp)
+    if migrated != stored_data:
+        try:
+            await store.async_save(migrated)
+            _LOGGER.info("Migrated storage payload and saved updated schema")
+        except Exception:  # pragma: no cover - defensive
+            _LOGGER.exception("Failed to save migrated storage payload")
+        stored_data = migrated
 
     # 3. Create Device (The "Master" record)
     device_registry = dr.async_get(hass)
