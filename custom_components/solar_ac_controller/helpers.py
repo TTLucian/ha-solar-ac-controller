@@ -40,6 +40,18 @@ def _human_delta(ts: float | None) -> str | None:
         return None
 
 
+def _iso_ts(ts: float | None) -> str | None:
+    """Return ISO8601 UTC string for a timestamp (seconds precision)."""
+    if ts is None:
+        return None
+    try:
+        dt = dt_util.utc_from_timestamp(float(ts))
+        # Use seconds precision to avoid noisy fractions
+        return dt.replace(microsecond=0).isoformat()
+    except Exception:
+        return None
+
+
 def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
     """
     Build diagnostics payload for Solar AC Controller.
@@ -66,35 +78,53 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
     learning_zone = getattr(coordinator, "learning_zone", None)
     learning_start_time_ts = getattr(coordinator, "learning_start_time", None)
     learning_started = _human_delta(learning_start_time_ts)
+    learning_started_at = _iso_ts(learning_start_time_ts)
     ac_power_before = _safe_float(getattr(coordinator, "ac_power_before", None), None)
 
     ema_30s = _safe_float(getattr(coordinator, "ema_30s", None), 0.0)
     ema_5m = _safe_float(getattr(coordinator, "ema_5m", None), 0.0)
 
     outside_temp = _safe_float(getattr(coordinator, "outside_temp", None), None)
-    outside_temp_rolling_mean = _safe_float(getattr(coordinator, "outside_temp_rolling_mean", None), None)
     outside_band = getattr(coordinator, "outside_band", None)
     season_mode = getattr(coordinator, "season_mode", None)
-    enable_auto_season = bool(getattr(coordinator, "enable_auto_season", False))
     enable_temp_modulation = bool(getattr(coordinator, "enable_temp_modulation", False))
-    master_switch_in_offseason = bool(getattr(coordinator, "master_switch_in_offseason", False))
 
     last_action = getattr(coordinator, "last_action", None)
     next_zone = getattr(coordinator, "next_zone", None)
     last_zone = getattr(coordinator, "last_zone", None)
     required_export = _safe_float(getattr(coordinator, "required_export", None), None)
     export_margin = _safe_float(getattr(coordinator, "export_margin", None), None)
+    # Source: use coordinator-provided source, fall back to inference
+    req_src = getattr(coordinator, "required_export_source", None)
+    if not isinstance(req_src, str) or not req_src:
+        try:
+            zm = getattr(coordinator, "zone_manual_power", {}) or {}
+            req_src = (
+                "manual_power" if next_zone and next_zone in zm else "learned_power"
+            )
+        except Exception:
+            req_src = "learned_power"
 
     zones_config: List[str] = list(config.get("zones", []) or [])
     active_zones: List[str] = []
     zone_modes: Dict[str, str] = {}
     zone_last_changed = dict(getattr(coordinator, "zone_last_changed", {}) or {})
     zone_last_state = dict(getattr(coordinator, "zone_last_state", {}) or {})
-    zone_manual_lock_until = dict(getattr(coordinator, "zone_manual_lock_until", {}) or {})
+    zone_manual_lock_until = dict(
+        getattr(coordinator, "zone_manual_lock_until", {}) or {}
+    )
+
+    # Master switch manual lock state
+    master_last_state = getattr(coordinator, "master_last_state", None)
+    master_manual_lock_state = getattr(coordinator, "master_manual_lock_state", None)
 
     for z in zones_config:
         try:
-            st_obj = getattr(coordinator, "hass", None).states.get(z) if getattr(coordinator, "hass", None) else None
+            st_obj = (
+                getattr(coordinator, "hass", None).states.get(z)
+                if getattr(coordinator, "hass", None)
+                else None
+            )
             state = None
             if st_obj:
                 state = getattr(st_obj, "state", None)
@@ -127,10 +157,13 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
     panic_delay = int(getattr(coordinator, "panic_delay", 0) or 0)
     last_panic_ts = getattr(coordinator, "last_panic_ts", None)
     last_panic = _human_delta(last_panic_ts)
+    last_panic_at = _iso_ts(last_panic_ts)
     panic_cooldown_active = False
     try:
         if last_panic_ts is not None:
-            cooldown = getattr(coordinator, "panic_cooldown_seconds", None) or getattr(coordinator, "_PANIC_COOLDOWN_SECONDS", 120)
+            cooldown = getattr(coordinator, "panic_cooldown_seconds", None) or getattr(
+                coordinator, "_PANIC_COOLDOWN_SECONDS", 120
+            )
             now = dt_util.utcnow().timestamp()
             panic_cooldown_active = (now - float(last_panic_ts)) < float(cooldown)
     except Exception:
@@ -138,65 +171,88 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
 
     master_off_since_ts = getattr(coordinator, "master_off_since", None)
     master_off = _human_delta(master_off_since_ts)
+    master_off_since_at = _iso_ts(master_off_since_ts)
+
+    # Last action timestamps/durations if available
+    last_action_start_ts = getattr(coordinator, "last_action_start_ts", None)
+    last_action_started_at = _iso_ts(last_action_start_ts)
+    last_action_duration = None
+    try:
+        dur = getattr(coordinator, "last_action_duration", None)
+        last_action_duration = round(float(dur), 2) if dur is not None else None
+    except Exception:
+        last_action_duration = None
 
     # Comfort temperature targets
     max_temp_winter = _safe_float(getattr(coordinator, "max_temp_winter", None), None)
     min_temp_summer = _safe_float(getattr(coordinator, "min_temp_summer", None), None)
     zone_current_temps = dict(getattr(coordinator, "zone_current_temps", {}) or {})
     # Sanitize zone temps to remove None values and round for readability
-    zone_temps_rounded = {k: round(v, 1) if v is not None else None for k, v in zone_current_temps.items()}
-    all_zones_at_target = bool(getattr(coordinator, "_all_active_zones_at_target", lambda x: False)(active_zones))
+    zone_temps_rounded = {
+        k: round(v, 1) if v is not None else None for k, v in zone_current_temps.items()
+    }
+    # Check if last_zone is at target (for diagnostics)
+    last_zone_at_target = bool(
+        getattr(coordinator, "_all_active_zones_at_target", lambda x: True)(last_zone)
+    )
 
     # Add raw timestamps for automation/debugging
     payload = {
         "version": version,
-        "manifest_version": version,
         "config": config,
         "samples": samples,
         "learned_power": learned_power,
         "learning_active": learning_active,
         "learning_zone": learning_zone,
         "learning_started": learning_started,
+        "learning_started_at": learning_started_at,
         "learning_start_time_ts": learning_start_time_ts,
         "ac_power_before": ac_power_before,
         "ema_30s": ema_30s,
         "ema_5m": ema_5m,
         "outside_temp": outside_temp,
-        "outside_temp_rolling_mean": outside_temp_rolling_mean,
         "outside_band": outside_band,
         "season_mode": season_mode,
-        "enable_auto_season": enable_auto_season,
         "enable_temp_modulation": enable_temp_modulation,
-        "master_switch_in_offseason": master_switch_in_offseason,
         "last_action": last_action,
+        "last_action_started_at": last_action_started_at,
+        "last_action_duration_s": last_action_duration,
         "next_zone": next_zone,
         "last_zone": last_zone,
         "required_export": required_export,
         "export_margin": export_margin,
-        "required_export_source": "learned_power",
+        "required_export_source": req_src,
         "note": "Safety multiplier removed; required_export equals learned power estimate.",
         "active_zones": active_zones,
         "zone_modes": zone_modes,
         "zone_last_changed": zone_last_changed,
-        "zone_last_state": zone_last_state,
         "zone_manual_lock_until": zone_manual_lock_until,
+        "master_last_state": master_last_state,
+        "master_manual_lock_state": master_manual_lock_state,
         "panic_threshold": panic_threshold,
         "panic_delay": panic_delay,
         "last_panic": last_panic,
+        "last_panic_at": last_panic_at,
         "last_panic_ts": last_panic_ts,
         "panic_cooldown_active": panic_cooldown_active,
         "master_off": master_off,
+        "master_off_since_at": master_off_since_at,
         "master_off_since_ts": master_off_since_ts,
         "max_temp_winter": max_temp_winter,
         "min_temp_summer": min_temp_summer,
         "zone_current_temps": zone_temps_rounded,
-        "all_zones_at_target": all_zones_at_target,
+        "last_zone_at_target": last_zone_at_target,
     }
 
     # Extensibility: auto-discover simple coordinator attributes not already included
     known_keys = set(payload.keys())
     # Exclude coordinator attributes we've already processed with human formatting
-    excluded_attrs = {"master_off_since", "last_panic_ts", "learning_start_time"}
+    excluded_attrs = {
+        "master_off_since",
+        "last_panic_ts",
+        "learning_start_time",
+        "last_action_start_ts",
+    }
     for attr in dir(coordinator):
         if attr.startswith("_") or attr in known_keys or attr in excluded_attrs:
             continue

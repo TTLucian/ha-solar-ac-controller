@@ -1,4 +1,5 @@
 """Panic shedding logic for Solar AC Controller."""
+
 from __future__ import annotations
 
 import asyncio
@@ -27,8 +28,7 @@ class PanicManager:
     def should_panic(self, on_count: int) -> bool:
         """Return True if panic shedding should be triggered."""
         return (
-            self.coordinator.ema_30s > self.coordinator.panic_threshold
-            and on_count > 1
+            self.coordinator.ema_30s > self.coordinator.panic_threshold and on_count > 1
         )
 
     def is_in_cooldown(self, now_ts: float) -> bool:
@@ -46,14 +46,9 @@ class PanicManager:
                 f"threshold={self.coordinator.panic_threshold} "
                 f"zones={active_zones}"
             )
-            if (
-                not self.coordinator._panic_task
-                or self.coordinator._panic_task.done()
-            ):
-                self.coordinator._panic_task = (
-                    self.coordinator.hass.async_create_task(
-                        self._panic_task_runner(active_zones)
-                    )
+            if not self.coordinator._panic_task or self.coordinator._panic_task.done():
+                self.coordinator._panic_task = self.coordinator.hass.async_create_task(
+                    self._panic_task_runner(active_zones)
                 )
 
     async def _panic_shed(self, active_zones: list[str]) -> None:

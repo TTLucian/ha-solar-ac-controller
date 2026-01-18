@@ -5,6 +5,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
+## [0.7.6] — 2026-01-18 — Manual Power Override & Diagnostics Cleanup
+
+### Added
+
+- Per-zone manual power override: configure comma-separated watts in the comfort step; coordinator parses both string and list, mapping by zone order. Manual values take precedence over learned power for `required_export`.
+- Diagnostics field `required_export_source`: clearly indicates `manual_power` vs `learned_power`.
+- ISO8601 timestamps in diagnostics (`*_at`) alongside human-readable deltas; improved readability for last action, panic, and master-off events.
+
+### Changed
+
+- Learned power updates now discard unreasonable samples (absolute and relative outlier filters) and apply EMA smoothing for stable expected zone draw.
+- Diagnostics payload trimmed: removed redundant fields (e.g., `manifest_version`, `zone_last_state`) and aligned schema.
+
+### Notes
+
+- No storage schema changes; `STORAGE_VERSION` unchanged.
+- Temperature modulation and comfort gating behavior unchanged; only observability and manual override paths improved.
+
 ## [0.6.3] — 2026-01-17 — Storage Migration Function Fix
 
 ### Fixed

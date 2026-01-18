@@ -1,4 +1,5 @@
 """Zone control actions for Solar AC Controller."""
+
 from __future__ import annotations
 
 import asyncio
@@ -54,6 +55,7 @@ class ActionExecutor:
 
         # Import here to avoid circular deps
         from .zones import ZoneManager
+
         zone_mgr = ZoneManager(self.coordinator)
 
         await self.coordinator._log(

@@ -4,40 +4,58 @@
     "privacy": "No sensitive personal data is collected. Only integration configuration and runtime controller state are included.",
     "included": [
       "version",
-      "timestamp",
-      "timestamp_epoch",
       "config",
 
       "samples",
       "learned_power",
       "learning_active",
       "learning_zone",
-      "learning_start_time",
+      "learning_started",
+      "learning_started_at",
+      "learning_start_time_ts",
       "ac_power_before",
 
       "ema_30s",
       "ema_5m",
 
+      "outside_temp",
+      "outside_band",
+      "season_mode",
+      "enable_temp_modulation",
+
       "last_action",
+      "last_action_started_at",
+      "last_action_duration_s",
       "next_zone",
       "last_zone",
       "required_export",
       "export_margin",
+      "required_export_source",
+      "note",
 
       "active_zones",
       "zone_modes",
       "zone_last_changed",
-      "zone_last_state",
       "zone_manual_lock_until",
+
+      "master_last_state",
+      "master_manual_lock_state",
 
       "panic_threshold",
       "panic_delay",
+      "last_panic",
+      "last_panic_at",
       "last_panic_ts",
-      "last_panic_iso",
       "panic_cooldown_active",
 
-      "master_off_since",
-      "master_off_since_iso"
+      "master_off",
+      "master_off_since_at",
+      "master_off_since_ts",
+
+      "max_temp_winter",
+      "min_temp_summer",
+      "zone_current_temps",
+      "last_zone_at_target"
     ]
   }
 }

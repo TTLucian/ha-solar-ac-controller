@@ -15,16 +15,11 @@
           "initial_learned_power": "Initial Learned Power (W)",
           "solar_threshold_on": "Solar ON Threshold (W)",
           "solar_threshold_off": "Solar OFF Threshold (W)",
-          "heat_on_below": "Heat ON below (°C)",
-          "heat_off_above": "Heat OFF above (°C)",
-          "cool_on_above": "Cool ON above (°C)",
-          "cool_off_below": "Cool OFF below (°C)",
+          "season_mode": "Season Mode (Heat/Cool)",
           "very_cold_threshold": "Very Cold Threshold (°C)",
           "chilly_threshold": "Chilly Threshold (°C)",
           "comfortable_threshold": "Comfortable Threshold (°C)",
-          "enable_auto_season": "Enable Auto Season Detection",
           "enable_temperature_modulation": "Enable Comfort-Based Zone Control",
-          "master_switch_in_offseason": "Master Switch in Offseason",
           "max_temp_winter": "Winter Comfort Target (°C)",
           "min_temp_summer": "Summer Comfort Target (°C)",
           "zone_temp_sensors": "Zone Temperature Sensors (optional)",
@@ -42,22 +37,17 @@
           "ac_power_sensor": "Sensor that reports the AC unit's current power draw.",
           "grid_sensor": "Sensor showing grid import/export (negative = export).",
           "solar_sensor": "Sensor showing solar production.",
-          "outside_temperature_sensor": "Optional outside temperature for auto season and banded learning.",
+          "outside_temperature_sensor": "Optional outside temperature for banded learning (per temperature band).",
           "ac_switch": "Optional switch that powers the AC system. Leave empty if unmanaged.",
           "zones": "List of climate or switch entities to control. Order determines activation priority.",
+          "season_mode": "Manually select heat or cool mode. The system does not auto-detect based on temperature.",
           "initial_learned_power": "Starting estimate of zone power before learning.",
           "solar_threshold_on": "Solar power must exceed this to enable the AC master switch.",
           "solar_threshold_off": "Solar power must fall below this to disable the master switch.",
-          "heat_on_below": "Auto season: enable heating when outside is below this.",
-          "heat_off_above": "Auto season: stop heating when outside rises above this.",
-          "cool_on_above": "Auto season: enable cooling when outside is above this.",
-          "cool_off_below": "Auto season: stop cooling when outside falls below this.",
-          "very_cold_threshold": "Temperature at or below this is very cold. Used for better learning needed power in each season.",
-          "chilly_threshold": "Temperature between this and very cold threshold is chilly. Used for better learning needed power in each season.",
-          "comfortable_threshold": "Temperature between this and chilly threshold is comfortable. Above this is very hot. Used for better learning needed power in each season.",
-          "enable_auto_season": "Automatically choose heat/cool/neutral based on outside temperature sensor. Requires outside temperature sensor.",
+          "very_cold_threshold": "Temperature at or below this is very cold. Used for banded learning in each season.",
+          "chilly_threshold": "Temperature between this and very cold threshold is chilly. Used for banded learning in each season.",
+          "comfortable_threshold": "Temperature between this and chilly threshold is comfortable. Above this is very hot. Used for banded learning in each season.",
           "enable_temperature_modulation": "Requires zone temperature sensors. Blocks zone removal until comfort targets are reached (winter max/summer min).",
-          "master_switch_in_offseason": "When auto-season detects neutral/offseason (neither heat nor cool needed), keep AC master switch ON despite low solar. Uncheck to turn OFF during offseason.",
           "max_temp_winter": "Heating comfort cutoff; zones stay on until reaching this temperature in heat mode.",
           "min_temp_summer": "Cooling comfort cutoff; zones stay on until reaching this temperature in cool mode.",
           "zone_temp_sensors": "Mapping from each zone to its indoor temperature sensor. Used with temperature modulation to prevent premature zone removal.",
@@ -104,32 +94,6 @@
           "max_temp_winter": "Heating comfort cutoff; zones stay on until reaching this temperature in heat mode.",
           "min_temp_summer": "Cooling comfort cutoff; zones stay on until reaching this temperature in cool mode."
         }
-      },
-      "auto_season": {
-        "title": "Auto Season Detection — Used for better learning needed power in each season.",
-        "description": "Configure outside temperature thresholds for heat/cool and set seasonal learning thresholds.",
-        "data": {
-          "outside_temperature_sensor": "Outside Temperature Sensor (optional)",
-          "heat_on_below": "Heat ON below (°C)",
-          "heat_off_above": "Heat OFF above (°C)",
-          "cool_on_above": "Cool ON above (°C)",
-          "cool_off_below": "Cool OFF below (°C)",
-          "very_cold_threshold": "Very Cold Threshold (°C)",
-          "chilly_threshold": "Chilly Threshold (°C)",
-          "comfortable_threshold": "Comfortable Threshold (°C)",
-          "master_switch_in_offseason": "Master Switch in Offseason"
-        },
-        "data_description": {
-          "outside_temperature_sensor": "Optional outside temperature for auto season and banded learning.",
-          "heat_on_below": "Auto season: enable heating when outside is below this.",
-          "heat_off_above": "Auto season: stop heating when outside rises above this.",
-          "cool_on_above": "Auto season: enable cooling when outside is above this.",
-          "cool_off_below": "Auto season: stop cooling when outside falls below this.",
-          "very_cold_threshold": "Temperature at or below this is very cold.",
-          "chilly_threshold": "Temperature between this and very cold threshold is chilly.",
-          "comfortable_threshold": "Temperature between this and chilly threshold is comfortable. Above this is very hot.",
-          "master_switch_in_offseason": "When auto-season detects neutral/offseason (neither heat nor cool needed), keep AC master switch ON despite low solar. Uncheck to turn OFF during offseason."
-        }
       }
     }
   },
@@ -148,16 +112,11 @@
           "initial_learned_power": "Initial Learned Power (W)",
           "solar_threshold_on": "Solar ON Threshold (W)",
           "solar_threshold_off": "Solar OFF Threshold (W)",
-          "heat_on_below": "Heat ON below (°C)",
-          "heat_off_above": "Heat OFF above (°C)",
-          "cool_on_above": "Cool ON above (°C)",
-          "cool_off_below": "Cool OFF below (°C)",
+          "season_mode": "Season Mode (Heat/Cool)",
           "very_cold_threshold": "Very Cold Threshold (°C)",
           "chilly_threshold": "Chilly Threshold (°C)",
           "comfortable_threshold": "Comfortable Threshold (°C)",
-          "enable_auto_season": "Enable Auto Season Detection",
           "enable_temperature_modulation": "Enable Comfort-Based Zone Control",
-          "master_switch_in_offseason": "Master Switch in Offseason",
           "max_temp_winter": "Winter Comfort Target (°C)",
           "min_temp_summer": "Summer Comfort Target (°C)",
           "zone_temp_sensors": "Zone Temperature Sensors (optional)",
@@ -174,16 +133,11 @@
         "data_description": {
           "solar_threshold_on": "Solar power must exceed this to enable the AC master switch.",
           "solar_threshold_off": "Solar power must fall below this to disable the master switch.",
-          "heat_on_below": "Auto season: enable heating when outside is below this.",
-          "heat_off_above": "Auto season: stop heating when outside rises above this.",
-          "cool_on_above": "Auto season: enable cooling when outside is above this.",
-          "cool_off_below": "Auto season: stop cooling when outside falls below this.",
-          "very_cold_threshold": "Temperature at or below this is very cold. Used for better learning needed power in each season.",
-          "chilly_threshold": "Temperature between this and very cold threshold is chilly. Used for better learning needed power in each season.",
-          "comfortable_threshold": "Temperature between this and chilly threshold is comfortable. Above this is very hot. Used for better learning needed power in each season.",
-          "enable_auto_season": "Automatically choose heat/cool/neutral based on outside temperature sensor. Requires outside temperature sensor.",
+          "season_mode": "Manually select heat or cool mode. The system does not auto-detect based on temperature.",
+          "very_cold_threshold": "Temperature at or below this is very cold. Used for banded learning in each season.",
+          "chilly_threshold": "Temperature between this and very cold threshold is chilly. Used for banded learning in each season.",
+          "comfortable_threshold": "Temperature between this and chilly threshold is comfortable. Above this is very hot. Used for banded learning in each season.",
           "enable_temperature_modulation": "Requires zone temperature sensors. Blocks zone removal until comfort targets are reached (winter max/summer min).",
-          "master_switch_in_offseason": "When auto-season detects neutral/offseason (neither heat nor cool needed), keep AC master switch ON despite low solar. Uncheck to turn OFF during offseason.",
           "max_temp_winter": "Heating comfort cutoff; zones stay on until reaching this temperature in heat mode.",
           "min_temp_summer": "Cooling comfort cutoff; zones stay on until reaching this temperature in cool mode.",
           "zone_temp_sensors": "Mapping from each zone to its indoor temperature sensor. Used with temperature modulation to prevent premature zone removal.",
@@ -220,42 +174,18 @@
       },
       "comfort": {
         "title": "Comfort-Based Zone Control",
-        "description": "Map zones to indoor temperature sensors and set comfort targets used to gate zone removals.",
+        "description": "Map zones to indoor temperature sensors and set comfort targets.\n\nFor each zone, you may optionally select an external temperature sensor:\n- Climate entities (heat pump, AC): Optional - will use built-in thermometer if no sensor selected\n- Switch/Fan entities: Mandatory - must provide external temperature sensor\n\nIf a zone's temperature is unavailable, it is treated as not at target (keeps zone on).",
         "data": {
-          "zone_temp_sensors": "Zone Temperature Sensors (optional)",
+          "zone_temp_sensors": "Zone Temperature Sensors (optional for climate, mandatory for switch/fan)",
+          "zone_manual_power": "Zone Manual Power Override (Watts, comma-separated)",
           "max_temp_winter": "Winter Comfort Target (°C)",
           "min_temp_summer": "Summer Comfort Target (°C)"
         },
         "data_description": {
-          "zone_temp_sensors": "Mapping from each zone to its indoor temperature sensor. Used with temperature modulation to prevent premature zone removal.",
+          "zone_temp_sensors": "Sensors are matched to zones by position (Zone 1 → Sensor 1, Zone 2 → Sensor 2, etc). Leave blank for climate entities to auto-use built-in thermometer.",
+          "zone_manual_power": "Optional fixed power per zone (comma-separated: 1000, 2000, 1500). Leave blank to use learned power. Useful for non-AC zones like electric radiators.",
           "max_temp_winter": "Heating comfort cutoff; zones stay on until reaching this temperature in heat mode.",
           "min_temp_summer": "Cooling comfort cutoff; zones stay on until reaching this temperature in cool mode."
-        }
-      },
-      "auto_season": {
-        "title": "Auto Season Detection — Used for better learning needed power in each season.",
-        "description": "Configure outside temperature thresholds for heat/cool and set seasonal learning thresholds.",
-        "data": {
-          "outside_temperature_sensor": "Outside Temperature Sensor (optional)",
-          "heat_on_below": "Heat ON below (°C)",
-          "heat_off_above": "Heat OFF above (°C)",
-          "cool_on_above": "Cool ON above (°C)",
-          "cool_off_below": "Cool OFF below (°C)",
-          "very_cold_threshold": "Very Cold Threshold (°C)",
-          "chilly_threshold": "Chilly Threshold (°C)",
-          "comfortable_threshold": "Comfortable Threshold (°C)",
-          "master_switch_in_offseason": "Master Switch in Offseason"
-        },
-        "data_description": {
-          "outside_temperature_sensor": "Optional outside temperature for auto season and banded learning.",
-          "heat_on_below": "Auto season: enable heating when outside is below this.",
-          "heat_off_above": "Auto season: stop heating when outside rises above this.",
-          "cool_on_above": "Auto season: enable cooling when outside is above this.",
-          "cool_off_below": "Auto season: stop cooling when outside falls below this.",
-          "very_cold_threshold": "Temperature at or below this is very cold.",
-          "chilly_threshold": "Temperature between this and very cold threshold is chilly.",
-          "comfortable_threshold": "Temperature between this and chilly threshold is comfortable. Above this is very hot.",
-          "master_switch_in_offseason": "When auto-season detects neutral/offseason (neither heat nor cool needed), keep AC master switch ON despite low solar. Uncheck to turn OFF during offseason."
         }
       }
     },
@@ -263,10 +193,9 @@
       "no_zones": "You must define at least one zone.",
       "zone_temp_sensors_mismatch": "Number of zone temperature sensors must match number of zones (or leave empty).",
       "invalid_solar_hysteresis": "Solar OFF threshold must be lower than Solar ON threshold.",
-      "invalid_heat_hysteresis": "Heat OFF must be above Heat ON.",
-      "invalid_cool_hysteresis": "Cool ON must be above Cool OFF.",
       "invalid_bands": "Temperature thresholds must increase (very cold < chilly < comfortable).",
-      "panic_too_low": "Panic threshold should be safely above the Solar ON threshold."
+      "panic_too_low": "Panic threshold should be safely above the Solar ON threshold.",
+      "missing_temp_sensors_non_climate": "Switch/Fan entities require external temperature sensors. Climate entities may leave the sensor blank to use built-in thermometer."
     }
   }
 }

@@ -47,7 +47,11 @@ async def _async_migrate_data(
     modified = False
     for zone, val in list(learned_power.items()):
         if val is None:
-            learned_power[zone] = {"default": initial_lp, "heat": initial_lp, "cool": initial_lp}
+            learned_power[zone] = {
+                "default": initial_lp,
+                "heat": initial_lp,
+                "cool": initial_lp,
+            }
             modified = True
         elif isinstance(val, (int, float)):
             v = float(val)
@@ -58,10 +62,12 @@ async def _async_migrate_data(
                 if mode not in val:
                     val[mode] = initial_lp
                     modified = True
-    
+
     payload = {
         "learned_power": learned_power,
-        "learned_power_bands": learned_power_bands if isinstance(learned_power_bands, dict) else {},
+        "learned_power_bands": (
+            learned_power_bands if isinstance(learned_power_bands, dict) else {}
+        ),
         "samples": old_data.get("samples", 0),
     }
 
@@ -81,7 +87,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     needs_update = False
     new_data = {**entry.data}
     new_options = {**entry.options}
-    
+
     for data_dict in [new_data, new_options]:
         zone_temp_sensors = data_dict.get(CONF_ZONE_TEMP_SENSORS)
         if zone_temp_sensors and isinstance(zone_temp_sensors, dict):
@@ -93,9 +99,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             data_dict[CONF_ZONE_TEMP_SENSORS] = zone_temp_sensors_list
             needs_update = True
             _LOGGER.info("Migrated zone_temp_sensors from dict to list format")
-    
+
     if needs_update:
-        hass.config_entries.async_update_entry(entry, data=new_data, options=new_options)
+        hass.config_entries.async_update_entry(
+            entry, data=new_data, options=new_options
+        )
 
     # 1. Get Integration Version from manifest
     integration = await async_get_integration(hass, DOMAIN)
@@ -103,7 +111,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     initial_lp = entry.options.get(
         CONF_INITIAL_LEARNED_POWER,
-        entry.data.get(CONF_INITIAL_LEARNED_POWER, DEFAULT_INITIAL_LEARNED_POWER)
+        entry.data.get(CONF_INITIAL_LEARNED_POWER, DEFAULT_INITIAL_LEARNED_POWER),
     )
 
     # 2. Storage Setup
@@ -111,7 +119,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         """Synchronous migration wrapper for Home Assistant Store."""
         if not isinstance(old_data, dict):
             return {"learned_power": {}, "learned_power_bands": {}, "samples": 0}
-        
+
         learned_power = old_data.get("learned_power", {})
         learned_power_bands = old_data.get("learned_power_bands", {}) or {}
         if not isinstance(learned_power, dict):
@@ -120,7 +128,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         modified = False
         for zone, val in list(learned_power.items()):
             if val is None:
-                learned_power[zone] = {"default": initial_lp, "heat": initial_lp, "cool": initial_lp}
+                learned_power[zone] = {
+                    "default": initial_lp,
+                    "heat": initial_lp,
+                    "cool": initial_lp,
+                }
                 modified = True
             elif isinstance(val, (int, float)):
                 v = float(val)
@@ -131,26 +143,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     if mode not in val:
                         val[mode] = initial_lp
                         modified = True
-        
+
         return {
             "learned_power": learned_power,
-            "learned_power_bands": learned_power_bands if isinstance(learned_power_bands, dict) else {},
+            "learned_power_bands": (
+                learned_power_bands if isinstance(learned_power_bands, dict) else {}
+            ),
             "samples": old_data.get("samples", 0),
         }
 
-    store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
-    
+    store = Store(hass, STORAGE_VERSION, STORAGE_KEY, migrate_fn=migrate_fn)
+
     try:
-        old_data = await store.async_load()
-        # Perform migration manually for HA versions without migrate_fn support
-        stored_data = migrate_fn(STORAGE_VERSION, 0, old_data)
-        # Persist migrated payload if it differs from on-disk data
-        try:
-            if isinstance(old_data, dict) and isinstance(stored_data, dict) and old_data != stored_data:
-                await store.async_save(stored_data)
-                _LOGGER.info("Migrated and persisted storage payload for Solar AC Controller")
-        except Exception:
-            _LOGGER.exception("Failed to persist migrated storage payload")
+        # Store.async_load() automatically calls migrate_fn with correct old/new versions
+        stored_data = await store.async_load()
     except NotImplementedError:
         _LOGGER.debug("Storage migration skipped, using defaults")
         stored_data = None
@@ -184,7 +190,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await coordinator.async_config_entry_first_refresh()
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    
+
     entry.add_update_listener(async_reload_entry)
 
     # 5. Services
@@ -206,9 +212,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id, None)
-    
+
     if not hass.data.get(DOMAIN):
         if hass.services.has_service(DOMAIN, "reset_learning"):
             hass.services.async_remove(DOMAIN, "reset_learning")
-            
+
     return unload_ok

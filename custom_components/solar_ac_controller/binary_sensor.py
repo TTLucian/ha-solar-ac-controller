@@ -17,6 +17,7 @@ from .helpers import build_diagnostics
 
 _LOGGER = logging.getLogger(__name__)
 
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -38,12 +39,14 @@ async def async_setup_entry(
     ]
     async_add_entities(entities)
 
+
 # --- BASE CLASS ---
 class _BaseSolarACBinary(BinarySensorEntity):
     """
     Base class for all Solar AC Controller binary sensors.
     Handles coordinator listener and device info.
     """
+
     _attr_has_entity_name = True
     _attr_should_poll = False
 
@@ -69,75 +72,123 @@ class _BaseSolarACBinary(BinarySensorEntity):
         if self._listener:
             self._listener()
 
+
 # --- BINARY SENSORS ---
 class SolarACLearningBinarySensor(_BaseSolarACBinary):
     _attr_name = "Learning Active"
+
     @property
-    def unique_id(self) -> str: return f"{self._entry_id}_learning_active"
+    def unique_id(self) -> str:
+        return f"{self._entry_id}_learning_active"
+
     @property
-    def is_on(self) -> bool: return bool(getattr(self.coordinator, "learning_active", False))
+    def is_on(self) -> bool:
+        return bool(getattr(self.coordinator, "learning_active", False))
+
 
 class SolarACPanicBinarySensor(_BaseSolarACBinary):
     _attr_name = "Panic State"
+
     @property
-    def unique_id(self) -> str: return f"{self._entry_id}_panic_state"
+    def unique_id(self) -> str:
+        return f"{self._entry_id}_panic_state"
+
     @property
-    def is_on(self) -> bool: return getattr(self.coordinator, "last_action", None) == "panic"
+    def is_on(self) -> bool:
+        return getattr(self.coordinator, "last_action", None) == "panic"
+
 
 class SolarACPanicCooldownBinarySensor(_BaseSolarACBinary):
     _attr_name = "Panic Cooldown"
+
     @property
-    def unique_id(self) -> str: return f"{self._entry_id}_panic_cooldown_bin"
+    def unique_id(self) -> str:
+        return f"{self._entry_id}_panic_cooldown_bin"
+
     @property
     def is_on(self) -> bool:
         ts = getattr(self.coordinator, "last_panic_ts", None)
-        if not ts: return False
+        if not ts:
+            return False
         cooldown = getattr(self.coordinator, "panic_cooldown_seconds", 120)
         return (dt_util.utcnow().timestamp() - float(ts)) < float(cooldown)
 
+
 class SolarACShortCycleBinarySensor(_BaseSolarACBinary):
     _attr_name = "Short Cycling"
+
     @property
-    def unique_id(self) -> str: return f"{self._entry_id}_short_cycling"
+    def unique_id(self) -> str:
+        return f"{self._entry_id}_short_cycling"
+
     @property
     def is_on(self) -> bool:
         now = dt_util.utcnow().timestamp()
         for z in self.coordinator.config.get(CONF_ZONES, []):
-            if (last := self.coordinator.zone_last_changed.get(z)):
-                threshold = self.coordinator.short_cycle_on_seconds if self.coordinator.zone_last_changed_type.get(z) == "on" else self.coordinator.short_cycle_off_seconds
-                if (now - last) < float(threshold): return True
+            if last := self.coordinator.zone_last_changed.get(z):
+                threshold = (
+                    self.coordinator.short_cycle_on_seconds
+                    if self.coordinator.zone_last_changed_type.get(z) == "on"
+                    else self.coordinator.short_cycle_off_seconds
+                )
+                if (now - last) < float(threshold):
+                    return True
         return False
+
 
 class SolarACLockedBinarySensor(_BaseSolarACBinary):
     _attr_name = "Manual Lock Active"
+
     @property
-    def unique_id(self) -> str: return f"{self._entry_id}_manual_lock"
+    def unique_id(self) -> str:
+        return f"{self._entry_id}_manual_lock"
+
     @property
     def is_on(self) -> bool:
         now = dt_util.utcnow().timestamp()
-        return any(until and until > now for until in self.coordinator.zone_manual_lock_until.values())
+        return any(
+            until and until > now
+            for until in self.coordinator.zone_manual_lock_until.values()
+        )
+
 
 class SolarACExportingBinarySensor(_BaseSolarACBinary):
     _attr_name = "Exporting"
+
     @property
-    def unique_id(self) -> str: return f"{self._entry_id}_exporting"
+    def unique_id(self) -> str:
+        return f"{self._entry_id}_exporting"
+
     @property
-    def is_on(self) -> bool: return bool(getattr(self.coordinator, "ema_30s", 0) < 0)
+    def is_on(self) -> bool:
+        return bool(getattr(self.coordinator, "ema_30s", 0) < 0)
+
 
 class SolarACImportingBinarySensor(_BaseSolarACBinary):
     _attr_name = "Importing"
+
     @property
-    def unique_id(self) -> str: return f"{self._entry_id}_importing"
+    def unique_id(self) -> str:
+        return f"{self._entry_id}_importing"
+
     @property
-    def is_on(self) -> bool: return bool(getattr(self.coordinator, "ema_30s", 0) > 0)
+    def is_on(self) -> bool:
+        return bool(getattr(self.coordinator, "ema_30s", 0) > 0)
+
 
 class SolarACMasterBinarySensor(_BaseSolarACBinary):
     _attr_device_class = BinarySensorDeviceClass.RUNNING
     _attr_name = "Master Switch"
+
     @property
-    def unique_id(self) -> str: return f"{self._entry_id}_master_switch"
+    def unique_id(self) -> str:
+        return f"{self._entry_id}_master_switch"
+
     @property
     def is_on(self) -> bool:
         ac_switch = self.coordinator.config.get(CONF_AC_SWITCH)
-        if not ac_switch: return True
-        return (state := self.coordinator.hass.states.get(ac_switch)) and state.state == "on"
+        if not ac_switch:
+            return True
+        return (
+            state := self.coordinator.hass.states.get(ac_switch)
+        ) and state.state == "on"

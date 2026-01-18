@@ -1,4 +1,5 @@
 """Confidence and add/remove decision logic for Solar AC Controller."""
+
 from __future__ import annotations
 
 import logging
@@ -31,11 +32,7 @@ class DecisionEngine:
 
         base = min(40, max(0, export_margin / 25))
         sample_bonus = min(20, self.coordinator.samples * 2)
-        short_cycle_penalty = (
-            -30
-            if self._is_short_cycling_for_add(last_zone)
-            else 0
-        )
+        short_cycle_penalty = -30 if self._is_short_cycling_for_add(last_zone) else 0
 
         return base + 5 + sample_bonus + short_cycle_penalty
 
@@ -47,17 +44,11 @@ class DecisionEngine:
         """Compute remove zone confidence score."""
         base = min(60, max(0, (import_power - 200) / 8))
         heavy_import_bonus = 20 if import_power > 1500 else 0
-        short_cycle_penalty = (
-            -40
-            if self._is_short_cycling_for_remove(last_zone)
-            else 0
-        )
+        short_cycle_penalty = -40 if self._is_short_cycling_for_remove(last_zone) else 0
 
         return base + 5 + heavy_import_bonus + short_cycle_penalty
 
-    def should_add_zone(
-        self, next_zone: str, required_export: float | None
-    ) -> bool:
+    def should_add_zone(self, next_zone: str, required_export: float | None) -> bool:
         """Return True if add zone conditions are met."""
         if self.coordinator.learning_active:
             return False
@@ -65,22 +56,29 @@ class DecisionEngine:
         if self.coordinator.ema_5m > -200:
             return False
 
-        return self.coordinator.last_add_conf >= self.coordinator.add_confidence_threshold
+        return (
+            self.coordinator.last_add_conf >= self.coordinator.add_confidence_threshold
+        )
 
-    def should_remove_zone(self, last_zone: str, import_power: float, active_zones: list[str]) -> bool:
+    def should_remove_zone(
+        self, last_zone: str, import_power: float, active_zones: list[str]
+    ) -> bool:
         """
         Return True if remove zone conditions are met.
-        
-        Checks confidence first, then verifies all active zones have reached
-        their comfort targets before allowing removal.
+
+        Checks confidence first, then verifies the specific zone being removed
+        has reached its comfort target before allowing removal.
         """
-        if self.coordinator.last_remove_conf < self.coordinator.remove_confidence_threshold:
+        if (
+            self.coordinator.last_remove_conf
+            < self.coordinator.remove_confidence_threshold
+        ):
             return False
-        
-        # Block removal if any active zone hasn't reached its comfort target
-        if not self.coordinator._all_active_zones_at_target(active_zones):
+
+        # Block removal if the specific zone being removed hasn't reached its comfort target
+        if not self.coordinator._all_active_zones_at_target(last_zone):
             return False
-        
+
         return True
 
     def _is_short_cycling_for_add(self, zone: str | None) -> bool:
@@ -91,6 +89,7 @@ class DecisionEngine:
         if not last:
             return False
         from homeassistant.util import dt as dt_util
+
         now = dt_util.utcnow().timestamp()
         last_type = self.coordinator.zone_last_changed_type.get(zone)
         if last_type == "on":

@@ -24,11 +24,11 @@ class SolarACDiagnosticEntity(SensorEntity):
         self._attr_unique_id = f"{self._entry_id}_diagnostics"
         self._unsub: Callable[[], None] | None = None
 
-
     @property
     def device_info(self):
         """Link to the 'Solar AC Controller' device (match all other entities)."""
         from homeassistant.helpers.entity import DeviceInfo
+
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry_id)},
             name="Solar AC Controller",
@@ -61,7 +61,9 @@ class SolarACDiagnosticEntity(SensorEntity):
             except Exception as exc:
                 _LOGGER.debug("Diagnostics: removal callable failed: %s", exc)
                 try:
-                    remove_listener = getattr(self.coordinator, "async_remove_listener", None)
+                    remove_listener = getattr(
+                        self.coordinator, "async_remove_listener", None
+                    )
                     if callable(remove_listener):
                         remove_listener(self.async_write_ha_state)
                 except Exception:
@@ -70,11 +72,15 @@ class SolarACDiagnosticEntity(SensorEntity):
                 self._unsub = None
         else:
             try:
-                remove_listener = getattr(self.coordinator, "async_remove_listener", None)
+                remove_listener = getattr(
+                    self.coordinator, "async_remove_listener", None
+                )
                 if callable(remove_listener):
                     remove_listener(self.async_write_ha_state)
             except Exception:
-                _LOGGER.debug("Diagnostics: async_remove_listener fallback failed (no removal callable)")
+                _LOGGER.debug(
+                    "Diagnostics: async_remove_listener fallback failed (no removal callable)"
+                )
 
     @property
     def native_value(self) -> str:

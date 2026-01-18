@@ -28,19 +28,15 @@ from .const import (
     CONF_INITIAL_LEARNED_POWER,
     CONF_ACTION_DELAY_SECONDS,
     CONF_OUTSIDE_SENSOR,
-    CONF_ENABLE_AUTO_SEASON,
+    CONF_SEASON_MODE,
     CONF_ENABLE_TEMP_MODULATION,
-    CONF_MASTER_SWITCH_IN_OFFSEASON,
-    CONF_HEAT_ON_BELOW,
-    CONF_HEAT_OFF_ABOVE,
-    CONF_COOL_ON_ABOVE,
-    CONF_COOL_OFF_BELOW,
     CONF_VERY_COLD_THRESHOLD,
     CONF_CHILLY_THRESHOLD,
     CONF_COMFORTABLE_THRESHOLD,
     CONF_MAX_TEMP_WINTER,
     CONF_MIN_TEMP_SUMMER,
     CONF_ZONE_TEMP_SENSORS,
+    CONF_ZONE_MANUAL_POWER,
     DEFAULT_INITIAL_LEARNED_POWER,
     DEFAULT_SOLAR_THRESHOLD_ON,
     DEFAULT_SOLAR_THRESHOLD_OFF,
@@ -52,20 +48,14 @@ from .const import (
     DEFAULT_ACTION_DELAY_SECONDS,
     DEFAULT_ADD_CONFIDENCE,
     DEFAULT_REMOVE_CONFIDENCE,
-    DEFAULT_ENABLE_AUTO_SEASON,
+    DEFAULT_SEASON_MODE,
     DEFAULT_ENABLE_TEMP_MODULATION,
-    DEFAULT_MASTER_SWITCH_IN_OFFSEASON,
-    DEFAULT_HEAT_ON_BELOW,
-    DEFAULT_HEAT_OFF_ABOVE,
-    DEFAULT_COOL_ON_ABOVE,
-    DEFAULT_COOL_OFF_BELOW,
     DEFAULT_VERY_COLD_THRESHOLD,
     DEFAULT_CHILLY_THRESHOLD,
     DEFAULT_COMFORTABLE_THRESHOLD,
     DEFAULT_MAX_TEMP_WINTER,
     DEFAULT_MIN_TEMP_SUMMER,
 )
-from .season import SeasonManager
 from .panic import PanicManager
 from .zones import ZoneManager
 from .decisions import DecisionEngine
@@ -77,7 +67,6 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 _EMA_RESET_AFTER_OFF_SECONDS = 600
-
 
 
 class SolarACCoordinator(DataUpdateCoordinator):
@@ -112,7 +101,9 @@ class SolarACCoordinator(DataUpdateCoordinator):
         # Initial learned power
         self.initial_learned_power = config_entry.options.get(
             CONF_INITIAL_LEARNED_POWER,
-            config_entry.data.get(CONF_INITIAL_LEARNED_POWER, DEFAULT_INITIAL_LEARNED_POWER),
+            config_entry.data.get(
+                CONF_INITIAL_LEARNED_POWER, DEFAULT_INITIAL_LEARNED_POWER
+            ),
         )
 
         # Stored migration
@@ -141,7 +132,8 @@ class SolarACCoordinator(DataUpdateCoordinator):
                             continue
                     if "default" not in normalized:
                         normalized["default"] = normalized.get(
-                            "heat", normalized.get("cool", float(self.initial_learned_power))
+                            "heat",
+                            normalized.get("cool", float(self.initial_learned_power)),
                         )
                     if "heat" not in normalized:
                         normalized["heat"] = normalized["default"]
@@ -166,8 +158,12 @@ class SolarACCoordinator(DataUpdateCoordinator):
                     if not isinstance(band_map, dict):
                         continue
                     try:
-                        normalized_band = {str(k).lower(): float(v) for k, v in band_map.items()}
-                        self.learned_power_bands[zone_name][mode.lower()] = normalized_band
+                        normalized_band = {
+                            str(k).lower(): float(v) for k, v in band_map.items()
+                        }
+                        self.learned_power_bands[zone_name][
+                            mode.lower()
+                        ] = normalized_band
                     except Exception:
                         continue
 
@@ -175,20 +171,30 @@ class SolarACCoordinator(DataUpdateCoordinator):
             try:
                 payload = {
                     "learned_power": dict(self.learned_power),
-                    "learned_power_bands": dict(raw_learned_bands) if isinstance(raw_learned_bands, dict) else {},
+                    "learned_power_bands": (
+                        dict(raw_learned_bands)
+                        if isinstance(raw_learned_bands, dict)
+                        else {}
+                    ),
                     "samples": int(self.samples),
                 }
 
                 async def _save_payload():
                     try:
                         await self.store.async_save(payload)
-                        _LOGGER.info("Migrated legacy learned_power to per-mode structure and saved storage")
+                        _LOGGER.info(
+                            "Migrated legacy learned_power to per-mode structure and saved storage"
+                        )
                     except Exception as exc:
-                        _LOGGER.exception("Failed to persist migrated learned_power: %s", exc)
+                        _LOGGER.exception(
+                            "Failed to persist migrated learned_power: %s", exc
+                        )
 
                 hass.async_create_task(_save_payload())
             except Exception as exc:
-                _LOGGER.exception("Failed to schedule persist of migrated learned_power: %s", exc)
+                _LOGGER.exception(
+                    "Failed to schedule persist of migrated learned_power: %s", exc
+                )
 
         # Internal state
         self.last_action: str | None = None
@@ -201,74 +207,160 @@ class SolarACCoordinator(DataUpdateCoordinator):
         self.ema_30s: float = 0.0
         self.ema_5m: float = 0.0
 
-        # Outdoor/season context
-        self.outside_temp: float | None = None
-        self.outside_temp_rolling_mean: float | None = None
+        # Season mode (manual selection: heat or cool)
+        self.season_mode: str = (
+            self.config_entry.options.get(
+                CONF_SEASON_MODE,
+                self.config_entry.data.get(CONF_SEASON_MODE, DEFAULT_SEASON_MODE),
+            )
+            or DEFAULT_SEASON_MODE
+        )
         self.outside_band: str | None = None
-        self.season_mode: str | None = None
-        self.enable_auto_season: bool = bool(
-            self.config_entry.options.get(CONF_ENABLE_AUTO_SEASON, self.config_entry.data.get(CONF_ENABLE_AUTO_SEASON, DEFAULT_ENABLE_AUTO_SEASON))
-        )
         self.enable_temp_modulation: bool = bool(
-            self.config_entry.options.get(CONF_ENABLE_TEMP_MODULATION, self.config_entry.data.get(CONF_ENABLE_TEMP_MODULATION, DEFAULT_ENABLE_TEMP_MODULATION))
+            self.config_entry.options.get(
+                CONF_ENABLE_TEMP_MODULATION,
+                self.config_entry.data.get(
+                    CONF_ENABLE_TEMP_MODULATION, DEFAULT_ENABLE_TEMP_MODULATION
+                ),
+            )
         )
-        self.master_switch_in_offseason: bool = bool(
-            self.config_entry.options.get(CONF_MASTER_SWITCH_IN_OFFSEASON, self.config_entry.data.get(CONF_MASTER_SWITCH_IN_OFFSEASON, DEFAULT_MASTER_SWITCH_IN_OFFSEASON))
+        self.very_cold_threshold: float = float(
+            self.config_entry.options.get(
+                CONF_VERY_COLD_THRESHOLD,
+                self.config_entry.data.get(
+                    CONF_VERY_COLD_THRESHOLD, DEFAULT_VERY_COLD_THRESHOLD
+                ),
+            )
         )
-        self.heat_on_below: float = float(self.config_entry.options.get(CONF_HEAT_ON_BELOW, self.config_entry.data.get(CONF_HEAT_ON_BELOW, DEFAULT_HEAT_ON_BELOW)))
-        self.heat_off_above: float = float(self.config_entry.options.get(CONF_HEAT_OFF_ABOVE, self.config_entry.data.get(CONF_HEAT_OFF_ABOVE, DEFAULT_HEAT_OFF_ABOVE)))
-        self.cool_on_above: float = float(self.config_entry.options.get(CONF_COOL_ON_ABOVE, self.config_entry.data.get(CONF_COOL_ON_ABOVE, DEFAULT_COOL_ON_ABOVE)))
-        self.cool_off_below: float = float(self.config_entry.options.get(CONF_COOL_OFF_BELOW, self.config_entry.data.get(CONF_COOL_OFF_BELOW, DEFAULT_COOL_OFF_BELOW)))
-        self.very_cold_threshold: float = float(self.config_entry.options.get(CONF_VERY_COLD_THRESHOLD, self.config_entry.data.get(CONF_VERY_COLD_THRESHOLD, DEFAULT_VERY_COLD_THRESHOLD)))
-        self.chilly_threshold: float = float(self.config_entry.options.get(CONF_CHILLY_THRESHOLD, self.config_entry.data.get(CONF_CHILLY_THRESHOLD, DEFAULT_CHILLY_THRESHOLD)))
-        self.comfortable_threshold: float = float(self.config_entry.options.get(CONF_COMFORTABLE_THRESHOLD, self.config_entry.data.get(CONF_COMFORTABLE_THRESHOLD, DEFAULT_COMFORTABLE_THRESHOLD)))
+        self.chilly_threshold: float = float(
+            self.config_entry.options.get(
+                CONF_CHILLY_THRESHOLD,
+                self.config_entry.data.get(
+                    CONF_CHILLY_THRESHOLD, DEFAULT_CHILLY_THRESHOLD
+                ),
+            )
+        )
+        self.comfortable_threshold: float = float(
+            self.config_entry.options.get(
+                CONF_COMFORTABLE_THRESHOLD,
+                self.config_entry.data.get(
+                    CONF_COMFORTABLE_THRESHOLD, DEFAULT_COMFORTABLE_THRESHOLD
+                ),
+            )
+        )
 
         # Comfort temperature targets (C)
-        self.max_temp_winter: float = float(self.config_entry.options.get(CONF_MAX_TEMP_WINTER, self.config_entry.data.get(CONF_MAX_TEMP_WINTER, DEFAULT_MAX_TEMP_WINTER)))
-        self.min_temp_summer: float = float(self.config_entry.options.get(CONF_MIN_TEMP_SUMMER, self.config_entry.data.get(CONF_MIN_TEMP_SUMMER, DEFAULT_MIN_TEMP_SUMMER)))
-        
+        self.max_temp_winter: float = float(
+            self.config_entry.options.get(
+                CONF_MAX_TEMP_WINTER,
+                self.config_entry.data.get(
+                    CONF_MAX_TEMP_WINTER, DEFAULT_MAX_TEMP_WINTER
+                ),
+            )
+        )
+        self.min_temp_summer: float = float(
+            self.config_entry.options.get(
+                CONF_MIN_TEMP_SUMMER,
+                self.config_entry.data.get(
+                    CONF_MIN_TEMP_SUMMER, DEFAULT_MIN_TEMP_SUMMER
+                ),
+            )
+        )
+
         # Build zone→sensor mapping from parallel lists
         zones_list = self.config.get(CONF_ZONES, [])
-        zone_temp_sensors_list: list[str] = list(self.config_entry.options.get(CONF_ZONE_TEMP_SENSORS, self.config_entry.data.get(CONF_ZONE_TEMP_SENSORS, [])) or [])
+        zone_temp_sensors_list: list[str] = list(
+            self.config_entry.options.get(
+                CONF_ZONE_TEMP_SENSORS,
+                self.config_entry.data.get(CONF_ZONE_TEMP_SENSORS, []),
+            )
+            or []
+        )
         self.zone_temp_sensors: dict[str, str] = {}
         for idx, zone_id in enumerate(zones_list):
             if idx < len(zone_temp_sensors_list) and zone_temp_sensors_list[idx]:
                 self.zone_temp_sensors[zone_id] = zone_temp_sensors_list[idx]
-        
-        self.zone_current_temps: dict[str, float | None] = {}  # zone_id -> current temp or None
+
+        self.zone_current_temps: dict[str, float | None] = (
+            {}
+        )  # zone_id -> current temp or None
 
         # Disable temperature modulation if no zone temp sensors configured
         if not self.zone_temp_sensors:
             self.enable_temp_modulation = False
-            _LOGGER.debug("Temperature modulation disabled: no zone temperature sensors configured")
+            _LOGGER.debug(
+                "Temperature modulation disabled: no zone temperature sensors configured"
+            )
 
-        # Initialize SeasonManager for outdoor temp and season mode handling
-        from .season import SeasonManager
-        self.season_manager = SeasonManager(
-            hass=hass,
-            config=self.config,
-            heat_on_below=self.heat_on_below,
-            heat_off_above=self.heat_off_above,
-            cool_on_above=self.cool_on_above,
-            cool_off_below=self.cool_off_below,
-            band_cold_max=self.very_cold_threshold,
-            band_mild_cold_max=self.chilly_threshold,
-            band_mild_hot_max=self.comfortable_threshold,
-            enable_auto_season=self.enable_auto_season,
+        # Build zone→manual power mapping from parallel input (list or comma-separated text)
+        raw_manual = self.config_entry.options.get(
+            CONF_ZONE_MANUAL_POWER,
+            self.config_entry.data.get(CONF_ZONE_MANUAL_POWER, []),
         )
+        parsed_list: list[float | None] = []
+        try:
+            if isinstance(raw_manual, str):
+                # Parse comma-separated text: "1000, 2000, , 1500"
+                parts = [p.strip() for p in raw_manual.split(",")]
+                for p in parts:
+                    if p == "":
+                        parsed_list.append(None)
+                    else:
+                        try:
+                            parsed_list.append(float(p))
+                        except (TypeError, ValueError):
+                            parsed_list.append(None)
+            elif isinstance(raw_manual, (list, tuple)):
+                for item in list(raw_manual):
+                    try:
+                        parsed_list.append(
+                            float(item) if item not in (None, "") else None
+                        )
+                    except (TypeError, ValueError):
+                        parsed_list.append(None)
+            else:
+                parsed_list = []
+        except Exception:
+            parsed_list = []
+
+        self.zone_manual_power: dict[str, float] = {}
+        for idx, zone_id in enumerate(zones_list):
+            if idx < len(parsed_list) and parsed_list[idx] is not None:
+                self.zone_manual_power[zone_id] = float(parsed_list[idx])
 
         self.zone_last_changed: dict[str, float] = {}
         self.zone_last_changed_type: dict[str, str] = {}
         self.zone_last_state: dict[str, str | None] = {}
         self.zone_manual_lock_until: dict[str, float] = {}
 
+        # Master switch manual lock (sticky until natural solar cycle aligns)
+        self.master_last_state: str | None = None
+        self.master_last_action_time: float | None = None
+        self.master_manual_lock_state: str | None = (
+            None  # "on" or "off" when locked, None when unlocked
+        )
+
         # Use centralized defaults from const.py
-        self.panic_threshold: float = float(self.config.get(CONF_PANIC_THRESHOLD, DEFAULT_PANIC_THRESHOLD))
-        self.panic_delay: int = int(self.config.get(CONF_PANIC_DELAY, DEFAULT_PANIC_DELAY))
-        self.manual_lock_seconds: int = int(self.config.get(CONF_MANUAL_LOCK_SECONDS, DEFAULT_MANUAL_LOCK_SECONDS))
-        self.short_cycle_on_seconds: int = int(self.config.get(CONF_SHORT_CYCLE_ON_SECONDS, DEFAULT_SHORT_CYCLE_ON_SECONDS))
-        self.short_cycle_off_seconds: int = int(self.config.get(CONF_SHORT_CYCLE_OFF_SECONDS, DEFAULT_SHORT_CYCLE_OFF_SECONDS))
-        self.action_delay_seconds: int = int(self.config.get(CONF_ACTION_DELAY_SECONDS, DEFAULT_ACTION_DELAY_SECONDS))
+        self.panic_threshold: float = float(
+            self.config.get(CONF_PANIC_THRESHOLD, DEFAULT_PANIC_THRESHOLD)
+        )
+        self.panic_delay: int = int(
+            self.config.get(CONF_PANIC_DELAY, DEFAULT_PANIC_DELAY)
+        )
+        self.manual_lock_seconds: int = int(
+            self.config.get(CONF_MANUAL_LOCK_SECONDS, DEFAULT_MANUAL_LOCK_SECONDS)
+        )
+        self.short_cycle_on_seconds: int = int(
+            self.config.get(CONF_SHORT_CYCLE_ON_SECONDS, DEFAULT_SHORT_CYCLE_ON_SECONDS)
+        )
+        self.short_cycle_off_seconds: int = int(
+            self.config.get(
+                CONF_SHORT_CYCLE_OFF_SECONDS, DEFAULT_SHORT_CYCLE_OFF_SECONDS
+            )
+        )
+        self.action_delay_seconds: int = int(
+            self.config.get(CONF_ACTION_DELAY_SECONDS, DEFAULT_ACTION_DELAY_SECONDS)
+        )
 
         self.add_confidence_threshold: float = float(
             self.config.get(CONF_ADD_CONFIDENCE, DEFAULT_ADD_CONFIDENCE)
@@ -278,6 +370,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
         )
 
         from .controller import SolarACController
+
         self.controller: "SolarACController" = SolarACController(hass, self, store)
 
         # Initialize sub-managers
@@ -307,11 +400,19 @@ class SolarACCoordinator(DataUpdateCoordinator):
     # -------------------------------------------------------------------------
     # Helper accessors for learned_power (abstracts storage format)
     # -------------------------------------------------------------------------
-    def get_learned_power(self, zone_name: str, mode: str | None = None, band: str | None = None) -> float:
+    def get_learned_power(
+        self, zone_name: str, mode: str | None = None, band: str | None = None
+    ) -> float:
         """Return learned power for a zone and mode/band, or default if missing."""
         if band:
-            mode_map = self.learned_power_bands.get(zone_name, {}) if isinstance(self.learned_power_bands, dict) else {}
-            band_map = mode_map.get(mode or "default") if isinstance(mode_map, dict) else None
+            mode_map = (
+                self.learned_power_bands.get(zone_name, {})
+                if isinstance(self.learned_power_bands, dict)
+                else {}
+            )
+            band_map = (
+                mode_map.get(mode or "default") if isinstance(mode_map, dict) else None
+            )
             if isinstance(band_map, dict) and band in band_map:
                 try:
                     return float(band_map[band])
@@ -336,18 +437,37 @@ class SolarACCoordinator(DataUpdateCoordinator):
         except Exception:
             return float(self.initial_learned_power)
 
-    def set_learned_power(self, zone_name: str, value: float, mode: str | None = None, band: str | None = None) -> None:
-        """Set learned power for a zone and mode/band."""
-        if band:
-            if zone_name not in self.learned_power_bands or not isinstance(self.learned_power_bands.get(zone_name), dict):
-                self.learned_power_bands[zone_name] = {}
-            mode_map = self.learned_power_bands[zone_name].get(mode or "default")
-            if not isinstance(mode_map, dict):
-                mode_map = {}
-            mode_map[band] = float(value)
-            self.learned_power_bands[zone_name][mode or "default"] = mode_map
+    def set_learned_power(
+        self,
+        zone_name: str,
+        value: float,
+        mode: str | None = None,
+        band: str | None = None,
+    ) -> None:
+        """Set learned power for a zone and mode/band with simple outlier filtering and smoothing.
 
-        if zone_name not in self.learned_power or not isinstance(self.learned_power.get(zone_name), dict):
+        Goals:
+        - Ignore clearly inconsistent samples (too high/low vs reasonable bounds or prior value)
+        - Smooth accepted samples into the learned value (EMA-style)
+        - Keep schema stable; no per-sample storage required
+        """
+        try:
+            new_sample = float(value)
+        except (TypeError, ValueError):
+            return
+
+        # Reasonable absolute bounds for a single zone incremental draw (W)
+        MIN_W = 200.0
+        MAX_W = 3000.0
+        # Relative tolerance around existing learned value (± fraction)
+        REL_TOL = 0.5  # accept within ±50% of current learned value
+        # Smoothing factor for EMA update
+        ALPHA = 0.3
+
+        # Initialize zone entry if missing
+        if zone_name not in self.learned_power or not isinstance(
+            self.learned_power.get(zone_name), dict
+        ):
             base = float(
                 self.learned_power.get(zone_name)
                 if isinstance(self.learned_power.get(zone_name), (int, float))
@@ -360,13 +480,66 @@ class SolarACCoordinator(DataUpdateCoordinator):
             }
 
         entry = self.learned_power[zone_name]
+        current = float(
+            entry.get(
+                mode or "default", entry.get("default", self.initial_learned_power)
+            )
+        )
+
+        # Absolute outlier filter
+        if not (MIN_W <= new_sample <= MAX_W):
+            try:
+                _LOGGER.debug(
+                    "Discarding outlier sample for %s: %sW outside [%s,%s]",
+                    zone_name,
+                    new_sample,
+                    MIN_W,
+                    MAX_W,
+                )
+            except Exception:
+                pass
+            return
+
+        # Relative outlier filter (only apply if we have a meaningful current value)
+        lower = max(MIN_W, current * (1.0 - REL_TOL))
+        upper = min(MAX_W, current * (1.0 + REL_TOL))
+        if not (lower <= new_sample <= upper):
+            try:
+                _LOGGER.debug(
+                    "Discarding relative outlier for %s: %sW outside [%s,%s] around current %sW",
+                    zone_name,
+                    new_sample,
+                    round(lower, 1),
+                    round(upper, 1),
+                    round(current, 1),
+                )
+            except Exception:
+                pass
+            return
+
+        # Smooth update
+        updated = (ALPHA * new_sample) + ((1.0 - ALPHA) * current)
+
+        # Update mode-specific and default values
         if mode:
-            entry[mode] = float(value)
-        entry["default"] = float(value)
+            entry[mode] = float(updated)
+        entry["default"] = float(updated)
         if "heat" not in entry:
             entry["heat"] = entry["default"]
         if "cool" not in entry:
             entry["cool"] = entry["default"]
+
+        # If banded learning is provided, keep last accepted sample per band (simple)
+        if band:
+            if zone_name not in self.learned_power_bands or not isinstance(
+                self.learned_power_bands.get(zone_name), dict
+            ):
+                self.learned_power_bands[zone_name] = {}
+            mode_map = self.learned_power_bands[zone_name].get(mode or "default")
+            if not isinstance(mode_map, dict):
+                mode_map = {}
+            mode_map[band] = float(updated)
+            self.learned_power_bands[zone_name][mode or "default"] = mode_map
 
     async def _persist_learned_values(self) -> None:
         """Persist learned values to storage."""
@@ -432,47 +605,28 @@ class SolarACCoordinator(DataUpdateCoordinator):
         # 2. Master switch auto-control (based ONLY on solar production)
         await self._handle_master_switch(solar)
 
-        # 3. If master exists and is OFF -> perform full freeze cleanup then return
+        # 3. Freeze zone management when solar is too low (regardless of master switch state)
         # This must happen BEFORE any temperature/season reading to ensure complete freeze
-        ac_switch = self.config.get(CONF_AC_SWITCH)
-        if ac_switch:
-            switch_state_obj = self.hass.states.get(ac_switch)
-            if switch_state_obj and switch_state_obj.state == "off":
-                # Ensure any running tasks are cancelled and learning reset
-                await self._perform_freeze_cleanup()
-                self.last_action = "master_off"
-                await self._log("[MASTER_OFF] master switch is off, freezing all calculations")
-                return
+        try:
+            off_threshold = float(
+                self.config.get(CONF_SOLAR_THRESHOLD_OFF, DEFAULT_SOLAR_THRESHOLD_OFF)
+            )
+        except (TypeError, ValueError):
+            off_threshold = DEFAULT_SOLAR_THRESHOLD_OFF
 
-        # 4. Outside temperature context (delegated to SeasonManager) - only if master is ON
-        outside_temp = self.season_manager.read_outside_temp()
-        self.outside_temp = outside_temp
-        self.outside_temp_rolling_mean = self.season_manager.rolling_mean
-        self.outside_band = self.season_manager.select_outside_band(outside_temp)
-        self.season_mode = self.season_manager.update_season_mode(outside_temp)
-
-        # Neutral mode freeze if configured
-        if self.season_mode == "neutral" and not self.master_switch_in_offseason:
-            ac_switch_cfg = self.config.get(CONF_AC_SWITCH)
-            if ac_switch_cfg:
-                try:
-                    await self.hass.services.async_call(
-                        "switch",
-                        "turn_off",
-                        {"entity_id": ac_switch_cfg},
-                        blocking=True,
-                    )
-                except Exception:
-                    _LOGGER.debug("Failed to turn off master switch while neutral")
+        if solar <= off_threshold:
+            # Ensure any running tasks are cancelled and learning reset
             await self._perform_freeze_cleanup()
-            self.last_action = "neutral"
+            self.last_action = "solar_too_low"
+            await self._log(
+                f"[FREEZE] solar={round(solar)} <= threshold_off={off_threshold}, freezing zone management"
+            )
             return
 
-        # 5. EMA updates
-        self._update_ema(grid_raw)
-
-        # 5b. Read zone temperatures for comfort target checking
+        # 4. Update zone temperatures for comfort target checking
         self._read_zone_temps()
+
+        # 5. EMA updates
 
         # 6. Determine zones and detect manual overrides
         active_zones = await self.zone_manager.update_zone_states_and_overrides()
@@ -480,7 +634,9 @@ class SolarACCoordinator(DataUpdateCoordinator):
 
         # 7. Compute required export and confidences
         next_zone, last_zone = self.zone_manager.select_next_and_last_zone(active_zones)
-        required_export = self._compute_required_export(next_zone, mode=self.season_mode, band=self.outside_band)
+        required_export = self._compute_required_export(
+            next_zone, mode=self.season_mode, band=self.outside_band
+        )
         export = -self.ema_30s
         import_power = self.ema_5m
 
@@ -488,7 +644,21 @@ class SolarACCoordinator(DataUpdateCoordinator):
         self.next_zone = next_zone
         self.last_zone = last_zone
         self.required_export = required_export
-        self.export_margin = None if required_export is None else export - required_export
+        # Track source for diagnostics: manual override vs learned power
+        try:
+            if (
+                next_zone
+                and isinstance(self.zone_manual_power, dict)
+                and next_zone in self.zone_manual_power
+            ):
+                self.required_export_source = "manual_power"
+            else:
+                self.required_export_source = "learned_power"
+        except Exception:
+            self.required_export_source = "learned_power"
+        self.export_margin = (
+            None if required_export is None else export - required_export
+        )
 
         self.last_add_conf = self.decision_engine.compute_add_conf(
             export=export,
@@ -524,12 +694,18 @@ class SolarACCoordinator(DataUpdateCoordinator):
             return
 
         # 11. ADD zone decision
-        if next_zone and self.decision_engine.should_add_zone(next_zone, required_export):
-            await self.action_executor.attempt_add_zone(next_zone, ac_power, export, required_export)
+        if next_zone and self.decision_engine.should_add_zone(
+            next_zone, required_export
+        ):
+            await self.action_executor.attempt_add_zone(
+                next_zone, ac_power, export, required_export
+            )
             return
 
         # 11. REMOVE zone decision
-        if last_zone and self.decision_engine.should_remove_zone(last_zone, import_power, active_zones):
+        if last_zone and self.decision_engine.should_remove_zone(
+            last_zone, import_power, active_zones
+        ):
             await self.action_executor.attempt_remove_zone(last_zone, import_power)
             return
 
@@ -548,66 +724,89 @@ class SolarACCoordinator(DataUpdateCoordinator):
         self.ema_30s = 0.25 * grid_raw + 0.75 * self.ema_30s
         self.ema_5m = 0.03 * grid_raw + 0.97 * self.ema_5m
 
-    def _compute_required_export(self, next_zone: str | None, mode: str | None = None, band: str | None = None) -> float | None:
-        """Compute required export for the next zone using mode/band-aware learned power."""
+    def _compute_required_export(
+        self, next_zone: str | None, mode: str | None = None, band: str | None = None
+    ) -> float | None:
+        """Compute required export for the next zone.
+
+        Priority:
+        1. Manual power override (if configured for zone)
+        2. Mode/band-aware learned power (if available)
+        """
         if not next_zone:
             return None
+
+        # Check for manual power override first
+        if next_zone in self.zone_manual_power:
+            return self.zone_manual_power[next_zone]
 
         zone_name = next_zone.split(".")[-1]
         lp = self.get_learned_power(zone_name, mode=mode or "default", band=band)
         return float(lp)
 
     def _read_zone_temps(self) -> None:
-        """Read current temperatures for all configured zones from their sensors."""
-        self.zone_current_temps = {}
-        for zone_id, temp_sensor_id in self.zone_temp_sensors.items():
-            if not temp_sensor_id:
-                self.zone_current_temps[zone_id] = None
-                continue
-            
-            st = self.hass.states.get(temp_sensor_id)
-            if not st or st.state in ("unknown", "unavailable", ""):
-                self.zone_current_temps[zone_id] = None
-                continue
-            
-            try:
-                self.zone_current_temps[zone_id] = float(st.state)
-            except (TypeError, ValueError):
-                self.zone_current_temps[zone_id] = None
+        """
+        Read current temperatures for all configured zones.
 
-    def _all_active_zones_at_target(self, active_zones: list[str]) -> bool:
+        Priority:
+        1. External temperature sensor (if configured)
+        2. Climate entity's current_temperature attribute (if zone is climate)
+        3. None (temperature unavailable)
         """
-        Check if all active zones have reached their comfort targets.
-        
-        Returns True only if ALL active zones are at or above/below target:
-        - In heat mode: all zones >= max_temp_winter
-        - In cool mode: all zones <= min_temp_summer
-        - In neutral mode: not applicable, returns False (allow normal removal)
-        
-        Returns False if any zone has no sensor or is below/above target.
+        self.zone_current_temps = {}
+
+        for zone_id, temp_sensor_id in self.zone_temp_sensors.items():
+            # Try external sensor first
+            if temp_sensor_id:
+                st = self.hass.states.get(temp_sensor_id)
+                if st and st.state not in ("unknown", "unavailable", ""):
+                    try:
+                        self.zone_current_temps[zone_id] = float(st.state)
+                        continue
+                    except (TypeError, ValueError):
+                        pass
+
+            # Fallback: try climate entity current_temperature attribute
+            zone_state = self.hass.states.get(zone_id)
+            if zone_state and zone_state.domain == "climate":
+                current_temp = zone_state.attributes.get("current_temperature")
+                if current_temp is not None:
+                    try:
+                        self.zone_current_temps[zone_id] = float(current_temp)
+                        continue
+                    except (TypeError, ValueError):
+                        pass
+
+            # Temperature unavailable
+            self.zone_current_temps[zone_id] = None
+
+    def _all_active_zones_at_target(self, zone_to_check: str | None) -> bool:
         """
-        if not active_zones or not self.season_mode:
+        Check if the specified zone has reached its comfort target.
+
+        Returns True if the zone is at or above/below target:
+        - In heat mode: zone >= max_temp_winter
+        - In cool mode: zone <= min_temp_summer
+
+        Returns False if zone has no sensor or is not at target.
+        """
+        if not zone_to_check or not self.season_mode:
+            return True  # No zone specified or no season, don't block
+
+        current_temp = self.zone_current_temps.get(zone_to_check)
+
+        # Missing sensor: assume "not at target" (conservative, keeps zone on)
+        if current_temp is None:
             return False
-        
-        if self.season_mode == "neutral":
-            return False
-        
-        for zone_id in active_zones:
-            current_temp = self.zone_current_temps.get(zone_id)
-            
-            # Missing sensor: assume "not at target" (conservative, keeps zone on)
-            if current_temp is None:
-                return False
-            
-            if self.season_mode == "heat":
-                if current_temp < self.max_temp_winter:
-                    return False
-            elif self.season_mode == "cool":
-                if current_temp > self.min_temp_summer:
-                    return False
-        
-        # All zones are at their targets
-        return True
+
+        if self.season_mode == "heat":
+            # Heat: zone must be at or above winter target
+            return current_temp >= self.max_temp_winter
+        elif self.season_mode == "cool":
+            # Cool: zone must be at or below summer target
+            return current_temp <= self.min_temp_summer
+
+        return True  # Shouldn't reach here, but don't block by default
 
     async def _perform_freeze_cleanup(self) -> None:
         """Cancel tasks and reset learning state when master is off."""
@@ -625,7 +824,9 @@ class SolarACCoordinator(DataUpdateCoordinator):
             if getattr(self, "controller", None) is not None:
                 await self.controller._reset_learning_state_async()
         except Exception:
-            _LOGGER.debug("Controller reset learning method failed or controller not set")
+            _LOGGER.debug(
+                "Controller reset learning method failed or controller not set"
+            )
 
         # Track master_off_since for EMA reset
         now_ts = dt_util.utcnow().timestamp()
@@ -707,19 +908,22 @@ class SolarACCoordinator(DataUpdateCoordinator):
     # Master switch control
     # -------------------------------------------------------------------------
     async def _handle_master_switch(self, solar: float) -> None:
-        """Master relay control based solely on solar production thresholds."""
-        """Master relay control based solely on solar production thresholds."""
+        """Master relay control with sticky manual lock until natural solar cycle aligns."""
         ac_switch = self.config.get(CONF_AC_SWITCH)
         if not ac_switch:
             return
 
         try:
-            on_threshold = float(self.config.get(CONF_SOLAR_THRESHOLD_ON, DEFAULT_SOLAR_THRESHOLD_ON))
+            on_threshold = float(
+                self.config.get(CONF_SOLAR_THRESHOLD_ON, DEFAULT_SOLAR_THRESHOLD_ON)
+            )
         except (TypeError, ValueError):
             on_threshold = DEFAULT_SOLAR_THRESHOLD_ON
 
         try:
-            off_threshold = float(self.config.get(CONF_SOLAR_THRESHOLD_OFF, DEFAULT_SOLAR_THRESHOLD_OFF))
+            off_threshold = float(
+                self.config.get(CONF_SOLAR_THRESHOLD_OFF, DEFAULT_SOLAR_THRESHOLD_OFF)
+            )
         except (TypeError, ValueError):
             off_threshold = DEFAULT_SOLAR_THRESHOLD_OFF
 
@@ -729,6 +933,45 @@ class SolarACCoordinator(DataUpdateCoordinator):
 
         switch_state = switch_state_obj.state
 
+        # Detect manual changes (state changed without recent coordinator action)
+        if (
+            self.master_last_state is not None
+            and switch_state != self.master_last_state
+        ):
+            now = dt_util.utcnow().timestamp()
+            # If no recent coordinator action (within 10s), it's a manual change
+            if (
+                self.master_last_action_time is None
+                or (now - self.master_last_action_time) > 10
+            ):
+                self.master_manual_lock_state = switch_state
+                await self._log(
+                    f"[MASTER_MANUAL_LOCK] detected manual change to {switch_state}, locking until natural cycle aligns"
+                )
+
+        # Check if lock should be released
+        if self.master_manual_lock_state is not None:
+            # Release lock if locked ON and solar would naturally turn it ON
+            if self.master_manual_lock_state == "on" and solar >= on_threshold:
+                await self._log(
+                    f"[MASTER_LOCK_RELEASE] solar={round(solar)} >= threshold_on={on_threshold}, resuming auto-control"
+                )
+                self.master_manual_lock_state = None
+            # Release lock if locked OFF and solar would naturally turn it OFF
+            elif self.master_manual_lock_state == "off" and solar <= off_threshold:
+                await self._log(
+                    f"[MASTER_LOCK_RELEASE] solar={round(solar)} <= threshold_off={off_threshold}, resuming auto-control"
+                )
+                self.master_manual_lock_state = None
+            else:
+                # Still locked, skip auto-control
+                self.master_last_state = switch_state
+                return
+
+        # Update last known state
+        self.master_last_state = switch_state
+
+        # Normal auto-control (only when not locked)
         # Turn ON when solar is above or equal to ON threshold
         if solar >= on_threshold and switch_state == "off":
             await self._log(
@@ -741,6 +984,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
                 blocking=True,
             )
             self.last_action = "master_on"
+            self.master_last_action_time = dt_util.utcnow().timestamp()
             # reset master_off_since when turned on
             self.master_off_since = None
             return
@@ -757,6 +1001,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
                 blocking=True,
             )
             self.last_action = "master_off"
+            self.master_last_action_time = dt_util.utcnow().timestamp()
             # mark master_off_since for EMA reset logic
             self.master_off_since = dt_util.utcnow().timestamp()
             return
