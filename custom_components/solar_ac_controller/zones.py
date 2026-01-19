@@ -71,35 +71,32 @@ class ZoneManager:
         """
         Return (next_zone, last_zone) based on active and locked zones.
 
+        Zone activation always follows config order (next_zone = first inactive unlocked).
         When temperature modulation is enabled and season mode is heat/cool:
-        - next_zone: Prioritize by thermal need (coldest in heat, hottest in cool)
-        - last_zone: Prioritize by comfort achievement (warmest in heat, coolest in cool)
+        - last_zone: Zones at comfort temperature are removed first (lowest need)
 
-        Otherwise falls back to config order for add and most-recent for remove.
+        Otherwise fall back to most-recent activation for removal.
         """
         all_zones = self.coordinator.config.get(CONF_ZONES, [])
 
-        # Determine if we should use temperature-based prioritization
+        # Next zone always uses config order (simplest, most predictable)
+        next_zone = next(
+            (
+                z
+                for z in all_zones
+                if z not in active_zones and not self.is_locked(z)
+            ),
+            None,
+        )
+
+        # Determine if we should use temperature-based removal prioritization
         use_temp_priority = (
             self.coordinator.enable_temperature_modulation
             and self.coordinator.season_mode in ("heat", "cool")
             and self.coordinator.zone_current_temps
         )
 
-        # Select next zone to add
-        if use_temp_priority:
-            next_zone = self._select_next_by_temperature(all_zones, active_zones)
-        else:
-            next_zone = next(
-                (
-                    z
-                    for z in all_zones
-                    if z not in active_zones and not self.is_locked(z)
-                ),
-                None,
-            )
-
-        # Select last zone to remove
+        # Select last zone to remove: by comfort (if temp enabled) or by recency
         if use_temp_priority:
             last_zone = self._select_last_by_temperature(active_zones)
         else:
@@ -114,103 +111,75 @@ class ZoneManager:
         self, all_zones: list[str], active_zones: list[str]
     ) -> str | None:
         """
-        Select next zone to add based on thermal need.
-
-        Priority:
-        1. Filter out zones already at comfort target
-        2. From remaining: sort by thermal need (coldest in heat, hottest in cool)
-        3. Zones without sensors fall to end, then use config order
+        DEPRECATED: Zone add no longer uses temperature prioritization.
+        Kept for reference only; select_next_and_last_zone now always uses config order.
         """
-        inactive_unlocked = [
-            z for z in all_zones if z not in active_zones and not self.is_locked(z)
-        ]
-
-        if not inactive_unlocked:
-            return None
-
-        # Filter out zones already at comfort target
-        zones_not_at_target = [
-            z
-            for z in inactive_unlocked
-            if not self.coordinator._all_active_zones_at_target(z)
-        ]
-
-        # If all zones are at target, fall back to all inactive unlocked (for safety)
-        candidate_zones = (
-            zones_not_at_target if zones_not_at_target else inactive_unlocked
-        )
-
-        # Get temperatures and filter zones with valid temps
-        zones_with_temps = [
-            (z, self.coordinator.zone_current_temps.get(z)) for z in candidate_zones
-        ]
-
-        # Separate zones with and without temps
-        valid_temp_zones = [(z, t) for z, t in zones_with_temps if t is not None]
-        no_temp_zones = [z for z, t in zones_with_temps if t is None]
-
-        if not valid_temp_zones:
-            # No valid temps, fall back to config order
-            return candidate_zones[0] if candidate_zones else None
-
-        if self.coordinator.season_mode == "heat":
-            # Heat: prioritize coldest (lowest temp = highest need)
-            sorted_zones = sorted(valid_temp_zones, key=lambda x: x[1])
-        else:  # cool
-            # Cool: prioritize hottest (highest temp = highest need)
-            sorted_zones = sorted(valid_temp_zones, key=lambda x: x[1], reverse=True)
-
-        # Return highest priority zone, or fall back to first no-temp zone (config order)
-        return (
-            sorted_zones[0][0]
-            if sorted_zones
-            else (no_temp_zones[0] if no_temp_zones else None)
+        # This method is no longer called but kept to avoid breaking imports
+        return next(
+            (
+                z
+                for z in all_zones
+                if z not in active_zones and not self.is_locked(z)
+            ),
+            None,
         )
 
     def _select_last_by_temperature(self, active_zones: list[str]) -> str | None:
         """
         Select zone to remove based on comfort achievement.
 
+        When a zone reaches its comfort temperature target, it becomes a candidate
+        for removal (lowest need). Zones not at target continue running.
+
         Priority:
-        1. Sort by comfort achieved (warmest in heat, coolest in cool = lowest need, remove first)
-        2. Zones without sensors fall to end, then use most-recent activation
+        1. Zones at comfort temperature (ready to remove)
+        2. Among those at comfort, sort by comfort margin (warmest in heat, coolest in cool)
+        3. Zones without sensors treated conservatively (kept on unless no other choice)
         """
         unlocked = [z for z in active_zones if not self.is_locked(z)]
 
         if not unlocked:
             return None
 
-        # Get temperatures
+        # Get temperatures and comfort status
+        zones_info = []
+        for z in unlocked:
+            temp = self.coordinator.zone_current_temps.get(z)
+            at_target = self.coordinator._all_active_zones_at_target(z)
+            zones_info.append((z, temp, at_target))
+
+        # Separate zones by comfort status
+        zones_at_target = [z for z, t, at_target in zones_info if at_target]
+        zones_not_at_target = [z for z, t, at_target in zones_info if not at_target]
+
+        # Prioritize removing zones that have reached comfort target
+        if zones_at_target:
+            candidate_zones = zones_at_target
+        else:
+            # If no zones at target, keep all running (don't remove yet)
+            return None
+
+        # Among removal candidates, sort by comfort margin
         zones_with_temps = [
-            (z, self.coordinator.zone_current_temps.get(z)) for z in unlocked
+            (z, self.coordinator.zone_current_temps.get(z))
+            for z in candidate_zones
         ]
 
-        # Separate zones with and without temps
         valid_temp_zones = [(z, t) for z, t in zones_with_temps if t is not None]
         no_temp_zones = [z for z, t in zones_with_temps if t is None]
 
         if not valid_temp_zones:
-            # No valid temps, fall back to most recently activated
-            return unlocked[-1] if unlocked else None
+            # No valid temps among at-target zones, pick the oldest activated one
+            return candidate_zones[-1] if candidate_zones else None
 
         if self.coordinator.season_mode == "heat":
-            # Heat: remove warmest first (highest temp = lowest need, already comfortable)
+            # Heat: remove warmest first (highest temp = most above target)
             sorted_zones = sorted(valid_temp_zones, key=lambda x: x[1], reverse=True)
         else:  # cool
-            # Cool: remove coolest first (lowest temp = lowest need, already comfortable)
+            # Cool: remove coolest first (lowest temp = most below target)
             sorted_zones = sorted(valid_temp_zones, key=lambda x: x[1])
 
-        # Return highest priority for removal
-        # For no-temp zones, prefer most recently activated ones (later in active_zones list)
-        if sorted_zones:
-            return sorted_zones[0][0]
-        elif no_temp_zones:
-            # Most recent = last in active_zones that's in no_temp_zones
-            for z in reversed(unlocked):
-                if z in no_temp_zones:
-                    return z
-
-        return None
+        return sorted_zones[0][0] if sorted_zones else None
 
     def is_short_cycling(self, zone: str | None) -> bool:
         """Return True if a zone is in short-cycle protection."""

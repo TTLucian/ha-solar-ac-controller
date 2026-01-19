@@ -5,6 +5,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
+## [0.7.93] — 2026-01-19 — Zone Prioritization & Config Flow Fixes
+
+### Changed
+
+- Zone addition always follows config order (no longer prioritizes by thermal need); simplifies and makes zone activation more predictable.
+- Zone removal now prioritizes comfort-achieved zones: when temp modulation is enabled, zones that have reached their comfort target are removed first (lowest heating/cooling need).
+- Improved config flow: zone temperature sensors list now auto-pads blanks, allowing users to skip the climate zone slot without reordering.
+
+### Fixed
+
+- Config flow `zone_manual_power` field no longer raises `expected str` error when left blank.
+- Indentation error in comfort step validation (both ConfigFlow and OptionsFlow).
+- Pylance type annotation warning on ConfigFlow class declaration.
+
+---
 ## [0.7.6] — 2026-01-18 — Manual Power Override & Diagnostics Cleanup
 
 ### Added
