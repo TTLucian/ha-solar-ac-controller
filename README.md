@@ -26,6 +26,31 @@ This integration automatically:
 Designed as a Home Assistant **service integration** for high-performance, solar-aware HVAC automation.
 
 ---
+## 📦 Installation
+
+### Manual Installation
+1. Copy the `custom_components/solar_ac_controller` folder into your Home Assistant `config/custom_components/` directory
+2. Restart Home Assistant
+3. Add the integration via **Settings → Devices & Services → Add Integration → Solar AC Controller**
+
+### HACS Installation (Custom Repository)
+1. Open **HACS → Integrations**
+2. Click the **three-dot menu** → **Custom repositories**
+3. Add repository:
+   - **URL:** `https://github.com/TTLucian/ha-solar-ac-controller`
+   - **Category:** Integration
+4. Click **Install** on the Solar AC Controller card
+5. Restart Home Assistant
+6. Add the integration via **Settings → Devices & Services → Add Integration**
+
+### Quick Links
+
+[![Add Solar AC Controller to HACS](https://img.shields.io/badge/HACS-Add%20Solar%20AC%20Controller-blue?style=for-the-badge)](https://my.home-assistant.io/redirect/hacs_repository/?owner=TTLucian&repository=ha-solar-ac-controller&category=integration)
+
+[![Add Solar AC Controller Integration](https://img.shields.io/badge/Home%20Assistant-Add%20Integration-blue?style=for-the-badge&logo=homeassistant)](https://my.home-assistant.io/redirect/config_flow_start?domain=solar_ac_controller)
+
+
+
 
 ## 🚀 Features
 
@@ -266,32 +291,6 @@ Bootstrap learning
 EMA updates
 
 Abort conditions (manual lock, missing sensors, invalid values)
-
-## 📦 Installation
-
-### Manual Installation
-1. Copy the `custom_components/solar_ac_controller` folder into your Home Assistant `config/custom_components/` directory
-2. Restart Home Assistant
-3. Add the integration via **Settings → Devices & Services → Add Integration → Solar AC Controller**
-
-### HACS Installation (Custom Repository)
-1. Open **HACS → Integrations**
-2. Click the **three-dot menu** → **Custom repositories**
-3. Add repository:
-   - **URL:** `https://github.com/TTLucian/ha-solar-ac-controller`
-   - **Category:** Integration
-4. Click **Install** on the Solar AC Controller card
-5. Restart Home Assistant
-6. Add the integration via **Settings → Devices & Services → Add Integration**
-
-### Quick Links
-
-[![Add Solar AC Controller to HACS](https://img.shields.io/badge/HACS-Add%20Solar%20AC%20Controller-blue?style=for-the-badge)](https://my.home-assistant.io/redirect/hacs_repository/?owner=TTLucian&repository=ha-solar-ac-controller&category=integration)
-
-then this:
-
-[![Add Solar AC Controller Integration](https://img.shields.io/badge/Home%20Assistant-Add%20Integration-blue?style=for-the-badge&logo=homeassistant)](https://my.home-assistant.io/redirect/config_flow_start?domain=solar_ac_controller)
-
 
 ## 🙌 Credits & Technical Details
 
