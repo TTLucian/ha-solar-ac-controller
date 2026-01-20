@@ -63,6 +63,8 @@ _EMA_RESET_AFTER_OFF_SECONDS = 600
 
 
 class SolarACCoordinator(DataUpdateCoordinator):
+        # Always initialize manual power mapping early for robustness
+        self.zone_manual_power: dict[str, float] = {}
     """
     Main control loop for the Solar AC Controller.
 
