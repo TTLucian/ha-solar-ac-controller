@@ -62,9 +62,8 @@ _LOGGER = logging.getLogger(__name__)
 _EMA_RESET_AFTER_OFF_SECONDS = 600
 
 
+
 class SolarACCoordinator(DataUpdateCoordinator):
-        # Always initialize manual power mapping early for robustness
-        self.zone_manual_power: dict[str, float] = {}
     """
     Main control loop for the Solar AC Controller.
 
@@ -80,6 +79,8 @@ class SolarACCoordinator(DataUpdateCoordinator):
         stored: dict[str, Any] | None,
         version: str | None = None,
     ) -> None:
+        # Always initialize manual power mapping early for robustness
+        self.zone_manual_power = {}
 
         # --- Ensure all sub-managers are initialized first ---
         self.zone_manager = ZoneManager(self)
