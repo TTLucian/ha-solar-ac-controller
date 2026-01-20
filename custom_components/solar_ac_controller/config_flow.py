@@ -1,14 +1,11 @@
-
-
-
-# --- IMPORTS: All imports at the top for performance and clarity ---
 from __future__ import annotations
 
 import voluptuous as vol
 from typing import Any
+from homeassistant import config_entries
 from homeassistant.config_entries import ConfigFlow, OptionsFlow, ConfigEntry
 from homeassistant.core import callback, HomeAssistant
-from homeassistant.helpers.selector import selector
+from homeassistant.helpers import selector
 
 from .const import (
     DOMAIN,
@@ -109,21 +106,29 @@ def schema_user(defaults):
     return vol.Schema({
         vol.Required(
             CONF_ZONES, default=defaults.get(CONF_ZONES, [])
-        ): selector({
-            "entity": {"domain": ["climate", "switch", "fan"], "multiple": True}
-        }),
+        ): selector.EntitySelector(
+            selector.EntitySelectorConfig(domain=["climate", "switch", "fan"], multiple=True)
+        ),
         vol.Optional(
             CONF_AC_SWITCH, default=defaults.get(CONF_AC_SWITCH, "")
-        ): selector({"entity": {"domain": "switch"}}),
+        ): selector.EntitySelector(
+            selector.EntitySelectorConfig(domain="switch")
+        ),
         vol.Required(
             CONF_SOLAR_SENSOR, default=defaults.get(CONF_SOLAR_SENSOR)
-        ): selector({"entity": {"domain": "sensor"}}),
+        ): selector.EntitySelector(
+            selector.EntitySelectorConfig(domain="sensor")
+        ),
         vol.Required(
             CONF_GRID_SENSOR, default=defaults.get(CONF_GRID_SENSOR)
-        ): selector({"entity": {"domain": "sensor"}}),
+        ): selector.EntitySelector(
+            selector.EntitySelectorConfig(domain="sensor")
+        ),
         vol.Required(
             CONF_AC_POWER_SENSOR, default=defaults.get(CONF_AC_POWER_SENSOR)
-        ): selector({"entity": {"domain": "sensor"}}),
+        ): selector.EntitySelector(
+            selector.EntitySelectorConfig(domain="sensor")
+        ),
         vol.Optional(
             CONF_SOLAR_THRESHOLD_ON,
             default=int(defaults.get(CONF_SOLAR_THRESHOLD_ON, DEFAULT_SOLAR_THRESHOLD_ON)),
@@ -147,11 +152,11 @@ def schema_user(defaults):
         vol.Optional(
             CONF_ENABLE_TEMP_MODULATION,
             default=bool(defaults.get(CONF_ENABLE_TEMP_MODULATION, DEFAULT_ENABLE_TEMP_MODULATION)),
-        ): bool,
+        ): selector.BooleanSelector(),
         vol.Optional(
             CONF_ENABLE_DIAGNOSTICS_SENSOR,
             default=bool(defaults.get(CONF_ENABLE_DIAGNOSTICS_SENSOR, False)),
-        ): bool,
+        ): selector.BooleanSelector(),
     })
 
 def schema_timing(defaults):
@@ -187,13 +192,15 @@ def schema_comfort(defaults, zone_manual_default):
         vol.Optional(
             CONF_ZONE_TEMP_SENSORS,
             default=defaults.get(CONF_ZONE_TEMP_SENSORS, []),
-        ): selector({
-            "entity": {"domain": "sensor", "device_class": ["temperature"], "multiple": True}
-        }),
+        ): selector.EntitySelector(
+            selector.EntitySelectorConfig(domain="sensor", device_class="temperature", multiple=True)
+        ),
         vol.Optional(
             CONF_ZONE_MANUAL_POWER,
             default=zone_manual_default,
-        ): selector({"text": {"multiline": False}}),
+        ): selector.TextSelector(
+            selector.TextSelectorConfig(multiline=False)
+        ),
         vol.Optional(
             CONF_MAX_TEMP_WINTER,
             default=defaults.get(CONF_MAX_TEMP_WINTER, DEFAULT_MAX_TEMP_WINTER),
@@ -246,8 +253,7 @@ async def _validate_zone_temp_sensors(
 
 
 
-class SolarACConfigFlow(ConfigFlow):
-    DOMAIN = DOMAIN
+class SolarACConfigFlow(config_entries.ConfigFlow):
     VERSION = 1
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None):
@@ -376,14 +382,14 @@ class SolarACConfigFlow(ConfigFlow):
 
     @staticmethod
     @callback
-    def async_get_options_flow(config_entry: ConfigEntry):
+    def async_get_options_flow(config_entry: config_entries.ConfigEntry):
         return SolarACOptionsFlowHandler(config_entry)
 
 
-class SolarACOptionsFlowHandler(OptionsFlow):
+class SolarACOptionsFlowHandler(config_entries.OptionsFlow):
     """Handle runtime configuration changes."""
 
-    def __init__(self, config_entry: ConfigEntry):
+    def __init__(self, config_entry: config_entries.ConfigEntry):
         self.entry = config_entry
         # Always merge data and options for a complete working set
         self.data = {**config_entry.data, **config_entry.options}
