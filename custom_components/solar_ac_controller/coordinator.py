@@ -85,8 +85,14 @@ class SolarACCoordinator(DataUpdateCoordinator):
         stored: dict[str, Any] | None,
         version: str | None = None,
     ) -> None:
-        # --- Ensure all state attributes are initialized up front ---
 
+        # --- Ensure all sub-managers are initialized first ---
+        self.zone_manager = ZoneManager(self)
+        self.panic_manager = PanicManager(self)
+        self.decision_engine = DecisionEngine(self)
+        self.action_executor = ActionExecutor(self)
+
+        # --- Ensure all state attributes are initialized up front ---
         self.next_zone: str | None = None
         self.last_zone: str | None = None
         self.zone_last_changed: dict[str, float] = {}
@@ -401,10 +407,6 @@ class SolarACCoordinator(DataUpdateCoordinator):
 
         from .controller import SolarACController
         self.controller: "SolarACController" = SolarACController(self.hass, self, self.store)
-        self.panic_manager = PanicManager(self)
-        self.zone_manager = ZoneManager(self)
-        self.decision_engine = DecisionEngine(self)
-        self.action_executor = ActionExecutor(self)
 
         self.last_add_conf: float = 0.0
         self.last_remove_conf: float = 0.0
