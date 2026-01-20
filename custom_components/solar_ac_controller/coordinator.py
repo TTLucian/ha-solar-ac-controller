@@ -590,13 +590,12 @@ class SolarACCoordinator(DataUpdateCoordinator):
     # Main update loop
     # -------------------------------------------------------------------------
     async def _async_update_data(self) -> None:
-                # Integration enable/disable logic
-                if hasattr(self, "integration_enabled") and not self.integration_enabled:
-                    self.last_action = "integration_disabled"
-                    _LOGGER.debug("Integration disabled, skipping all logic.")
-                    return
         """Main loop executed every 5 seconds."""
-        """Main loop executed every 5 seconds."""
+        # Integration enable/disable logic
+        if hasattr(self, "integration_enabled") and not self.integration_enabled:
+            self.last_action = "integration_disabled"
+            _LOGGER.debug("Integration disabled, skipping all logic.")
+            return
 
         # 1. Read sensors (grid, solar, ac_power)
         grid_state = self.hass.states.get(self.config.get(CONF_GRID_SENSOR))
