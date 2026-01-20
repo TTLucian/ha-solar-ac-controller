@@ -38,13 +38,12 @@ class SeasonModeSelect(CoordinatorEntity, SelectEntity):
         if option not in SEASON_OPTIONS:
             return
         self.coordinator.season_mode = option
-        # Persist to config entry options
-        hass = self.coordinator.hass
-        entry = self.entry
-        data = dict(entry.data)
-        options = dict(entry.options)
-        options[CONF_SEASON_MODE] = option
-        hass.config_entries.async_update_entry(entry, options=options)
+        # Persist to config entry options asynchronously to avoid HA blocking
+        async def _persist():
+            options = dict(self.entry.options)
+            options[CONF_SEASON_MODE] = option
+            self.hass.config_entries.async_update_entry(self.entry, options=options)
+        self.hass.async_create_task(_persist())
         self.coordinator.async_update_listeners()
 
     async def async_added_to_hass(self):
