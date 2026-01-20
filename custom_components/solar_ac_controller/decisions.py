@@ -89,7 +89,7 @@ class DecisionEngine:
             return False
 
         # Allow removal during panic, even if comfort target is not reached
-        if self.coordinator.panic_manager and self.coordinator.panic_manager.is_panicking():
+        if self.coordinator.panic_manager and self.coordinator.panic_manager.is_panicking:
             return True
         # Block removal if the specific zone being removed hasn't reached its comfort target
         if not self.coordinator._all_active_zones_at_target(last_zone):

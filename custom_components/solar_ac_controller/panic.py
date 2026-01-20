@@ -18,30 +18,31 @@ _LOGGER = logging.getLogger(__name__)
 _PANIC_COOLDOWN_SECONDS = 120
 
 
-class PanicManager:
 
-        def is_panicking(self) -> bool:
-            """Return True if a panic event is currently active (panic task running or last action was panic)."""
-            # Consider panic active if the panic task is running or last_action is 'panic'
-            if getattr(self.coordinator, '_panic_task', None) and not self.coordinator._panic_task.done():
-                return True
-            if getattr(self.coordinator, 'last_action', None) == 'panic':
-                return True
-            return False
+class PanicManager:
     """Manages emergency zone shedding when grid import exceeds panic threshold."""
 
-    def __init__(self, coordinator: SolarACCoordinator) -> None:
-        """Initialize panic manager."""
+    def __init__(self, coordinator: 'SolarACCoordinator') -> None:
         self.coordinator = coordinator
 
-    def should_panic(self, on_count: int) -> bool:
+    @property
+    def is_panicking(self) -> bool:
+        """Return True if a panic task is currently running (zones are being shed)."""
+        return self.coordinator._panic_task is not None and not self.coordinator._panic_task.done()
+
+    @property
+    def should_panic(self) -> bool:
         """Return True if panic shedding should be triggered."""
+        # Use on_count from coordinator if available, else default to 2
+        on_count = getattr(self.coordinator, 'on_count', 2)
         return (
             self.coordinator.ema_30s > self.coordinator.panic_threshold and on_count > 1
         )
 
-    def is_in_cooldown(self, now_ts: float) -> bool:
+    @property
+    def is_in_cooldown(self) -> bool:
         """Return True if in panic cooldown period."""
+        now_ts = dt_util.utcnow().timestamp()
         if self.coordinator.last_panic_ts is None:
             return False
         return (now_ts - self.coordinator.last_panic_ts) < _PANIC_COOLDOWN_SECONDS

@@ -606,13 +606,13 @@ class SolarACCoordinator(DataUpdateCoordinator):
                 return
 
         # 9. Panic logic
-        if self.panic_manager.should_panic(on_count):
+        if self.panic_manager.should_panic:
             self.note = "Panic triggered: grid import exceeded threshold with multiple zones active."
             await self.panic_manager.schedule_panic(active_zones)
             return
 
         # 10. Panic cooldown
-        if self.panic_manager.is_in_cooldown(now_ts):
+        if self.panic_manager.is_in_cooldown:
             self.last_action = "panic_cooldown"
             self.note = "Panic cooldown active: skipping add/remove decisions."
             await self._log("[PANIC_COOLDOWN] skipping add/remove decisions")

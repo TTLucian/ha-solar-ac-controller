@@ -248,7 +248,7 @@ async def _validate_zone_temp_sensors(
 
 
 
-class SolarACConfigFlow(SolarACBaseFlow, config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[misc]
+class SolarACConfigFlow(SolarACBaseFlow, config_entries.ConfigFlow):
     def _is_reconfigure(self) -> bool:
         return getattr(self, "_reconfigure_mode", False)
 
