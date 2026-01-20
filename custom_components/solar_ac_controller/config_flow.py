@@ -28,9 +28,6 @@ from .const import (
     CONF_OUTSIDE_SENSOR,
     CONF_SEASON_MODE,
     CONF_ENABLE_TEMP_MODULATION,
-    CONF_VERY_COLD_THRESHOLD,
-    CONF_CHILLY_THRESHOLD,
-    CONF_COMFORTABLE_THRESHOLD,
     CONF_MAX_TEMP_WINTER,
     CONF_MIN_TEMP_SUMMER,
     CONF_ZONE_TEMP_SENSORS,
@@ -373,24 +370,6 @@ class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: igno
                     CONF_MIN_TEMP_SUMMER,
                     default=float(
                         defaults.get(CONF_MIN_TEMP_SUMMER, DEFAULT_MIN_TEMP_SUMMER)
-                    ),
-                ): vol.Coerce(float),
-                vol.Optional(
-                    CONF_VERY_COLD_THRESHOLD,
-                    default=float(
-                        defaults.get(CONF_VERY_COLD_THRESHOLD, DEFAULT_VERY_COLD_THRESHOLD)
-                    ),
-                ): vol.Coerce(float),
-                vol.Optional(
-                    CONF_CHILLY_THRESHOLD,
-                    default=float(
-                        defaults.get(CONF_CHILLY_THRESHOLD, DEFAULT_CHILLY_THRESHOLD)
-                    ),
-                ): vol.Coerce(float),
-                vol.Optional(
-                    CONF_COMFORTABLE_THRESHOLD,
-                    default=float(
-                        defaults.get(CONF_COMFORTABLE_THRESHOLD, DEFAULT_COMFORTABLE_THRESHOLD)
                     ),
                 ): vol.Coerce(float),
             }
