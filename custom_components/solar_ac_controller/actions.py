@@ -119,10 +119,61 @@ class ActionExecutor:
         )
 
     async def call_entity_service(self, entity_id: str, turn_on: bool) -> None:
-        """Call turn_on/turn_off service for the entity's domain, with climate fallback."""
+        """Call turn_on/turn_off service for the entity's domain, with climate fallback. If climate, set hvac_mode if needed."""
         domain = entity_id.split(".")[0]
         service = "turn_on" if turn_on else "turn_off"
 
+        # If turning ON a climate entity, first turn on, then check/set hvac_mode
+        if turn_on and domain == "climate":
+            try:
+                await self.coordinator.hass.services.async_call(
+                    domain,
+                    service,
+                    {"entity_id": entity_id},
+                    blocking=True,
+                )
+            except Exception as e:
+                _LOGGER.debug(
+                    "Primary service %s.%s failed for %s: %s",
+                    domain,
+                    service,
+                    entity_id,
+                    e,
+                )
+                try:
+                    await self.coordinator.hass.services.async_call(
+                        "climate",
+                        service,
+                        {"entity_id": entity_id},
+                        blocking=True,
+                    )
+                    _LOGGER.warning(
+                        "Primary service %s.%s failed for %s — used climate.%s as fallback",
+                        domain,
+                        service,
+                        entity_id,
+                        service,
+                    )
+                except Exception as e:
+                    _LOGGER.exception(
+                        "Fallback climate.%s failed for %s: %s", service, entity_id, e
+                    )
+                    return
+            # After turning on, check and set hvac_mode if needed
+            state = self.coordinator.hass.states.get(entity_id)
+            desired_mode = getattr(self.coordinator, "season_mode", "cool")
+            if state:
+                current_mode = state.attributes.get("hvac_mode")
+                if current_mode != desired_mode:
+                    await self.coordinator.hass.services.async_call(
+                        "climate",
+                        "set_hvac_mode",
+                        {"entity_id": entity_id, "hvac_mode": desired_mode},
+                        blocking=True,
+                    )
+            return
+
+        # Non-climate or turn_off: original logic
         try:
             await self.coordinator.hass.services.async_call(
                 domain,

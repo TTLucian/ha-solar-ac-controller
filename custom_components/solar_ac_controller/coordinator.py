@@ -208,13 +208,20 @@ class SolarACCoordinator(DataUpdateCoordinator):
         self.ema_5m: float = 0.0
 
         # Season mode (manual selection: heat or cool)
-        self.season_mode: str = (
+    @property
+    def season_mode(self) -> str:
+        return (
             self.config_entry.options.get(
                 CONF_SEASON_MODE,
                 self.config_entry.data.get(CONF_SEASON_MODE, DEFAULT_SEASON_MODE),
             )
             or DEFAULT_SEASON_MODE
         )
+
+    @season_mode.setter
+    def season_mode(self, value: str):
+        # This setter is only for runtime; persistent update is handled by the select entity
+        self.config_entry.options = {**self.config_entry.options, CONF_SEASON_MODE: value}
         self.outside_band: str | None = None
         self.enable_temp_modulation: bool = bool(
             self.config_entry.options.get(
@@ -583,6 +590,11 @@ class SolarACCoordinator(DataUpdateCoordinator):
     # Main update loop
     # -------------------------------------------------------------------------
     async def _async_update_data(self) -> None:
+                # Integration enable/disable logic
+                if hasattr(self, "integration_enabled") and not self.integration_enabled:
+                    self.last_action = "integration_disabled"
+                    _LOGGER.debug("Integration disabled, skipping all logic.")
+                    return
         """Main loop executed every 5 seconds."""
         """Main loop executed every 5 seconds."""
 

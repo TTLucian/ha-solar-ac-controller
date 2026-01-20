@@ -78,7 +78,6 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
     learning_zone = getattr(coordinator, "learning_zone", None)
     learning_start_time_ts = getattr(coordinator, "learning_start_time", None)
     learning_started = _human_delta(learning_start_time_ts)
-    learning_started_at = _iso_ts(learning_start_time_ts)
     ac_power_before = _safe_float(getattr(coordinator, "ac_power_before", None), None)
 
     ema_30s = _safe_float(getattr(coordinator, "ema_30s", None), 0.0)
@@ -157,7 +156,6 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
     panic_delay = int(getattr(coordinator, "panic_delay", 0) or 0)
     last_panic_ts = getattr(coordinator, "last_panic_ts", None)
     last_panic = _human_delta(last_panic_ts)
-    last_panic_at = _iso_ts(last_panic_ts)
     panic_cooldown_active = False
     try:
         if last_panic_ts is not None:
@@ -170,12 +168,11 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
         panic_cooldown_active = False
 
     master_off_since_raw = getattr(coordinator, "master_off_since", None)
-    master_off_since_at = _iso_ts(master_off_since_raw)
     master_off = _human_delta(master_off_since_raw)
 
     # Last action timestamps/durations if available
     last_action_start_ts = getattr(coordinator, "last_action_start_ts", None)
-    last_action_started_at = _iso_ts(last_action_start_ts)
+    last_action_started = _human_delta(last_action_start_ts)
     last_action_duration = None
     try:
         dur = getattr(coordinator, "last_action_duration", None)
@@ -205,8 +202,6 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
         "learning_active": learning_active,
         "learning_zone": learning_zone,
         "learning_started": learning_started,
-        "learning_started_at": learning_started_at,
-        "learning_start_time_ts": learning_start_time_ts,
         "ac_power_before": ac_power_before,
         "ema_30s": ema_30s,
         "ema_5m": ema_5m,
@@ -215,14 +210,13 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
         "season_mode": season_mode,
         "enable_temp_modulation": enable_temp_modulation,
         "last_action": last_action,
-        "last_action_started_at": last_action_started_at,
+        "last_action_started": last_action_started,
         "last_action_duration_s": last_action_duration,
         "next_zone": next_zone,
         "last_zone": last_zone,
         "required_export": required_export,
         "export_margin": export_margin,
         "required_export_source": req_src,
-        "note": "Safety multiplier removed; required_export equals learned power estimate.",
         "active_zones": active_zones,
         "zone_modes": zone_modes,
         "zone_last_changed": zone_last_changed,
@@ -232,11 +226,8 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
         "panic_threshold": panic_threshold,
         "panic_delay": panic_delay,
         "last_panic": last_panic,
-        "last_panic_at": last_panic_at,
-        "last_panic_ts": last_panic_ts,
         "panic_cooldown_active": panic_cooldown_active,
         "master_off": master_off,
-        "master_off_since_at": master_off_since_at,
         "max_temp_winter": max_temp_winter,
         "min_temp_summer": min_temp_summer,
         "zone_current_temps": zone_temps_rounded,

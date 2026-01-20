@@ -169,10 +169,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         version=version,
     )
 
+
+    # Integration enable/disable state (persisted)
+    store_data = getattr(coordinator.store, 'data', None) or {}
+    coordinator.integration_enabled = store_data.get("integration_enabled", True)
+
+    async def async_set_integration_enabled(enabled: bool):
+        coordinator.integration_enabled = enabled
+        # Persist state
+        await coordinator.store.async_save({**(coordinator.store.data or {}), "integration_enabled": enabled})
+        coordinator.async_update_listeners()
+
+    coordinator.async_set_integration_enabled = async_set_integration_enabled
+
     hass.data[DOMAIN][entry.entry_id] = {"coordinator": coordinator}
 
     await coordinator.async_config_entry_first_refresh()
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS + ["switch", "select"])
 
     entry.add_update_listener(async_reload_entry)
 
