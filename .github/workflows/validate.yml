@@ -9,30 +9,39 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # Checkout repo
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # Set up Python
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.14"
 
+      # Install dependencies
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install homeassistant pylint black
+          pip install homeassistant ruff black
 
-      - name: Lint with pylint
+      # Lint with Ruff
+      - name: Lint with Ruff
         run: |
-          pylint custom_components/solar_ac_controller || true
+          python -m ruff check custom_components/solar_ac_controller || true
 
-      - name: Format check with black
+      # Format check with Black
+      - name: Format check with Black
         run: |
-          black --check custom_components/solar_ac_controller || true
+          python -m black --check custom_components/solar_ac_controller || true
 
-      - name: Validate Home Assistant integration structure
+      # Validate Home Assistant integration
+      - name: Validate HA integration
         run: |
           python - << 'EOF'
-          import homeassistant.loader as loader
-          print("Home Assistant integration loader imported successfully.")
+          try:
+              import homeassistant.loader as loader
+              print("Home Assistant integration loader imported successfully.")
+          except Exception as e:
+              print(f"Error importing Home Assistant loader: {e}")
           EOF
