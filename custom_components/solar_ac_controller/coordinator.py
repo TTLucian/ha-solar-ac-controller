@@ -94,6 +94,8 @@ class SolarACCoordinator(DataUpdateCoordinator):
         self.hass = hass
         self.config_entry = config_entry
         self.config = {**dict(config_entry.data), **dict(config_entry.options)}
+        # Initialize runtime season_mode from persisted config
+        self._season_mode = self.config.get(CONF_SEASON_MODE, DEFAULT_SEASON_MODE)
         self.store = store
         self.version = version
         self.zone_manual_power = {}
@@ -294,6 +296,9 @@ class SolarACCoordinator(DataUpdateCoordinator):
         # Season mode (manual selection: heat or cool)
     @property
     def season_mode(self) -> str:
+        # Check runtime value first, then fall back to persisted config
+        if hasattr(self, '_season_mode'):
+            return self._season_mode
         return (
             self.config_entry.options.get(
                 CONF_SEASON_MODE,
@@ -304,8 +309,8 @@ class SolarACCoordinator(DataUpdateCoordinator):
 
     @season_mode.setter
     def season_mode(self, value: str):
-        # This setter is only for runtime; persistent update is handled by the select entity
-        self.config_entry.options = {**self.config_entry.options, CONF_SEASON_MODE: value}
+        # Store runtime value; persistence is handled by the select entity via async_update_entry
+        self._season_mode = value
 
     # -------------------------------------------------------------------------
     # Helper accessors for learned_power (abstracts storage format)
