@@ -87,6 +87,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
         super().__init__(
             hass,
             logger=_LOGGER,
+            name="Solar AC Controller",
             update_interval=timedelta(seconds=5),
         )
         self.hass = hass
