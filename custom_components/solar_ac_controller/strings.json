@@ -83,11 +83,13 @@
         "title": "Comfort-Based Zone Control",
         "description": "Map zones to indoor temperature sensors and set comfort targets used to gate zone removals.",
         "data": {
+          "outside_temperature_sensor": "Outside Temperature Sensor (optional)",
           "zone_temp_sensors": "Zone Temperature Sensors (optional)",
           "max_temp_winter": "Winter Comfort Target (°C)",
           "min_temp_summer": "Summer Comfort Target (°C)"
         },
         "data_description": {
+          "outside_temperature_sensor": "Optional outside temperature for banded learning (per temperature band).",
           "zone_temp_sensors": "Mapping from each zone to its indoor temperature sensor. Used with temperature modulation to prevent premature zone removal.",
           "max_temp_winter": "Heating comfort cutoff; zones stay on until reaching this temperature in heat mode.",
           "min_temp_summer": "Cooling comfort cutoff; zones stay on until reaching this temperature in cool mode."

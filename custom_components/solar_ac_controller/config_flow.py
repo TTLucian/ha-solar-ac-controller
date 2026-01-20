@@ -347,6 +347,10 @@ class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: igno
 
         schema = vol.Schema(
             {
+                    vol.Optional(
+                        CONF_OUTSIDE_SENSOR,
+                        default=defaults.get(CONF_OUTSIDE_SENSOR, ""),
+                    ): selector({"entity": {"domain": "sensor"}}),
                 vol.Optional(
                     CONF_ZONE_TEMP_SENSORS,
                     default=defaults.get(CONF_ZONE_TEMP_SENSORS, []),
@@ -373,6 +377,24 @@ class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: igno
                     CONF_MIN_TEMP_SUMMER,
                     default=float(
                         defaults.get(CONF_MIN_TEMP_SUMMER, DEFAULT_MIN_TEMP_SUMMER)
+                    ),
+                ): vol.Coerce(float),
+                vol.Optional(
+                    CONF_VERY_COLD_THRESHOLD,
+                    default=float(
+                        defaults.get(CONF_VERY_COLD_THRESHOLD, DEFAULT_VERY_COLD_THRESHOLD)
+                    ),
+                ): vol.Coerce(float),
+                vol.Optional(
+                    CONF_CHILLY_THRESHOLD,
+                    default=float(
+                        defaults.get(CONF_CHILLY_THRESHOLD, DEFAULT_CHILLY_THRESHOLD)
+                    ),
+                ): vol.Coerce(float),
+                vol.Optional(
+                    CONF_COMFORTABLE_THRESHOLD,
+                    default=float(
+                        defaults.get(CONF_COMFORTABLE_THRESHOLD, DEFAULT_COMFORTABLE_THRESHOLD)
                     ),
                 ): vol.Coerce(float),
             }
