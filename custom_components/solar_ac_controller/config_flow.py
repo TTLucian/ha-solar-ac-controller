@@ -196,11 +196,11 @@ def schema_comfort(defaults, zone_manual_default):
         ): selector({"text": {"multiline": False}}),
         vol.Optional(
             CONF_MAX_TEMP_WINTER,
-            default=float(defaults.get(CONF_MAX_TEMP_WINTER, DEFAULT_MAX_TEMP_WINTER)),
+            default=defaults.get(CONF_MAX_TEMP_WINTER, DEFAULT_MAX_TEMP_WINTER),
         ): vol.Coerce(float),
         vol.Optional(
             CONF_MIN_TEMP_SUMMER,
-            default=float(defaults.get(CONF_MIN_TEMP_SUMMER, DEFAULT_MIN_TEMP_SUMMER)),
+            default=defaults.get(CONF_MIN_TEMP_SUMMER, DEFAULT_MIN_TEMP_SUMMER),
         ): vol.Coerce(float),
     })
 
@@ -247,7 +247,7 @@ async def _validate_zone_temp_sensors(
 
 
 class SolarACConfigFlow(ConfigFlow):
-
+    DOMAIN = DOMAIN
     VERSION = 1
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None):
