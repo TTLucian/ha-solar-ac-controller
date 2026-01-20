@@ -79,7 +79,6 @@ class ActionExecutor:
             return
 
         # Mark learning before action, but actual power delta is validated later
-        self.coordinator.learning_band = self.coordinator.outside_band
         await self.coordinator.controller.start_learning(zone, ac_power_before)
 
         start = dt_util.utcnow().timestamp()

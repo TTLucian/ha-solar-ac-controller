@@ -161,7 +161,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         stored_data = None
 
     if stored_data is None:
-        stored_data = {"learned_power": {}, "learned_power_bands": {}, "samples": 0}
+        stored_data = {"learned_power": {}, "samples": 0}
 
     # 1. Migrate
     migrated = await _async_migrate_data(0, 0, stored_data, initial_lp)
@@ -175,9 +175,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         return int(round(float(val)))
 
     stored_data["learned_power"] = _round_map(stored_data.get("learned_power", {}))
-    stored_data["learned_power_bands"] = _round_map(
-        stored_data.get("learned_power_bands", {})
-    )
 
     # 3. Integration enabled state (persisted)
     # Use stored_data directly (store.data does not exist)
