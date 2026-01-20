@@ -136,10 +136,9 @@ class SolarACController:
                     )
                 return
 
-            learning_band = getattr(self.coordinator, "learning_band", None)
 
             try:
-                set_lp(zone_name, float(delta), mode=mode, band=learning_band)
+                    set_lp(zone_name, float(delta), mode=mode)
                 self.coordinator.samples = (
                     int(getattr(self.coordinator, "samples", 0) or 0) + 1
                 )
@@ -200,10 +199,7 @@ class SolarACController:
         self.coordinator.learning_zone = None
         self.coordinator.learning_start_time = None
         self.coordinator.ac_power_before = None
-        try:
-            self.coordinator.learning_band = None
-        except Exception:
-            pass
+        # Removed: learning_band
         _LOGGER.debug("Controller: cleared learning state")
 
     async def _reset_learning_state_async(self) -> None:

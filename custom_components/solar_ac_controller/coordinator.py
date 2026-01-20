@@ -27,12 +27,8 @@ from .const import (
     CONF_REMOVE_CONFIDENCE,
     CONF_INITIAL_LEARNED_POWER,
     CONF_ACTION_DELAY_SECONDS,
-    CONF_OUTSIDE_SENSOR,
     CONF_SEASON_MODE,
     CONF_ENABLE_TEMP_MODULATION,
-    CONF_VERY_COLD_THRESHOLD,
-    CONF_CHILLY_THRESHOLD,
-    CONF_COMFORTABLE_THRESHOLD,
     CONF_MAX_TEMP_WINTER,
     CONF_MIN_TEMP_SUMMER,
     CONF_ZONE_TEMP_SENSORS,
@@ -50,9 +46,6 @@ from .const import (
     DEFAULT_REMOVE_CONFIDENCE,
     DEFAULT_SEASON_MODE,
     DEFAULT_ENABLE_TEMP_MODULATION,
-    DEFAULT_VERY_COLD_THRESHOLD,
-    DEFAULT_CHILLY_THRESHOLD,
-    DEFAULT_COMFORTABLE_THRESHOLD,
     DEFAULT_MAX_TEMP_WINTER,
     DEFAULT_MIN_TEMP_SUMMER,
 )
@@ -93,7 +86,6 @@ class SolarACCoordinator(DataUpdateCoordinator):
         self.action_executor = ActionExecutor(self)
 
         # --- Ensure all state attributes are initialized up front ---
-        self.outside_band: str | None = None
         self.next_zone: str | None = None
         self.last_zone: str | None = None
         self.zone_last_changed: dict[str, float] = {}
@@ -134,11 +126,10 @@ class SolarACCoordinator(DataUpdateCoordinator):
         # Stored migration
         stored = stored or {}
         raw_learned = stored.get("learned_power", {}) or {}
-        raw_learned_bands = stored.get("learned_power_bands", {}) or {}
+        # Band learning removed: ignore learned_power_bands
         raw_samples = stored.get("samples", 0) or 0
 
         self.learned_power: dict[str, dict[str, float]] = {}
-        self.learned_power_bands: dict[str, dict[str, dict[str, float]]] = {}
         self.samples: int = int(raw_samples)
 
         migrated = False
@@ -174,53 +165,10 @@ class SolarACCoordinator(DataUpdateCoordinator):
         else:
             self.learned_power = {}
 
-        if isinstance(raw_learned_bands, dict):
-            for zone_name, mode_map in raw_learned_bands.items():
-                if not isinstance(mode_map, dict):
-                    continue
-                self.learned_power_bands[zone_name] = {}
-                for mode, band_map in mode_map.items():
-                    if not isinstance(band_map, dict):
-                        continue
-                    try:
-                        normalized_band = {
-                            str(k).lower(): float(v) for k, v in band_map.items()
-                        }
-                        self.learned_power_bands[zone_name][
-                            mode.lower()
-                        ] = normalized_band
-                    except Exception:
-                        continue
 
 
-        if migrated:
-            try:
-                payload = {
-                    "learned_power": dict(self.learned_power),
-                    "learned_power_bands": (
-                        dict(raw_learned_bands)
-                        if isinstance(raw_learned_bands, dict)
-                        else {}
-                    ),
-                    "samples": int(self.samples),
-                }
 
-                async def _save_payload():
-                    try:
-                        await self.store.async_save(payload)
-                        _LOGGER.info(
-                            "Migrated legacy learned_power to per-mode structure and saved storage"
-                        )
-                    except Exception as exc:
-                        _LOGGER.exception(
-                            "Failed to persist migrated learned_power: %s", exc
-                        )
 
-                hass.async_create_task(_save_payload())
-            except Exception as exc:
-                _LOGGER.exception(
-                    "Failed to schedule persist of migrated learned_power: %s", exc
-                )
 
 
 
@@ -230,7 +178,6 @@ class SolarACCoordinator(DataUpdateCoordinator):
         self.learning_start_time: float | None = None
         self.ac_power_before: float | None = None
         self.learning_zone: str | None = None
-        self.learning_band: str | None = None
 
         self.ema_30s: float = 0.0
         self.ema_5m: float = 0.0
@@ -250,7 +197,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
     def season_mode(self, value: str):
         # This setter is only for runtime; persistent update is handled by the select entity
         self.config_entry.options = {**self.config_entry.options, CONF_SEASON_MODE: value}
-        self.outside_band: str | None = None
+
         self.enable_temp_modulation: bool = bool(
             self.config_entry.options.get(
                 CONF_ENABLE_TEMP_MODULATION,
@@ -259,30 +206,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
                 ),
             )
         )
-        self.very_cold_threshold: float = float(
-            self.config_entry.options.get(
-                CONF_VERY_COLD_THRESHOLD,
-                self.config_entry.data.get(
-                    CONF_VERY_COLD_THRESHOLD, DEFAULT_VERY_COLD_THRESHOLD
-                ),
-            )
-        )
-        self.chilly_threshold: float = float(
-            self.config_entry.options.get(
-                CONF_CHILLY_THRESHOLD,
-                self.config_entry.data.get(
-                    CONF_CHILLY_THRESHOLD, DEFAULT_CHILLY_THRESHOLD
-                ),
-            )
-        )
-        self.comfortable_threshold: float = float(
-            self.config_entry.options.get(
-                CONF_COMFORTABLE_THRESHOLD,
-                self.config_entry.data.get(
-                    CONF_COMFORTABLE_THRESHOLD, DEFAULT_COMFORTABLE_THRESHOLD
-                ),
-            )
-        )
+
 
         # Comfort temperature targets (C)
         self.max_temp_winter: float = float(
@@ -434,21 +358,6 @@ class SolarACCoordinator(DataUpdateCoordinator):
         self, zone_name: str, mode: str | None = None, band: str | None = None
     ) -> float:
         """Return learned power for a zone and mode/band, or default if missing."""
-        if band:
-            mode_map = (
-                self.learned_power_bands.get(zone_name, {})
-                if isinstance(self.learned_power_bands, dict)
-                else {}
-            )
-            band_map = (
-                mode_map.get(mode or "default") if isinstance(mode_map, dict) else None
-            )
-            if isinstance(band_map, dict) and band in band_map:
-                try:
-                    return float(band_map[band])
-                except Exception:
-                    pass
-
         entry = self.learned_power.get(zone_name)
         if entry is None:
             return float(self.initial_learned_power)
@@ -475,9 +384,8 @@ class SolarACCoordinator(DataUpdateCoordinator):
         zone_name: str,
         value: float,
         mode: str | None = None,
-        band: str | None = None,
     ) -> None:
-        """Set learned power for a zone and mode/band with simple outlier filtering and smoothing.
+        """Set learned power for a zone and mode with simple outlier filtering and smoothing.
 
         Goals:
         - Ignore clearly inconsistent samples (too high/low vs reasonable bounds or prior value)
@@ -565,17 +473,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
         if "cool" not in entry:
             entry["cool"] = entry["default"]
 
-        # If banded learning is provided, keep last accepted sample per band (simple)
-        if band:
-            if zone_name not in self.learned_power_bands or not isinstance(
-                self.learned_power_bands.get(zone_name), dict
-            ):
-                self.learned_power_bands[zone_name] = {}
-            mode_map = self.learned_power_bands[zone_name].get(mode or "default")
-            if not isinstance(mode_map, dict):
-                mode_map = {}
-            mode_map[band] = updated
-            self.learned_power_bands[zone_name][mode or "default"] = mode_map
+
 
     async def _persist_learned_values(self) -> None:
         """Persist learned values to storage."""
@@ -617,6 +515,8 @@ class SolarACCoordinator(DataUpdateCoordinator):
     # -------------------------------------------------------------------------
     # Main update loop
     # -------------------------------------------------------------------------
+
+
     async def _async_update_data(self) -> None:
         """Main loop executed every 5 seconds."""
         # Integration enable/disable logic
@@ -650,6 +550,8 @@ class SolarACCoordinator(DataUpdateCoordinator):
         _LOGGER.debug(
             "Cycle sensors: grid_raw=%s solar=%s ac_power=%s", grid_raw, solar, ac_power
         )
+
+
 
         # 2. Master switch auto-control (based ONLY on solar production)
         await self._handle_master_switch(solar)
@@ -689,7 +591,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
         # 7. Compute required export and confidences
         next_zone, last_zone = self.zone_manager.select_next_and_last_zone(active_zones)
         required_export = self._compute_required_export(
-            next_zone, mode=self.season_mode, band=self.outside_band
+            next_zone, mode=self.season_mode
         )
         export = -self.ema_30s
         import_power = self.ema_5m
@@ -779,13 +681,13 @@ class SolarACCoordinator(DataUpdateCoordinator):
         self.ema_5m = 0.03 * grid_raw + 0.97 * self.ema_5m
 
     def _compute_required_export(
-        self, next_zone: str | None, mode: str | None = None, band: str | None = None
+        self, next_zone: str | None, mode: str | None = None
     ) -> float | None:
         """Compute required export for the next zone.
 
         Priority:
         1. Manual power override (if configured for zone)
-        2. Mode/band-aware learned power (if available)
+        2. Mode-aware learned power (if available)
         """
         if not next_zone:
             return None
@@ -795,7 +697,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
             return self.zone_manual_power[next_zone]
 
         zone_name = next_zone.split(".")[-1]
-        lp = self.get_learned_power(zone_name, mode=mode or "default", band=band)
+        lp = self.get_learned_power(zone_name, mode=mode or "default")
         return float(lp)
 
     def _read_zone_temps(self) -> None:

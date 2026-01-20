@@ -36,14 +36,14 @@ async def _async_migrate_data(
     STORAGE_VERSION is incremented whenever the structure of the stored payload changes.
     Document migration changes here and in commit messages for future maintainers.
     """
+
     if not isinstance(old_data, dict):
-        return {"learned_power": {}, "learned_power_bands": {}, "samples": 0}
+        return {"learned_power": {}, "samples": 0}
 
     learned_power = old_data.get("learned_power", {})
-    learned_power_bands = old_data.get("learned_power_bands", {}) or {}
     if not isinstance(learned_power, dict):
         learned_power = {}
-
+            return {"learned_power": {}, "samples": 0}
     modified = False
     for zone, val in list(learned_power.items()):
         if val is None:
@@ -63,11 +63,9 @@ async def _async_migrate_data(
                     val[mode] = initial_lp
                     modified = True
 
+
     payload = {
         "learned_power": learned_power,
-        "learned_power_bands": (
-            learned_power_bands if isinstance(learned_power_bands, dict) else {}
-        ),
         "samples": old_data.get("samples", 0),
     }
 

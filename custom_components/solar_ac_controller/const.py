@@ -22,10 +22,7 @@ CONF_ZONES = "zones"
 CONF_OUTSIDE_SENSOR = "outside_temperature_sensor"
 CONF_SEASON_MODE = "season_mode"  # Manual: 'heat' or 'cool'
 
-# Temperature bands (C)
-CONF_VERY_COLD_THRESHOLD = "very_cold_threshold"
-CONF_CHILLY_THRESHOLD = "chilly_threshold"
-CONF_COMFORTABLE_THRESHOLD = "comfortable_threshold"
+
 
 # Solar thresholds (W)
 CONF_SOLAR_THRESHOLD_ON = "solar_threshold_on"
@@ -78,10 +75,7 @@ DEFAULT_ACTION_DELAY_SECONDS = 3  # seconds
 DEFAULT_ADD_CONFIDENCE = 25
 DEFAULT_REMOVE_CONFIDENCE = 10
 
-# Outdoor temperature bands (C) - 0.1 increment precision
-DEFAULT_VERY_COLD_THRESHOLD = 5.0
-DEFAULT_CHILLY_THRESHOLD = 15.0
-DEFAULT_COMFORTABLE_THRESHOLD = 25.0
+
 
 # Comfort temperature targets (C) - 0.1 increment precision
 DEFAULT_MAX_TEMP_WINTER = 22.0
@@ -93,6 +87,6 @@ DEFAULT_ENABLE_TEMP_MODULATION = True
 # Storage
 # Use a literal storage key so the on-disk filename remains stable even if DOMAIN changes.
 STORAGE_KEY = "solar_ac_controller"
-# Bumped storage version to support migration to per-mode learned_power structure and banded season learning.
+ # Bumped storage version to support migration to per-mode learned_power structure.
 # Increment this integer whenever the on-disk schema changes and implement a corresponding migration.
 STORAGE_VERSION = 3

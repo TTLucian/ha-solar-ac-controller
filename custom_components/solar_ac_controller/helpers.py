@@ -83,8 +83,7 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
     ema_30s = _safe_float(getattr(coordinator, "ema_30s", None), 0.0)
     ema_5m = _safe_float(getattr(coordinator, "ema_5m", None), 0.0)
 
-    outside_temp = _safe_float(getattr(coordinator, "outside_temp", None), None)
-    outside_band = getattr(coordinator, "outside_band", None)
+    # Removed: outside_temp and outside_band
     season_mode = getattr(coordinator, "season_mode", None)
     enable_temp_modulation = bool(getattr(coordinator, "enable_temp_modulation", False))
 
@@ -205,8 +204,7 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
         "ac_power_before": ac_power_before,
         "ema_30s": ema_30s,
         "ema_5m": ema_5m,
-        "outside_temp": outside_temp,
-        "outside_band": outside_band,
+        # Removed: outside_temp and outside_band
         "season_mode": season_mode,
         "enable_temp_modulation": enable_temp_modulation,
         "last_action": last_action,

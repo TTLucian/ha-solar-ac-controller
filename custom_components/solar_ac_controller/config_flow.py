@@ -347,10 +347,6 @@ class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: igno
 
         schema = vol.Schema(
             {
-                    vol.Optional(
-                        CONF_OUTSIDE_SENSOR,
-                        default=defaults.get(CONF_OUTSIDE_SENSOR, ""),
-                    ): selector({"entity": {"domain": "sensor"}}),
                 vol.Optional(
                     CONF_ZONE_TEMP_SENSORS,
                     default=defaults.get(CONF_ZONE_TEMP_SENSORS, []),
