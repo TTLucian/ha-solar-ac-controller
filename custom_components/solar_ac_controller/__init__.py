@@ -43,7 +43,7 @@ async def _async_migrate_data(
     learned_power = old_data.get("learned_power", {})
     if not isinstance(learned_power, dict):
         learned_power = {}
-            return {"learned_power": {}, "samples": 0}
+        return {"learned_power": {}, "samples": 0}
     modified = False
     for zone, val in list(learned_power.items()):
         if val is None:
