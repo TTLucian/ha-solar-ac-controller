@@ -91,7 +91,7 @@ class ZoneManager:
 
         # Determine if we should use temperature-based removal prioritization
         use_temp_priority = (
-            self.coordinator.enable_temperature_modulation
+            getattr(self.coordinator, "enable_temp_modulation", False)
             and self.coordinator.season_mode in ("heat", "cool")
             and self.coordinator.zone_current_temps
         )
