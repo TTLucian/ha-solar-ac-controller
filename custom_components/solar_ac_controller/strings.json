@@ -193,7 +193,10 @@
       "invalid_solar_hysteresis": "Solar OFF threshold must be lower than Solar ON threshold.",
       "invalid_bands": "Temperature thresholds must increase (very cold < chilly < comfortable).",
       "panic_too_low": "Panic threshold should be safely above the Solar ON threshold.",
-      "missing_temp_sensors_non_climate": "Switch/Fan entities require external temperature sensors. Climate entities may leave the sensor blank to use built-in thermometer."
+      "missing_temp_sensors_non_climate": "Switch/Fan entities require external temperature sensors. Climate entities may leave the sensor blank to use built-in thermometer.",
+      "invalid_manual_power": "Manual power values must be a comma or space separated list of numbers.",
+      "manual_power_count_mismatch": "Number of manual power values must match number of zones.",
+      "zone_entity_missing": "One or more selected zone entities do not exist or are unavailable."
     }
   }
 }

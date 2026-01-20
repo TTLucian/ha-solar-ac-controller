@@ -1,41 +1,7 @@
 
 
-# --- SHARED BASE FLOW FOR VALIDATION & CLEANING ---
-class SolarACBaseFlow:
-    def validate_solar_hysteresis(self, user_input, errors):
-        on_val = user_input.get(CONF_SOLAR_THRESHOLD_ON, getattr(self, 'data', {}).get(CONF_SOLAR_THRESHOLD_ON, DEFAULT_SOLAR_THRESHOLD_ON))
-        off_val = user_input.get(CONF_SOLAR_THRESHOLD_OFF, getattr(self, 'data', {}).get(CONF_SOLAR_THRESHOLD_OFF, DEFAULT_SOLAR_THRESHOLD_OFF))
-        if int(off_val) >= int(on_val):
-            errors["base"] = "invalid_solar_hysteresis"
-        return errors
 
-    def validate_panic_threshold(self, user_input, errors):
-        panic_th = user_input.get(CONF_PANIC_THRESHOLD, getattr(self, 'data', {}).get(CONF_PANIC_THRESHOLD, DEFAULT_PANIC_THRESHOLD))
-        solar_on = getattr(self, 'data', {}).get(CONF_SOLAR_THRESHOLD_ON, DEFAULT_SOLAR_THRESHOLD_ON)
-        if int(panic_th) <= int(solar_on):
-            errors["base"] = "panic_too_low"
-        return errors
-
-    def clean_zone_temp_sensors(self, zones, zone_temp_sensors):
-        if not isinstance(zone_temp_sensors, list):
-            if zone_temp_sensors is None or zone_temp_sensors == "":
-                zone_temp_sensors = []
-            else:
-                zone_temp_sensors = [zone_temp_sensors]
-        if len(zone_temp_sensors) < len(zones):
-            zone_temp_sensors = list(zone_temp_sensors) + [""] * (len(zones) - len(zone_temp_sensors))
-        if len(zone_temp_sensors) > len(zones):
-            zone_temp_sensors = zone_temp_sensors[:len(zones)]
-        return zone_temp_sensors
-
-    def clean_zone_manual_power(self, zones, zone_manual_power):
-        if isinstance(zone_manual_power, (list, tuple)):
-            return ", ".join(str(v) for v in zone_manual_power)
-        elif zone_manual_power is None:
-            return ""
-        else:
-            return str(zone_manual_power)
-# --- SCHEMA HELPERS (MODULE LEVEL, DRY) ---
+# --- IMPORTS: All imports at the top for performance and clarity ---
 from __future__ import annotations
 
 import voluptuous as vol
@@ -86,6 +52,70 @@ from .const import (
     DEFAULT_MAX_TEMP_WINTER,
     DEFAULT_MIN_TEMP_SUMMER,
 )
+
+
+
+# --- HELPERS: Must be defined before use ---
+def _int_field(default: int, minimum: int = 0) -> vol.All:
+    """Helper to ensure numeric fields are coerced correctly."""
+    def _coerce_int(val):
+        try:
+            if val is None or (isinstance(val, str) and val.strip() == ""):
+                return default
+            return int(val)
+        except (ValueError, TypeError):
+            return default
+    return vol.All(_coerce_int, vol.Range(min=minimum))
+
+def parse_numeric_list(val: Any) -> list[float] | None:
+    """Helper to convert various inputs into a list of floats."""
+    if not val:
+        return []
+    if isinstance(val, (list, tuple)):
+        try:
+            return [float(x) for x in val]
+        except (ValueError, TypeError):
+            return None
+    try:
+        return [float(x) for x in str(val).replace(",", " ").split()]
+    except (ValueError, TypeError):
+        return None
+
+# --- SHARED BASE FLOW FOR VALIDATION & CLEANING ---
+class SolarACBaseFlow:
+    def validate_solar_hysteresis(self, user_input, errors):
+        on_val = user_input.get(CONF_SOLAR_THRESHOLD_ON, getattr(self, 'data', {}).get(CONF_SOLAR_THRESHOLD_ON, DEFAULT_SOLAR_THRESHOLD_ON))
+        off_val = user_input.get(CONF_SOLAR_THRESHOLD_OFF, getattr(self, 'data', {}).get(CONF_SOLAR_THRESHOLD_OFF, DEFAULT_SOLAR_THRESHOLD_OFF))
+        if int(off_val) >= int(on_val):
+            errors["base"] = "invalid_solar_hysteresis"
+        return errors
+
+    def validate_panic_threshold(self, user_input, errors):
+        panic_th = user_input.get(CONF_PANIC_THRESHOLD, getattr(self, 'data', {}).get(CONF_PANIC_THRESHOLD, DEFAULT_PANIC_THRESHOLD))
+        solar_on = getattr(self, 'data', {}).get(CONF_SOLAR_THRESHOLD_ON, DEFAULT_SOLAR_THRESHOLD_ON)
+        if int(panic_th) <= int(solar_on):
+            errors["base"] = "panic_too_low"
+        return errors
+
+    def clean_zone_temp_sensors(self, zones, zone_temp_sensors):
+        if not isinstance(zone_temp_sensors, list):
+            if zone_temp_sensors is None or zone_temp_sensors == "":
+                zone_temp_sensors = []
+            else:
+                zone_temp_sensors = [zone_temp_sensors]
+        if len(zone_temp_sensors) < len(zones):
+            zone_temp_sensors = list(zone_temp_sensors) + [""] * (len(zones) - len(zone_temp_sensors))
+        if len(zone_temp_sensors) > len(zones):
+            zone_temp_sensors = zone_temp_sensors[:len(zones)]
+        return zone_temp_sensors
+
+    def clean_zone_manual_power(self, zones, zone_manual_power):
+        if isinstance(zone_manual_power, (list, tuple)):
+            return ", ".join(str(v) for v in zone_manual_power)
+        elif zone_manual_power is None:
+            return ""
+        else:
+            return str(zone_manual_power)
 
 def schema_user(defaults):
     return vol.Schema({
@@ -185,82 +215,8 @@ def schema_comfort(defaults, zone_manual_default):
             default=float(defaults.get(CONF_MIN_TEMP_SUMMER, DEFAULT_MIN_TEMP_SUMMER)),
         ): vol.Coerce(float),
     })
-from __future__ import annotations
-
-import voluptuous as vol
-from typing import Any
-from homeassistant import config_entries
-from homeassistant.core import callback, HomeAssistant
-from homeassistant.helpers.selector import selector
-
-from .const import (
-    DOMAIN,
-    CONF_SOLAR_SENSOR,
-    CONF_GRID_SENSOR,
-    CONF_AC_POWER_SENSOR,
-    CONF_AC_SWITCH,
-    CONF_ZONES,
-    CONF_SOLAR_THRESHOLD_ON,
-    CONF_SOLAR_THRESHOLD_OFF,
-    CONF_PANIC_THRESHOLD,
-    CONF_PANIC_DELAY,
-    CONF_MANUAL_LOCK_SECONDS,
-    CONF_SHORT_CYCLE_ON_SECONDS,
-    CONF_SHORT_CYCLE_OFF_SECONDS,
-    CONF_ACTION_DELAY_SECONDS,
-    CONF_ADD_CONFIDENCE,
-    CONF_REMOVE_CONFIDENCE,
-    CONF_INITIAL_LEARNED_POWER,
-    CONF_ENABLE_DIAGNOSTICS,
-    CONF_OUTSIDE_SENSOR,
-    CONF_SEASON_MODE,
-    CONF_ENABLE_TEMP_MODULATION,
-    CONF_MAX_TEMP_WINTER,
-    CONF_MIN_TEMP_SUMMER,
-    CONF_ZONE_TEMP_SENSORS,
-    CONF_ZONE_MANUAL_POWER,
-    DEFAULT_SOLAR_THRESHOLD_ON,
-    DEFAULT_SOLAR_THRESHOLD_OFF,
-    DEFAULT_PANIC_THRESHOLD,
-    DEFAULT_PANIC_DELAY,
-    DEFAULT_MANUAL_LOCK_SECONDS,
-    DEFAULT_SHORT_CYCLE_ON_SECONDS,
-    DEFAULT_SHORT_CYCLE_OFF_SECONDS,
-    DEFAULT_ACTION_DELAY_SECONDS,
-    DEFAULT_ADD_CONFIDENCE,
-    DEFAULT_REMOVE_CONFIDENCE,
-    DEFAULT_INITIAL_LEARNED_POWER,
-    DEFAULT_SEASON_MODE,
-    DEFAULT_ENABLE_TEMP_MODULATION,
-    DEFAULT_MAX_TEMP_WINTER,
-    DEFAULT_MIN_TEMP_SUMMER,
-)
 
 
-
-def _int_field(default: int, minimum: int = 0) -> vol.All:
-    def _coerce_int(val):
-        try:
-            if val is None or (isinstance(val, str) and val.strip() == ""):
-                return default
-            return int(val)
-        except Exception:
-            return default
-    return vol.All(_coerce_int, vol.Range(min=minimum))
-
-def parse_numeric_list(val: Any) -> list[float] | None:
-    """Helper to convert various inputs into a list of floats."""
-    if not val:
-        return []
-    if isinstance(val, (list, tuple)):
-        try:
-            return [float(x) for x in val]
-        except Exception:
-            return None
-    try:
-        return [float(x) for x in str(val).replace(",", " ").split()]
-    except (ValueError, TypeError):
-        return None
 
 
 async def _validate_zone_temp_sensors(
@@ -324,6 +280,13 @@ class SolarACConfigFlow(SolarACBaseFlow, config_entries.ConfigFlow, domain=DOMAI
         defaults = {**self._reconfigure_defaults, **self.data}
         if user_input is not None:
             zones = user_input.get(CONF_ZONES, [])
+            solar_sensor = user_input.get(CONF_SOLAR_SENSOR)
+            grid_sensor = user_input.get(CONF_GRID_SENSOR)
+            ac_power_sensor = user_input.get(CONF_AC_POWER_SENSOR)
+            # Unique ID logic: prevent duplicate integration for same sensors
+            unique_id = f"{solar_sensor}|{grid_sensor}|{ac_power_sensor}"
+            await self.async_set_unique_id(unique_id)
+            self._abort_if_unique_id_configured()
             if not zones:
                 errors["base"] = "no_zones"
             else:
