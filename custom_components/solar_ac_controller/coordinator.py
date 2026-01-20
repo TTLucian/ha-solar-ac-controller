@@ -159,26 +159,50 @@ class SolarACCoordinator(DataUpdateCoordinator):
             if idx < len(zone_temp_sensors_list) and zone_temp_sensors_list[idx]:
                 self.zone_temp_sensors[zone_id] = zone_temp_sensors_list[idx]
 
-        # Build zone→manual power mapping from parallel input (list or comma-separated text)
+        # Build zone→manual power mapping: support both legacy (zone:power) and simple list (1000,2000,...)
         raw_manual = self.config_entry.options.get(
             CONF_ZONE_MANUAL_POWER,
             self.config_entry.data.get(CONF_ZONE_MANUAL_POWER, []),
         )
+        zones_list = self.config.get(CONF_ZONES, [])
         if isinstance(raw_manual, str):
-            parts = [p.strip() for p in raw_manual.split(",")]
-            self.zone_manual_power = {
-                zone: float(val)
-                for zone, val in (p.split(":") for p in parts if ":" in p)
-                if zone and val
-            }
+            parts = [p.strip() for p in raw_manual.split(",") if p.strip()]
+            # If all parts are numbers, map by index to zones
+            if all(part.replace(".", "", 1).isdigit() for part in parts):
+                for idx, val in enumerate(parts):
+                    if idx < len(zones_list):
+                        try:
+                            self.zone_manual_power[zones_list[idx]] = float(val)
+                        except Exception:
+                            continue
+            else:
+                # Legacy: zone_id:power
+                for part in parts:
+                    if ":" in part:
+                        zone, val = part.split(":", 1)
+                        try:
+                            self.zone_manual_power[zone.strip()] = float(val)
+                        except Exception:
+                            continue
         elif isinstance(raw_manual, (list, tuple)):
-            for item in list(raw_manual):
-                if isinstance(item, str) and ":" in item:
-                    zone, val = item.split(":", 1)
-                    try:
-                        self.zone_manual_power[zone.strip()] = float(val)
-                    except Exception:
-                        continue
+            # If all items are numbers, map by index
+            if all(isinstance(item, (int, float)) or (isinstance(item, str) and item.replace(".", "", 1).isdigit()) for item in raw_manual):
+                for idx, val in enumerate(raw_manual):
+                    if idx < len(zones_list):
+                        try:
+                            self.zone_manual_power[zones_list[idx]] = float(val)
+                        except Exception:
+                            continue
+            else:
+                for item in list(raw_manual):
+                    if isinstance(item, str) and ":" in item:
+                        zone, val = item.split(":", 1)
+                        try:
+                            self.zone_manual_power[zone.strip()] = float(val)
+                        except Exception:
+                            continue
+        # Defensive: required_export_source should always be initialized
+        self.required_export_source = "Initializing"
 
         # Initialize other attributes needed later
         self.panic_threshold = float(self.config.get(CONF_PANIC_THRESHOLD, DEFAULT_PANIC_THRESHOLD))

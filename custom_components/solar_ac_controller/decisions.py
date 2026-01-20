@@ -28,7 +28,14 @@ class DecisionEngine:
         if required_export is None:
             return 0.0
 
-        export_margin = export - required_export
+        # Defensive: ensure numeric
+        try:
+            export_val = float(export)
+            required_export_val = float(required_export)
+        except (TypeError, ValueError):
+            return 0.0
+
+        export_margin = export_val - required_export_val
 
         base = min(40, max(0, export_margin / 25))
         sample_bonus = min(20, self.coordinator.samples * 2)

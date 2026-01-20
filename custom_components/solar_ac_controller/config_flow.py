@@ -56,16 +56,6 @@ from .const import (
 
 
 # --- HELPERS: Must be defined before use ---
-def _int_field(default: int, minimum: int = 0) -> vol.All:
-    """Helper to ensure numeric fields are coerced correctly."""
-    def _coerce_int(val):
-        try:
-            if val is None or (isinstance(val, str) and val.strip() == ""):
-                return default
-            return int(val)
-        except (ValueError, TypeError):
-            return default
-    return vol.All(_coerce_int, vol.Range(min=minimum))
 
 def parse_numeric_list(val: Any) -> list[float] | None:
     """Helper to convert various inputs into a list of floats."""
@@ -139,19 +129,19 @@ def schema_user(defaults):
         vol.Optional(
             CONF_SOLAR_THRESHOLD_ON,
             default=int(defaults.get(CONF_SOLAR_THRESHOLD_ON, DEFAULT_SOLAR_THRESHOLD_ON)),
-        ): _int_field(int(DEFAULT_SOLAR_THRESHOLD_ON), minimum=0),
+        ): int,
         vol.Optional(
             CONF_SOLAR_THRESHOLD_OFF,
             default=int(defaults.get(CONF_SOLAR_THRESHOLD_OFF, DEFAULT_SOLAR_THRESHOLD_OFF)),
-        ): _int_field(int(DEFAULT_SOLAR_THRESHOLD_OFF), minimum=0),
+        ): int,
         vol.Optional(
             CONF_ADD_CONFIDENCE,
             default=int(defaults.get(CONF_ADD_CONFIDENCE, DEFAULT_ADD_CONFIDENCE)),
-        ): _int_field(int(DEFAULT_ADD_CONFIDENCE), minimum=0),
+        ): int,
         vol.Optional(
             CONF_REMOVE_CONFIDENCE,
             default=int(defaults.get(CONF_REMOVE_CONFIDENCE, DEFAULT_REMOVE_CONFIDENCE)),
-        ): _int_field(int(DEFAULT_REMOVE_CONFIDENCE), minimum=0),
+        ): int,
         vol.Optional(
             CONF_INITIAL_LEARNED_POWER,
             default=int(defaults.get(CONF_INITIAL_LEARNED_POWER, DEFAULT_INITIAL_LEARNED_POWER)),
@@ -171,27 +161,27 @@ def schema_timing(defaults):
         vol.Optional(
             CONF_ACTION_DELAY_SECONDS,
             default=int(defaults.get(CONF_ACTION_DELAY_SECONDS, DEFAULT_ACTION_DELAY_SECONDS)),
-        ): _int_field(int(DEFAULT_ACTION_DELAY_SECONDS), minimum=0),
+        ): int,
         vol.Optional(
             CONF_MANUAL_LOCK_SECONDS,
             default=int(defaults.get(CONF_MANUAL_LOCK_SECONDS, DEFAULT_MANUAL_LOCK_SECONDS)),
-        ): _int_field(int(DEFAULT_MANUAL_LOCK_SECONDS), minimum=0),
+        ): int,
         vol.Optional(
             CONF_SHORT_CYCLE_ON_SECONDS,
             default=int(defaults.get(CONF_SHORT_CYCLE_ON_SECONDS, DEFAULT_SHORT_CYCLE_ON_SECONDS)),
-        ): _int_field(int(DEFAULT_SHORT_CYCLE_ON_SECONDS), minimum=0),
+        ): int,
         vol.Optional(
             CONF_SHORT_CYCLE_OFF_SECONDS,
             default=int(defaults.get(CONF_SHORT_CYCLE_OFF_SECONDS, DEFAULT_SHORT_CYCLE_OFF_SECONDS)),
-        ): _int_field(int(DEFAULT_SHORT_CYCLE_OFF_SECONDS), minimum=0),
+        ): int,
         vol.Optional(
             CONF_PANIC_THRESHOLD,
             default=int(defaults.get(CONF_PANIC_THRESHOLD, DEFAULT_PANIC_THRESHOLD)),
-        ): _int_field(int(DEFAULT_PANIC_THRESHOLD), minimum=0),
+        ): int,
         vol.Optional(
             CONF_PANIC_DELAY,
             default=int(defaults.get(CONF_PANIC_DELAY, DEFAULT_PANIC_DELAY)),
-        ): _int_field(int(DEFAULT_PANIC_DELAY), minimum=0),
+        ): int,
     })
 
 def schema_comfort(defaults, zone_manual_default):
