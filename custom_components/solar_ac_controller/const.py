@@ -8,8 +8,6 @@ from __future__ import annotations
 # Keep a short note in the migration function describing the change and the target version.
 # If you want the on-disk filename to remain stable across domain renames, keep STORAGE_KEY
 # as a literal string (below) rather than deriving it from DOMAIN.
-# Number of backup files to retain for storage (optional).
-STORAGE_BACKUP_KEEP = 5
 
 DOMAIN = "solar_ac_controller"
 
@@ -19,7 +17,6 @@ CONF_GRID_SENSOR = "grid_sensor"
 CONF_AC_POWER_SENSOR = "ac_power_sensor"
 CONF_AC_SWITCH = "ac_switch"
 CONF_ZONES = "zones"
-CONF_OUTSIDE_SENSOR = "outside_temperature_sensor"
 CONF_SEASON_MODE = "season_mode"  # Manual: 'heat' or 'cool'
 
 
@@ -54,7 +51,7 @@ CONF_ZONE_MANUAL_POWER = "zone_manual_power"
 
 # Enable diagnostics sensor toggle (kept original name for backward compatibility)
 CONF_ENABLE_DIAGNOSTICS = "enable_diagnostics_sensor"
-# Recommended clearer alias (optional; safe to add)
+# Clearer alias for the diagnostics sensor toggle
 CONF_ENABLE_DIAGNOSTICS_SENSOR = CONF_ENABLE_DIAGNOSTICS
 
 # Default initial learned power used when no value is configured
@@ -69,7 +66,7 @@ DEFAULT_PANIC_DELAY = 60  # seconds
 
 DEFAULT_MANUAL_LOCK_SECONDS = 1200  # seconds
 DEFAULT_SHORT_CYCLE_ON_SECONDS = 1200  # seconds
-DEFAULT_SHORT_CYCLE_OFF_SECONDS = 1200  # seconds
+DEFAULT_SHORT_CYCLE_OFF_SECONDS = 20  # seconds
 DEFAULT_ACTION_DELAY_SECONDS = 3  # seconds
 
 DEFAULT_ADD_CONFIDENCE = 25
@@ -78,8 +75,8 @@ DEFAULT_REMOVE_CONFIDENCE = 10
 
 
 # Comfort temperature targets (C) - 0.1 increment precision
-DEFAULT_MAX_TEMP_WINTER = 22.0
-DEFAULT_MIN_TEMP_SUMMER = 20.0
+DEFAULT_MAX_TEMP_WINTER = 21.0
+DEFAULT_MIN_TEMP_SUMMER = 21.0
 
 DEFAULT_SEASON_MODE = "cool"  # Default to cool mode
 DEFAULT_ENABLE_TEMP_MODULATION = True

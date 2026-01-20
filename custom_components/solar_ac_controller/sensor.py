@@ -12,7 +12,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, CONF_ENABLE_DIAGNOSTICS, CONF_ZONES
+from .const import DOMAIN, CONF_ENABLE_DIAGNOSTICS_SENSOR, CONF_ZONES
 from .helpers import build_diagnostics
 
 
@@ -44,7 +44,7 @@ async def async_setup_entry(
         zone_name = zone.split(".")[-1]
         entities.append(SolarACLearnedPowerSensor(coordinator, entry_id, zone_name))
 
-    if entry.options.get(CONF_ENABLE_DIAGNOSTICS, False):
+    if entry.options.get(CONF_ENABLE_DIAGNOSTICS_SENSOR, False):
         entities.append(SolarACDiagnosticEntity(coordinator, entry_id))
 
     async_add_entities(entities)

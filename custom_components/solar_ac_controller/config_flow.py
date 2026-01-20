@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import voluptuous as vol
 from typing import Any
-from homeassistant import config_entries
+from homeassistant.config_entries import ConfigFlow, OptionsFlow, ConfigEntry
 from homeassistant.core import callback, HomeAssistant
 from homeassistant.helpers.selector import selector
 
@@ -28,8 +28,7 @@ from .const import (
     CONF_ADD_CONFIDENCE,
     CONF_REMOVE_CONFIDENCE,
     CONF_INITIAL_LEARNED_POWER,
-    CONF_ENABLE_DIAGNOSTICS,
-    CONF_OUTSIDE_SENSOR,
+    CONF_ENABLE_DIAGNOSTICS_SENSOR,
     CONF_SEASON_MODE,
     CONF_ENABLE_TEMP_MODULATION,
     CONF_MAX_TEMP_WINTER,
@@ -150,8 +149,8 @@ def schema_user(defaults):
             default=bool(defaults.get(CONF_ENABLE_TEMP_MODULATION, DEFAULT_ENABLE_TEMP_MODULATION)),
         ): bool,
         vol.Optional(
-            CONF_ENABLE_DIAGNOSTICS,
-            default=bool(defaults.get(CONF_ENABLE_DIAGNOSTICS, False)),
+            CONF_ENABLE_DIAGNOSTICS_SENSOR,
+            default=bool(defaults.get(CONF_ENABLE_DIAGNOSTICS_SENSOR, False)),
         ): bool,
     })
 
@@ -247,25 +246,16 @@ async def _validate_zone_temp_sensors(
 
 
 
-class SolarACConfigFlow(config_entries.ConfigFlow):
-    def _is_reconfigure(self) -> bool:
-        return getattr(self, "_reconfigure_mode", False)
-
-    def _set_reconfigure(self, value: bool = True):
-        self._reconfigure_mode = value
-
-
-
+class SolarACConfigFlow(ConfigFlow):
 
     VERSION = 1
 
-    def __init__(self):
-        super().__init__()
-        self._reconfigure_defaults = {}
-        self.data = {}
-
     async def async_step_user(self, user_input: dict[str, Any] | None = None):
         errors: dict[str, str] = {}
+        if not hasattr(self, '_reconfigure_defaults'):
+            self._reconfigure_defaults = {}
+        if not hasattr(self, 'data'):
+            self.data = {}
         defaults = {**self._reconfigure_defaults, **self.data}
         if user_input is not None:
             zones = user_input.get(CONF_ZONES, [])
@@ -292,6 +282,10 @@ class SolarACConfigFlow(config_entries.ConfigFlow):
 
     async def async_step_timing(self, user_input: dict[str, Any] | None = None):
         errors: dict[str, str] = {}
+        if not hasattr(self, '_reconfigure_defaults'):
+            self._reconfigure_defaults = {}
+        if not hasattr(self, 'data'):
+            self.data = {}
         defaults = {**self._reconfigure_defaults, **self.data}
         if user_input is not None:
             errors = validate_panic_threshold(user_input, self.data, errors)
@@ -312,6 +306,10 @@ class SolarACConfigFlow(config_entries.ConfigFlow):
 
     async def async_step_comfort(self, user_input: dict[str, Any] | None = None):
         errors: dict[str, str] = {}
+        if not hasattr(self, '_reconfigure_defaults'):
+            self._reconfigure_defaults = {}
+        if not hasattr(self, 'data'):
+            self.data = {}
         defaults = {**self._reconfigure_defaults, **self.data}
         _parse_manual_power = parse_numeric_list
         if user_input is not None:
@@ -378,14 +376,14 @@ class SolarACConfigFlow(config_entries.ConfigFlow):
 
     @staticmethod
     @callback
-    def async_get_options_flow(config_entry: config_entries.ConfigEntry):
+    def async_get_options_flow(config_entry: ConfigEntry):
         return SolarACOptionsFlowHandler(config_entry)
 
 
-class SolarACOptionsFlowHandler(config_entries.OptionsFlow):
+class SolarACOptionsFlowHandler(OptionsFlow):
     """Handle runtime configuration changes."""
 
-    def __init__(self, config_entry: config_entries.ConfigEntry):
+    def __init__(self, config_entry: ConfigEntry):
         self.entry = config_entry
         # Always merge data and options for a complete working set
         self.data = {**config_entry.data, **config_entry.options}
