@@ -12,6 +12,12 @@ async def async_setup_entry(hass, entry, async_add_entities):
     async_add_entities([SeasonModeSelect(coordinator, entry)])
 
 class SeasonModeSelect(CoordinatorEntity, SelectEntity):
+        @property
+        def device_info(self):
+            return {
+                "identifiers": {(DOMAIN, self.entry.entry_id)},
+                "name": "Solar AC Controller",
+            }
     _attr_should_poll = False
     _attr_has_entity_name = True
     _attr_name = "Season Mode"
