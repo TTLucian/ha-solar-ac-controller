@@ -84,10 +84,11 @@ class SolarACCoordinator(DataUpdateCoordinator):
         version: str | None = None,
     ) -> None:
 
+        from .const import DOMAIN
         super().__init__(
             hass,
             logger=_LOGGER,
-            name="Solar AC Controller",
+            name=DOMAIN,
             update_interval=timedelta(seconds=5),
         )
         self.hass = hass
