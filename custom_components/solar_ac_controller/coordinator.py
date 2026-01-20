@@ -675,6 +675,11 @@ class SolarACCoordinator(DataUpdateCoordinator):
         # 5. EMA updates
 
         # 6. Determine zones and detect manual overrides
+        if not hasattr(self, "zone_manager") or self.zone_manager is None:
+            _LOGGER.error("zone_manager is not initialized! Skipping update cycle.")
+            self.last_action = "zone_manager_uninitialized"
+            return
+
         active_zones = await self.zone_manager.update_zone_states_and_overrides()
         on_count = len(active_zones)
 
