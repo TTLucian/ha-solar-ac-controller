@@ -53,17 +53,31 @@ from .const import (
 
 # --- HELPERS: Must be defined before use ---
 
-def parse_numeric_list(val: Any) -> list[float] | None:
-    """Helper to convert various inputs into a list of floats."""
+def parse_numeric_list(val: Any) -> list[float | None] | None:
+    """Helper to convert various inputs into a list of floats/None.
+
+    Empty strings in comma-separated input become None (use learned power).
+    """
     if not val:
         return []
     if isinstance(val, (list, tuple)):
         try:
-            return [float(x) for x in val]
+            return [float(x) if x != "" else None for x in val]
         except (ValueError, TypeError):
             return None
     try:
-        return [float(x) for x in str(val).replace(",", " ").split()]
+        # Split and filter out empty strings, but preserve position with None
+        parts = [x.strip() for x in str(val).replace(",", " ").split()]
+        result = []
+        for part in parts:
+            if part == "":
+                result.append(None)
+            else:
+                try:
+                    result.append(float(part))
+                except (ValueError, TypeError):
+                    return None
+        return result
     except (ValueError, TypeError):
         return None
 
@@ -96,7 +110,8 @@ def clean_zone_temp_sensors(zones, zone_temp_sensors):
 
 def clean_zone_manual_power(zones, zone_manual_power):
     if isinstance(zone_manual_power, (list, tuple)):
-        return ", ".join(str(v) for v in zone_manual_power)
+        # Convert None values to empty strings for display
+        return ", ".join("" if v is None else str(v) for v in zone_manual_power)
     elif zone_manual_power is None:
         return ""
     else:
@@ -334,8 +349,12 @@ class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN): # type: ignor
             parsed_power = _parse_manual_power(zone_manual_power)
             if parsed_power is None:
                 errors[CONF_ZONE_MANUAL_POWER] = "invalid_manual_power"
-            elif parsed_power and len(parsed_power) != len(zones):
+            elif parsed_power and len(parsed_power) > len(zones):
                 errors[CONF_ZONE_MANUAL_POWER] = "manual_power_count_mismatch"
+            elif parsed_power:
+                # Pad with None for missing zones
+                while len(parsed_power) < len(zones):
+                    parsed_power.append(None)
             if not errors:
                 cleaned_input = dict(user_input)
                 cleaned_input[CONF_ZONE_TEMP_SENSORS] = zone_temp_sensors
@@ -455,8 +474,12 @@ class SolarACOptionsFlowHandler(config_entries.OptionsFlow):
             parsed_power = _parse_manual_power(zone_manual_power)
             if parsed_power is None:
                 errors[CONF_ZONE_MANUAL_POWER] = "invalid_manual_power"
-            elif parsed_power and len(parsed_power) != len(zones):
+            elif parsed_power and len(parsed_power) > len(zones):
                 errors[CONF_ZONE_MANUAL_POWER] = "manual_power_count_mismatch"
+            elif parsed_power:
+                # Pad with None for missing zones
+                while len(parsed_power) < len(zones):
+                    parsed_power.append(None)
             if not errors:
                 cleaned_input = dict(user_input)
                 cleaned_input[CONF_ZONE_TEMP_SENSORS] = zone_temp_sensors
