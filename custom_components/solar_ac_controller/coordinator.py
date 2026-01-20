@@ -86,12 +86,14 @@ class SolarACCoordinator(DataUpdateCoordinator):
         version: str | None = None,
     ) -> None:
         # --- Ensure all state attributes are initialized up front ---
+
         self.next_zone: str | None = None
         self.last_zone: str | None = None
         self.zone_last_changed: dict[str, float] = {}
         self.zone_last_changed_type: dict[str, str] = {}
         self.zone_last_state: dict[str, str | None] = {}
         self.zone_manual_lock_until: dict[str, float] = {}
+        self.zone_temp_sensors: dict[str, str] = {}
         self.master_last_state: str | None = None
         self.master_last_action_time: float | None = None
         self.master_manual_lock_state: str | None = None
