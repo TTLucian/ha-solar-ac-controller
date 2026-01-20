@@ -41,7 +41,13 @@ class DecisionEngine:
         import_power: float,
         last_zone: str | None,
     ) -> float:
-        """Compute remove zone confidence score."""
+        """Compute remove zone confidence score.
+
+        PANIC FAST-TRACK: If import_power >= panic_threshold, immediately return 100.0.
+        """
+        if import_power >= self.coordinator.panic_threshold:
+            return 100.0
+
         base = min(60, max(0, (import_power - 200) / 8))
         heavy_import_bonus = 20 if import_power > 1500 else 0
         short_cycle_penalty = -40 if self._is_short_cycling_for_remove(last_zone) else 0
@@ -82,14 +88,20 @@ class DecisionEngine:
         return True
 
     def _is_short_cycling_for_add(self, zone: str | None) -> bool:
-        """Check if zone is short-cycling (for add penalty)."""
+        """Check if zone is short-cycling (for add penalty).
+
+        Uses time.monotonic() for interval measurement if both now and last are monotonic values.
+        If last is a wall-clock timestamp (from dt_util), uses dt_util.utcnow().timestamp().
+        """
+        import time
         if not zone:
             return False
         last = self.coordinator.zone_last_changed.get(zone)
         if not last:
             return False
+        # If last is monotonic, use monotonic; else fallback to wall time
+        # (Assume all zone_last_changed are wall time for HA compatibility)
         from homeassistant.util import dt as dt_util
-
         now = dt_util.utcnow().timestamp()
         last_type = self.coordinator.zone_last_changed_type.get(zone)
         if last_type == "on":

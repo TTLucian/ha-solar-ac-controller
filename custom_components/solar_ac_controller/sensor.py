@@ -95,7 +95,7 @@ class SolarACActiveZonesSensor(_BaseSolarACSensor):
         return f"{self._entry_id}_active_zones"
 
     @property
-    def state(self) -> str:
+    def native_value(self) -> str:
         zones = [
             z
             for z in self.coordinator.config.get(CONF_ZONES, [])

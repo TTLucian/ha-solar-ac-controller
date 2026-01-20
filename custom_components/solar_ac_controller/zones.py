@@ -29,6 +29,7 @@ class ZoneManager:
         for zone in self.coordinator.config.get(CONF_ZONES, []):
             state_obj = self.coordinator.hass.states.get(zone)
             if not state_obj:
+                _LOGGER.warning(f"Configured zone entity '{zone}' is missing in Home Assistant. Check for typos or missing entities.")
                 continue
 
             state = state_obj.state
@@ -135,6 +136,7 @@ class ZoneManager:
         1. Zones at comfort temperature (ready to remove)
         2. Among those at comfort, sort by comfort margin (warmest in heat, coolest in cool)
         3. Zones without sensors treated conservatively (kept on unless no other choice)
+        Fallback: If no zones at target and removal is required (e.g., high import), return least important unlocked zone.
         """
         unlocked = [z for z in active_zones if not self.is_locked(z)]
 
@@ -155,34 +157,37 @@ class ZoneManager:
         # Prioritize removing zones that have reached comfort target
         if zones_at_target:
             candidate_zones = zones_at_target
+            # Among removal candidates, sort by comfort margin
+            zones_with_temps = [
+                (z, self.coordinator.zone_current_temps.get(z))
+                for z in candidate_zones
+            ]
+            valid_temp_zones = [(z, t) for z, t in zones_with_temps if t is not None]
+            no_temp_zones = [z for z, t in zones_with_temps if t is None]
+            if not valid_temp_zones:
+                # No valid temps among at-target zones, pick the oldest activated one
+                return candidate_zones[-1] if candidate_zones else None
+            if self.coordinator.season_mode == "heat":
+                # Heat: remove warmest first (highest temp = most above target)
+                sorted_zones = sorted(valid_temp_zones, key=lambda x: x[1], reverse=True)
+            else:  # cool
+                # Cool: remove coolest first (lowest temp = most below target)
+                sorted_zones = sorted(valid_temp_zones, key=lambda x: x[1])
+            return sorted_zones[0][0] if sorted_zones else None
         else:
-            # If no zones at target, keep all running (don't remove yet)
-            return None
+            # Fallback: If no zones at target and removal is required (e.g., high import),
+            # return the least important unlocked zone (oldest activated)
+            # This fallback should only be used if the decision engine is requesting removal
+            # due to high import, not for minor solar dips.
+            # For now, return the oldest unlocked zone (last in list)
+            return unlocked[-1] if unlocked else None
 
-        # Among removal candidates, sort by comfort margin
-        zones_with_temps = [
-            (z, self.coordinator.zone_current_temps.get(z))
-            for z in candidate_zones
-        ]
-
-        valid_temp_zones = [(z, t) for z, t in zones_with_temps if t is not None]
-        no_temp_zones = [z for z, t in zones_with_temps if t is None]
-
-        if not valid_temp_zones:
-            # No valid temps among at-target zones, pick the oldest activated one
-            return candidate_zones[-1] if candidate_zones else None
-
-        if self.coordinator.season_mode == "heat":
-            # Heat: remove warmest first (highest temp = most above target)
-            sorted_zones = sorted(valid_temp_zones, key=lambda x: x[1], reverse=True)
-        else:  # cool
-            # Cool: remove coolest first (lowest temp = most below target)
-            sorted_zones = sorted(valid_temp_zones, key=lambda x: x[1])
-
-        return sorted_zones[0][0] if sorted_zones else None
-
-    def is_short_cycling(self, zone: str | None) -> bool:
-        """Return True if a zone is in short-cycle protection."""
+    def is_short_cycling(self, zone: str | None, bypass_short_cycle: bool = False) -> bool:
+        """Return True if a zone is in short-cycle protection.
+        If bypass_short_cycle is True, always return False (for panic/critical situations).
+        """
+        if bypass_short_cycle:
+            return False
         if not zone:
             return False
         last = self.coordinator.zone_last_changed.get(zone)

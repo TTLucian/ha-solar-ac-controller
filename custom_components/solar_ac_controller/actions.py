@@ -6,7 +6,9 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
+
 from homeassistant.util import dt as dt_util
+from .zones import ZoneManager
 
 if TYPE_CHECKING:
     from .coordinator import SolarACCoordinator
@@ -52,9 +54,6 @@ class ActionExecutor:
         """Log and execute remove zone action."""
         if self.coordinator.last_action == f"remove_{last_zone}":
             return
-
-        # Import here to avoid circular deps
-        from .zones import ZoneManager
 
         zone_mgr = ZoneManager(self.coordinator)
 
@@ -118,6 +117,7 @@ class ActionExecutor:
             f"[ZONE_REMOVE_SUCCESS] zone={zone} import_after={round(self.coordinator.ema_5m)}"
         )
 
+
     async def call_entity_service(self, entity_id: str, turn_on: bool) -> None:
         """Call turn_on/turn_off service for the entity's domain, with climate fallback. If climate, set hvac_mode if needed."""
         domain = entity_id.split(".")[0]
@@ -160,6 +160,8 @@ class ActionExecutor:
                     )
                     return
             # After turning on, check and set hvac_mode if needed
+            # Wait briefly for state to update
+            await asyncio.sleep(0.2)
             state = self.coordinator.hass.states.get(entity_id)
             desired_mode = getattr(self.coordinator, "season_mode", "cool")
             if state:

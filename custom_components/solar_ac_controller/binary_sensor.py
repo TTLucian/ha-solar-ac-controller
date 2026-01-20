@@ -6,6 +6,7 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
     BinarySensorDeviceClass,
 )
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -41,19 +42,18 @@ async def async_setup_entry(
 
 
 # --- BASE CLASS ---
-class _BaseSolarACBinary(BinarySensorEntity):
+class _BaseSolarACBinary(CoordinatorEntity, BinarySensorEntity):
     """
     Base class for all Solar AC Controller binary sensors.
-    Handles coordinator listener and device info.
+    Inherits from CoordinatorEntity for automatic listener management.
     """
 
     _attr_has_entity_name = True
     _attr_should_poll = False
 
     def __init__(self, coordinator: Any, entry_id: str) -> None:
-        self.coordinator: Any = coordinator
+        super().__init__(coordinator)
         self._entry_id: str = entry_id
-        self._listener: Callable[[], None] | None = None
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -62,15 +62,6 @@ class _BaseSolarACBinary(BinarySensorEntity):
             identifiers={(DOMAIN, self._entry_id)},
             name="Solar AC Controller",
         )
-
-    async def async_added_to_hass(self) -> None:
-        """Register listener for coordinator updates."""
-        self._listener = self.coordinator.async_add_listener(self.async_write_ha_state)
-
-    async def async_will_remove_from_hass(self) -> None:
-        """Remove coordinator listener on entity removal."""
-        if self._listener:
-            self._listener()
 
 
 # --- BINARY SENSORS ---
@@ -87,6 +78,8 @@ class SolarACLearningBinarySensor(_BaseSolarACBinary):
 
 
 class SolarACPanicBinarySensor(_BaseSolarACBinary):
+
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
     _attr_name = "Panic State"
 
     @property
@@ -99,6 +92,8 @@ class SolarACPanicBinarySensor(_BaseSolarACBinary):
 
 
 class SolarACPanicCooldownBinarySensor(_BaseSolarACBinary):
+
+    # No device_class: this is a time-based state, not a direct problem
     _attr_name = "Panic Cooldown"
 
     @property
@@ -107,6 +102,7 @@ class SolarACPanicCooldownBinarySensor(_BaseSolarACBinary):
 
     @property
     def is_on(self) -> bool:
+        # Note: This will only update when the coordinator updates.
         ts = getattr(self.coordinator, "last_panic_ts", None)
         if not ts:
             return False
@@ -115,6 +111,8 @@ class SolarACPanicCooldownBinarySensor(_BaseSolarACBinary):
 
 
 class SolarACShortCycleBinarySensor(_BaseSolarACBinary):
+
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
     _attr_name = "Short Cycling"
 
     @property
@@ -123,6 +121,7 @@ class SolarACShortCycleBinarySensor(_BaseSolarACBinary):
 
     @property
     def is_on(self) -> bool:
+        # Note: This will only update when the coordinator updates.
         now = dt_util.utcnow().timestamp()
         for z in self.coordinator.config.get(CONF_ZONES, []):
             if last := self.coordinator.zone_last_changed.get(z):
@@ -137,6 +136,8 @@ class SolarACShortCycleBinarySensor(_BaseSolarACBinary):
 
 
 class SolarACLockedBinarySensor(_BaseSolarACBinary):
+
+    _attr_device_class = BinarySensorDeviceClass.LOCK
     _attr_name = "Manual Lock Active"
 
     @property
@@ -153,6 +154,8 @@ class SolarACLockedBinarySensor(_BaseSolarACBinary):
 
 
 class SolarACExportingBinarySensor(_BaseSolarACBinary):
+
+    _attr_device_class = BinarySensorDeviceClass.POWER
     _attr_name = "Exporting"
 
     @property
@@ -165,6 +168,8 @@ class SolarACExportingBinarySensor(_BaseSolarACBinary):
 
 
 class SolarACImportingBinarySensor(_BaseSolarACBinary):
+
+    _attr_device_class = BinarySensorDeviceClass.POWER
     _attr_name = "Importing"
 
     @property
@@ -189,6 +194,10 @@ class SolarACMasterBinarySensor(_BaseSolarACBinary):
         ac_switch = self.coordinator.config.get(CONF_AC_SWITCH)
         if not ac_switch:
             return True
-        return (
-            state := self.coordinator.hass.states.get(ac_switch)
-        ) and state.state == "on"
+        state = self.coordinator.hass.states.get(ac_switch)
+        if state is None:
+            # Entity not yet available; treat as off for safety
+            return False
+        if state.state in ("unavailable", "unknown"):
+            return False
+        return state.state == "on"

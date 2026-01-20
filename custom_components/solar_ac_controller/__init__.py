@@ -23,6 +23,7 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS = ["sensor", "binary_sensor"]
+ALL_PLATFORMS = PLATFORMS + ["switch", "select"]
 
 
 async def _async_migrate_data(
@@ -75,6 +76,43 @@ async def _async_migrate_data(
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    # Register services at setup for schema validation and best practices
+    _svc_flag = "__svc_reset_learning_registered"
+    if _svc_flag not in hass.data.setdefault(DOMAIN, {}):
+        async def handle_reset_learning(call: ServiceCall):
+            # Reset learning for all loaded coordinators
+            for entry_dict in hass.data[DOMAIN].values():
+                if not isinstance(entry_dict, dict):
+                    continue
+                coordinator = entry_dict.get("coordinator")
+                controller = getattr(coordinator, "controller", None)
+                if controller:
+                    await controller.reset_learning()
+
+        async def handle_force_relearn(call: ServiceCall):
+            # Reset learned power for a specific zone or all zones, with validation
+            zone = call.data.get("zone")
+            zone_found = False
+            for entry_dict in hass.data[DOMAIN].values():
+                if not isinstance(entry_dict, dict):
+                    continue
+                coordinator = entry_dict.get("coordinator")
+                controller = getattr(coordinator, "controller", None)
+                if controller:
+                    zones = set(getattr(coordinator, "config", {}).get(CONF_ZONES, []))
+                    if zone:
+                        if zone in zones:
+                            await controller.reset_learning(zone)
+                            zone_found = True
+                    else:
+                        await controller.reset_learning()
+                        zone_found = True
+            if zone and not zone_found:
+                _LOGGER.warning(f"force_relearn: Provided zone '{zone}' not found in any loaded Solar AC Controller instance.")
+
+        hass.services.async_register(DOMAIN, "reset_learning", handle_reset_learning)
+        hass.services.async_register(DOMAIN, "force_relearn", handle_force_relearn)
+        hass.data[DOMAIN][_svc_flag] = True
     return True
 
 
@@ -112,6 +150,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         entry.data.get(CONF_INITIAL_LEARNED_POWER, DEFAULT_INITIAL_LEARNED_POWER),
     )
 
+
     # 2. Storage Setup (manual migration because Store no longer accepts migrate_fn)
     store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
 
@@ -124,29 +163,31 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if stored_data is None:
         stored_data = {"learned_power": {}, "learned_power_bands": {}, "samples": 0}
 
+    # 1. Migrate
     migrated = await _async_migrate_data(0, 0, stored_data, initial_lp)
     if migrated != stored_data:
-        try:
-            await store.async_save(migrated)
-            _LOGGER.info("Migrated storage payload and saved updated schema")
-        except Exception:  # pragma: no cover - defensive
-            _LOGGER.exception("Failed to save migrated storage payload")
         stored_data = migrated
 
-    # Final cleanup: round learned power to whole watts for clean display
-    try:
-        def _round_map(val):
-            if isinstance(val, dict):
-                return {k: _round_map(v) for k, v in val.items()}
-            return int(round(float(val)))
+    # 2. Rounding cleanup
+    def _round_map(val):
+        if isinstance(val, dict):
+            return {k: _round_map(v) for k, v in val.items()}
+        return int(round(float(val)))
 
-        stored_data["learned_power"] = _round_map(stored_data.get("learned_power", {}))
-        stored_data["learned_power_bands"] = _round_map(
-            stored_data.get("learned_power_bands", {})
-        )
+    stored_data["learned_power"] = _round_map(stored_data.get("learned_power", {}))
+    stored_data["learned_power_bands"] = _round_map(
+        stored_data.get("learned_power_bands", {})
+    )
+
+    # 3. Integration enabled state (persisted)
+    # Use stored_data directly (store.data does not exist)
+    stored_data["integration_enabled"] = stored_data.get("integration_enabled", True)
+
+    # 4. Save ONCE
+    try:
         await store.async_save(stored_data)
     except Exception:
-        _LOGGER.debug("Skipped rounding cleanup during storage load")
+        _LOGGER.debug("Skipped save during storage load")
 
     # 3. Create Device (The "Master" record)
     device_registry = dr.async_get(hass)
@@ -158,7 +199,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         configuration_url="https://github.com/TTLucian/ha-solar-ac-controller",
     )
 
-    # 4. Initialize Coordinator
+
+    # 5. Initialize Coordinator
     coordinator = SolarACCoordinator(
         hass,
         entry,
@@ -167,15 +209,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         version=version,
     )
 
-
     # Integration enable/disable state (persisted)
-    store_data = getattr(coordinator.store, 'data', None) or {}
-    coordinator.integration_enabled = store_data.get("integration_enabled", True)
+    coordinator.integration_enabled = stored_data.get("integration_enabled", True)
+
+
 
     async def async_set_integration_enabled(enabled: bool):
         coordinator.integration_enabled = enabled
-        # Persist state
-        await coordinator.store.async_save({**(coordinator.store.data or {}), "integration_enabled": enabled})
+        # Persist state efficiently: update in-memory stored_data and save
+        stored_data["integration_enabled"] = enabled
+        await store.async_save(stored_data)
         coordinator.async_update_listeners()
 
     coordinator.async_set_integration_enabled = async_set_integration_enabled
@@ -183,17 +226,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN][entry.entry_id] = {"coordinator": coordinator}
 
     await coordinator.async_config_entry_first_refresh()
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS + ["switch", "select"])
+    await hass.config_entries.async_forward_entry_setups(entry, ALL_PLATFORMS)
 
     entry.add_update_listener(async_reload_entry)
 
-    # 5. Services
-    async def handle_reset_learning(call: ServiceCall):
-        controller = getattr(coordinator, "controller", None)
-        if controller:
-            await controller.reset_learning()
-
-    hass.services.async_register(DOMAIN, "reset_learning", handle_reset_learning)
+    # Service registration moved to async_setup for best practices
 
     return True
 
@@ -203,7 +240,7 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, ALL_PLATFORMS)
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id, None)
 

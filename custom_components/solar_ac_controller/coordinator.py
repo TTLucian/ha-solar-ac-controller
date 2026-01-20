@@ -63,13 +63,17 @@ _EMA_RESET_AFTER_OFF_SECONDS = 600
 
 
 
-class SolarACCoordinator(DataUpdateCoordinator):
-    """
-    Main control loop for the Solar AC Controller.
 
-    Handles all state, learning, zone logic, and device actions.
-    Storage migrations are handled in __init__.py; see STORAGE_VERSION and migration docstring there.
-    """
+class SolarACCoordinator(DataUpdateCoordinator):
+    # Note: Breadcrumb for diagnostics (reason for last no-op or decision)
+    note: str = ""
+
+    async def async_set_integration_enabled(self, enabled: bool) -> None:
+        """Toggle the integration logic and trigger a refresh."""
+        self.integration_enabled = enabled
+        await self._log(f"Integration {'enabled' if enabled else 'disabled'} by user.")
+        self.async_update_listeners()
+
 
     def __init__(
         self,
@@ -79,44 +83,122 @@ class SolarACCoordinator(DataUpdateCoordinator):
         stored: dict[str, Any] | None,
         version: str | None = None,
     ) -> None:
-        # Always initialize manual power mapping early for robustness
-        self.zone_manual_power = {}
-
-        # --- Ensure all sub-managers are initialized first ---
-        self.zone_manager = ZoneManager(self)
-        self.panic_manager = PanicManager(self)
-        self.decision_engine = DecisionEngine(self)
-        self.action_executor = ActionExecutor(self)
-
-        # --- Ensure all state attributes are initialized up front ---
-        self.next_zone: str | None = None
-        self.last_zone: str | None = None
-        self.zone_last_changed: dict[str, float] = {}
-        self.zone_last_changed_type: dict[str, str] = {}
-        self.zone_last_state: dict[str, str | None] = {}
-        self.zone_manual_lock_until: dict[str, float] = {}
-        self.zone_temp_sensors: dict[str, str] = {}
-        self.master_last_state: str | None = None
-        self.master_last_action_time: float | None = None
-        self.master_manual_lock_state: str | None = None
-        self.required_export: float | None = None
-        self.export_margin: float | None = None
-        self.master_off_since: float | None = None
-
-
 
         super().__init__(
             hass,
             logger=_LOGGER,
-            name="Solar AC Controller",
             update_interval=timedelta(seconds=5),
         )
-
         self.hass = hass
         self.config_entry = config_entry
         self.config = {**dict(config_entry.data), **dict(config_entry.options)}
         self.store = store
         self.version = version
+        self.zone_manual_power = {}
+        self.integration_enabled = True
+        self.zone_manager = ZoneManager(self)
+        self.panic_manager = PanicManager(self)
+        self.decision_engine = DecisionEngine(self)
+        self.action_executor = ActionExecutor(self)
+        self.next_zone = None
+        self.last_zone = None
+        self.zone_last_changed = {}
+        self.zone_last_changed_type = {}
+        self.zone_last_state = {}
+        self.zone_manual_lock_until = {}
+        self.zone_temp_sensors = {}
+        self.master_last_state = None
+        self.master_last_action_time = None
+        self.master_manual_lock_state = None
+        self.required_export = None
+        self.export_margin = None
+        self.master_off_since = None
+
+        # Enable temperature modulation
+        self.enable_temp_modulation = bool(
+            self.config_entry.options.get(
+                CONF_ENABLE_TEMP_MODULATION,
+                self.config_entry.data.get(
+                    CONF_ENABLE_TEMP_MODULATION, DEFAULT_ENABLE_TEMP_MODULATION
+                ),
+            )
+        )
+
+        # Comfort temperature targets (C)
+        self.max_temp_winter = float(
+            self.config_entry.options.get(
+                CONF_MAX_TEMP_WINTER,
+                self.config_entry.data.get(
+                    CONF_MAX_TEMP_WINTER, DEFAULT_MAX_TEMP_WINTER
+                ),
+            )
+        )
+        self.min_temp_summer = float(
+            self.config_entry.options.get(
+                CONF_MIN_TEMP_SUMMER,
+                self.config_entry.data.get(
+                    CONF_MIN_TEMP_SUMMER, DEFAULT_MIN_TEMP_SUMMER
+                ),
+            )
+        )
+
+
+        # Build zone→sensor mapping from parallel lists into a dict
+        zones_list = self.config.get(CONF_ZONES, [])
+        zone_temp_sensors_list = list(
+            self.config_entry.options.get(
+                CONF_ZONE_TEMP_SENSORS,
+                self.config_entry.data.get(CONF_ZONE_TEMP_SENSORS, []),
+            )
+            or []
+        )
+        self.zone_temp_sensors = {}
+        for idx, zone_id in enumerate(zones_list):
+            if idx < len(zone_temp_sensors_list) and zone_temp_sensors_list[idx]:
+                self.zone_temp_sensors[zone_id] = zone_temp_sensors_list[idx]
+
+        # Build zone→manual power mapping from parallel input (list or comma-separated text)
+        raw_manual = self.config_entry.options.get(
+            CONF_ZONE_MANUAL_POWER,
+            self.config_entry.data.get(CONF_ZONE_MANUAL_POWER, []),
+        )
+        if isinstance(raw_manual, str):
+            parts = [p.strip() for p in raw_manual.split(",")]
+            self.zone_manual_power = {
+                zone: float(val)
+                for zone, val in (p.split(":") for p in parts if ":" in p)
+                if zone and val
+            }
+        elif isinstance(raw_manual, (list, tuple)):
+            for item in list(raw_manual):
+                if isinstance(item, str) and ":" in item:
+                    zone, val = item.split(":", 1)
+                    try:
+                        self.zone_manual_power[zone.strip()] = float(val)
+                    except Exception:
+                        continue
+
+        # Initialize other attributes needed later
+        self.panic_threshold = float(self.config.get(CONF_PANIC_THRESHOLD, DEFAULT_PANIC_THRESHOLD))
+        self.panic_delay = int(self.config.get(CONF_PANIC_DELAY, DEFAULT_PANIC_DELAY))
+        self.manual_lock_seconds = int(self.config.get(CONF_MANUAL_LOCK_SECONDS, DEFAULT_MANUAL_LOCK_SECONDS))
+        self.short_cycle_on_seconds = int(self.config.get(CONF_SHORT_CYCLE_ON_SECONDS, DEFAULT_SHORT_CYCLE_ON_SECONDS))
+        self.short_cycle_off_seconds = int(self.config.get(CONF_SHORT_CYCLE_OFF_SECONDS, DEFAULT_SHORT_CYCLE_OFF_SECONDS))
+        self.action_delay_seconds = int(self.config.get(CONF_ACTION_DELAY_SECONDS, DEFAULT_ACTION_DELAY_SECONDS))
+        self.add_confidence_threshold = float(self.config.get(CONF_ADD_CONFIDENCE, DEFAULT_ADD_CONFIDENCE))
+        self.remove_confidence_threshold = float(self.config.get(CONF_REMOVE_CONFIDENCE, DEFAULT_REMOVE_CONFIDENCE))
+
+        # Controller and confidence tracking
+        from .controller import SolarACController
+        self.controller = SolarACController(self.hass, self, self.store)
+        self.last_add_conf = 0.0
+        self.last_remove_conf = 0.0
+        self.confidence = 0.0
+        self.last_action_start_ts = None
+        self.last_action_duration = None
+        self._panic_task = None
+        self.last_panic_ts = None
+
 
         # Initial learned power
         self.initial_learned_power = config_entry.options.get(
@@ -132,18 +214,17 @@ class SolarACCoordinator(DataUpdateCoordinator):
         # Band learning removed: ignore learned_power_bands
         raw_samples = stored.get("samples", 0) or 0
 
-        self.learned_power: dict[str, dict[str, float]] = {}
-        self.samples: int = int(raw_samples)
+        self.learned_power = {}
+        self.samples = int(raw_samples)
 
-        migrated = False
+
         if isinstance(raw_learned, dict):
             for zone_name, val in raw_learned.items():
                 if isinstance(val, (int, float)):
-                    migrated = True
                     v = float(val)
                     self.learned_power[zone_name] = {"default": v, "heat": v, "cool": v}
                 elif isinstance(val, dict):
-                    normalized: dict[str, float] = {}
+                    normalized = {}
                     for k, vv in val.items():
                         try:
                             normalized[k.lower()] = float(vv)
@@ -176,14 +257,13 @@ class SolarACCoordinator(DataUpdateCoordinator):
 
 
         # Internal state
-        self.last_action: str | None = None
-        self.learning_active: bool = False
-        self.learning_start_time: float | None = None
-        self.ac_power_before: float | None = None
-        self.learning_zone: str | None = None
-
-        self.ema_30s: float = 0.0
-        self.ema_5m: float = 0.0
+        self.last_action = None
+        self.learning_active = False
+        self.learning_start_time = None
+        self.ac_power_before = None
+        self.learning_zone = None
+        self.ema_30s = 0.0
+        self.ema_5m = 0.0
 
         # Season mode (manual selection: heat or cool)
     @property
@@ -200,159 +280,6 @@ class SolarACCoordinator(DataUpdateCoordinator):
     def season_mode(self, value: str):
         # This setter is only for runtime; persistent update is handled by the select entity
         self.config_entry.options = {**self.config_entry.options, CONF_SEASON_MODE: value}
-
-        self.enable_temp_modulation: bool = bool(
-            self.config_entry.options.get(
-                CONF_ENABLE_TEMP_MODULATION,
-                self.config_entry.data.get(
-                    CONF_ENABLE_TEMP_MODULATION, DEFAULT_ENABLE_TEMP_MODULATION
-                ),
-            )
-        )
-
-
-        # Comfort temperature targets (C)
-        self.max_temp_winter: float = float(
-            self.config_entry.options.get(
-                CONF_MAX_TEMP_WINTER,
-                self.config_entry.data.get(
-                    CONF_MAX_TEMP_WINTER, DEFAULT_MAX_TEMP_WINTER
-                ),
-            )
-        )
-        self.min_temp_summer: float = float(
-            self.config_entry.options.get(
-                CONF_MIN_TEMP_SUMMER,
-                self.config_entry.data.get(
-                    CONF_MIN_TEMP_SUMMER, DEFAULT_MIN_TEMP_SUMMER
-                ),
-            )
-        )
-
-        # Build zone→sensor mapping from parallel lists
-        zones_list = self.config.get(CONF_ZONES, [])
-        zone_temp_sensors_list: list[str] = list(
-            self.config_entry.options.get(
-                CONF_ZONE_TEMP_SENSORS,
-                self.config_entry.data.get(CONF_ZONE_TEMP_SENSORS, []),
-            )
-            or []
-        )
-        self.zone_temp_sensors: dict[str, str] = {}
-        for idx, zone_id in enumerate(zones_list):
-            if idx < len(zone_temp_sensors_list) and zone_temp_sensors_list[idx]:
-                self.zone_temp_sensors[zone_id] = zone_temp_sensors_list[idx]
-
-        self.zone_current_temps: dict[str, float | None] = (
-            {}
-        )  # zone_id -> current temp or None
-
-        # Disable temperature modulation if no zone temp sensors configured
-        if not self.zone_temp_sensors:
-            self.enable_temp_modulation = False
-            _LOGGER.debug(
-                "Temperature modulation disabled: no zone temperature sensors configured"
-            )
-
-        # Build zone→manual power mapping from parallel input (list or comma-separated text)
-        raw_manual = self.config_entry.options.get(
-            CONF_ZONE_MANUAL_POWER,
-            self.config_entry.data.get(CONF_ZONE_MANUAL_POWER, []),
-        )
-        parsed_list: list[float | None] = []
-        try:
-            if isinstance(raw_manual, str):
-                # Parse comma-separated text: "1000, 2000, , 1500"
-                parts = [p.strip() for p in raw_manual.split(",")]
-                for p in parts:
-                    if p == "":
-                        parsed_list.append(None)
-                    else:
-                        try:
-                            parsed_list.append(float(p))
-                        except (TypeError, ValueError):
-                            parsed_list.append(None)
-            elif isinstance(raw_manual, (list, tuple)):
-                for item in list(raw_manual):
-                    try:
-                        parsed_list.append(
-                            float(item) if item not in (None, "") else None
-                        )
-                    except (TypeError, ValueError):
-                        parsed_list.append(None)
-            else:
-                parsed_list = []
-        except Exception:
-            parsed_list = []
-
-        self.zone_manual_power: dict[str, float] = {}
-        for idx, zone_id in enumerate(zones_list):
-            val = parsed_list[idx] if idx < len(parsed_list) else None
-            if val is not None:
-                self.zone_manual_power[zone_id] = float(val)
-
-        self.zone_last_changed: dict[str, float] = {}
-        self.zone_last_changed_type: dict[str, str] = {}
-        self.zone_last_state: dict[str, str | None] = {}
-        self.zone_manual_lock_until: dict[str, float] = {}
-
-        # Master switch manual lock (sticky until natural solar cycle aligns)
-        self.master_last_state: str | None = None
-        self.master_last_action_time: float | None = None
-        self.master_manual_lock_state: str | None = (
-            None  # "on" or "off" when locked, None when unlocked
-        )
-
-        # Use centralized defaults from const.py
-        self.panic_threshold: float = float(
-            self.config.get(CONF_PANIC_THRESHOLD, DEFAULT_PANIC_THRESHOLD)
-        )
-        self.panic_delay: int = int(
-            self.config.get(CONF_PANIC_DELAY, DEFAULT_PANIC_DELAY)
-        )
-        self.manual_lock_seconds: int = int(
-            self.config.get(CONF_MANUAL_LOCK_SECONDS, DEFAULT_MANUAL_LOCK_SECONDS)
-        )
-        self.short_cycle_on_seconds: int = int(
-            self.config.get(CONF_SHORT_CYCLE_ON_SECONDS, DEFAULT_SHORT_CYCLE_ON_SECONDS)
-        )
-        self.short_cycle_off_seconds: int = int(
-            self.config.get(
-                CONF_SHORT_CYCLE_OFF_SECONDS, DEFAULT_SHORT_CYCLE_OFF_SECONDS
-            )
-        )
-        self.action_delay_seconds: int = int(
-            self.config.get(CONF_ACTION_DELAY_SECONDS, DEFAULT_ACTION_DELAY_SECONDS)
-        )
-
-        self.add_confidence_threshold: float = float(
-            self.config.get(CONF_ADD_CONFIDENCE, DEFAULT_ADD_CONFIDENCE)
-        )
-        self.remove_confidence_threshold: float = float(
-            self.config.get(CONF_REMOVE_CONFIDENCE, DEFAULT_REMOVE_CONFIDENCE)
-        )
-
-
-        from .controller import SolarACController
-        self.controller: "SolarACController" = SolarACController(self.hass, self, self.store)
-
-        self.last_add_conf: float = 0.0
-        self.last_remove_conf: float = 0.0
-        self.confidence: float = 0.0
-        self.last_action_start_ts: float | None = None
-        self.last_action_duration: float | None = None
-
-        self._panic_task: asyncio.Task | None = None
-
-        self.last_panic_ts: float | None = None
-
-        self.next_zone: str | None = None
-        self.last_zone: str | None = None
-        self.required_export: float | None = None
-        self.export_margin: float | None = None
-
-        # Track when master was turned off for EMA reset
-        self.master_off_since: float | None = None
 
     # -------------------------------------------------------------------------
     # Helper accessors for learned_power (abstracts storage format)
@@ -483,7 +410,6 @@ class SolarACCoordinator(DataUpdateCoordinator):
         try:
             payload = {
                 "learned_power": self._rounded_power(self.learned_power),
-                "learned_power_bands": self._rounded_power(self.learned_power_bands),
                 "samples": int(self.samples),
             }
             await self.store.async_save(payload)
@@ -525,6 +451,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
         # Integration enable/disable logic
         if hasattr(self, "integration_enabled") and not self.integration_enabled:
             self.last_action = "integration_disabled"
+            self.note = "Integration disabled by user."
             _LOGGER.debug("Integration disabled, skipping all logic.")
             return
 
@@ -534,11 +461,13 @@ class SolarACCoordinator(DataUpdateCoordinator):
         ac_state = self.hass.states.get(self.config.get(CONF_AC_POWER_SENSOR))
 
         if not grid_state or not solar_state or not ac_state:
+            self.note = "Missing sensor state, skipping cycle."
             _LOGGER.debug("Missing sensor state, skipping cycle")
             return
 
         if ac_state.state in ("unknown", "unavailable"):
             self.last_action = "ac_sensor_unavailable"
+            self.note = "AC power sensor unavailable, skipping cycle."
             _LOGGER.debug("AC power sensor unavailable, skipping cycle")
             return
 
@@ -547,6 +476,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
             solar = float(solar_state.state)
             ac_power = float(ac_state.state)
         except (ValueError, TypeError):
+            self.note = "Non-numeric sensor value, skipping cycle."
             _LOGGER.debug("Non-numeric sensor value, skipping cycle")
             return
 
@@ -554,7 +484,8 @@ class SolarACCoordinator(DataUpdateCoordinator):
             "Cycle sensors: grid_raw=%s solar=%s ac_power=%s", grid_raw, solar, ac_power
         )
 
-
+        # EMA updates
+        self._update_ema(grid_raw)
 
         # 2. Master switch auto-control (based ONLY on solar production)
         await self._handle_master_switch(solar)
@@ -572,6 +503,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
             # Ensure any running tasks are cancelled and learning reset
             await self._perform_freeze_cleanup()
             self.last_action = "solar_too_low"
+            self.note = f"Solar {round(solar)}W <= threshold_off {off_threshold}W: freezing zone management."
             await self._log(
                 f"[FREEZE] solar={round(solar)} <= threshold_off={off_threshold}, freezing zone management"
             )
@@ -610,11 +542,17 @@ class SolarACCoordinator(DataUpdateCoordinator):
                 and isinstance(self.zone_manual_power, dict)
                 and next_zone in self.zone_manual_power
             ):
-                self.required_export_source = "manual_power"
+                self.required_export_source = "Manual Power Override"
+            elif self.last_action == "panic_cooldown":
+                self.required_export_source = "Panic Recovery"
+            elif self.last_action == "integration_disabled":
+                self.required_export_source = "Integration Disabled"
+            elif self.last_action == "solar_too_low":
+                self.required_export_source = "Solar Freeze"
             else:
-                self.required_export_source = "learned_power"
+                self.required_export_source = "Learned Power"
         except Exception:
-            self.required_export_source = "learned_power"
+            self.required_export_source = "Learned Power"
         self.export_margin = (
             None if required_export is None else export - required_export
         )
@@ -643,12 +581,14 @@ class SolarACCoordinator(DataUpdateCoordinator):
 
         # 9. Panic logic
         if self.panic_manager.should_panic(on_count):
+            self.note = "Panic triggered: grid import exceeded threshold with multiple zones active."
             await self.panic_manager.schedule_panic(active_zones)
             return
 
         # 10. Panic cooldown
         if self.panic_manager.is_in_cooldown(now_ts):
             self.last_action = "panic_cooldown"
+            self.note = "Panic cooldown active: skipping add/remove decisions."
             await self._log("[PANIC_COOLDOWN] skipping add/remove decisions")
             return
 
@@ -656,6 +596,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
         if next_zone and self.decision_engine.should_add_zone(
             next_zone, required_export if required_export is not None else 0.0
         ):
+            self.note = f"Adding zone {next_zone}: conditions met."
             await self.action_executor.attempt_add_zone(
                 next_zone, ac_power, export, required_export if required_export is not None else 0.0
             )
@@ -665,11 +606,13 @@ class SolarACCoordinator(DataUpdateCoordinator):
         if last_zone and self.decision_engine.should_remove_zone(
             last_zone, import_power, active_zones
         ):
+            self.note = f"Removing zone {last_zone}: conditions met."
             await self.action_executor.attempt_remove_zone(last_zone, import_power)
             return
 
         # 12. SYSTEM BALANCED
         self.last_action = "balanced"
+        self.note = f"No action: system balanced. ema30={round(self.ema_30s)}, ema5m={round(self.ema_5m)}, zones={on_count}, samples={self.samples}"
         await self._log(
             f"[SYSTEM_BALANCED] ema30={round(self.ema_30s)} "
             f"ema5m={round(self.ema_5m)} zones={on_count} samples={self.samples}"

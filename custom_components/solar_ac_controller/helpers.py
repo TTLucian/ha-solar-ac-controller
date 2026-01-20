@@ -79,6 +79,7 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
     learning_start_time_ts = getattr(coordinator, "learning_start_time", None)
     learning_started = _human_delta(learning_start_time_ts)
     ac_power_before = _safe_float(getattr(coordinator, "ac_power_before", None), None)
+    ac_power_after = _safe_float(getattr(coordinator, "ac_power_after", None), None)
 
     ema_30s = _safe_float(getattr(coordinator, "ema_30s", None), 0.0)
     ema_5m = _safe_float(getattr(coordinator, "ema_5m", None), 0.0)
@@ -118,11 +119,10 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
 
     for z in zones_config:
         try:
-            st_obj = (
-                getattr(coordinator, "hass", None).states.get(z)
-                if getattr(coordinator, "hass", None)
-                else None
-            )
+            hass = getattr(coordinator, "hass", None)
+            st_obj = None
+            if hass is not None and hasattr(hass, "states") and hasattr(hass.states, "get"):
+                st_obj = hass.states.get(z)
             state = None
             if st_obj:
                 state = getattr(st_obj, "state", None)
@@ -202,6 +202,7 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
         "learning_zone": learning_zone,
         "learning_started": learning_started,
         "ac_power_before": ac_power_before,
+        "ac_power_after": ac_power_after,
         "ema_30s": ema_30s,
         "ema_5m": ema_5m,
         # Removed: outside_temp and outside_band

@@ -128,6 +128,7 @@ class SolarACController:
                 _LOGGER.error(
                     "Coordinator missing required persistence API; aborting learning save"
                 )
+
                 try:
                     await self._reset_learning_state_async()
                 except Exception:
@@ -138,7 +139,7 @@ class SolarACController:
 
 
             try:
-                    set_lp(zone_name, float(delta), mode=mode)
+                set_lp(zone_name, float(delta), mode=mode)
                 self.coordinator.samples = (
                     int(getattr(self.coordinator, "samples", 0) or 0) + 1
                 )
@@ -156,11 +157,11 @@ class SolarACController:
                 if callable(log_fn):
                     try:
                         await log_fn(f"[LEARNING_SAVE_ERROR] zone={zone} err={exc}")
-                    except Exception:
+                    except Exception as exc2:
                         _LOGGER.exception(
-                            "Failed to write learning error to coordinator log"
+                            "Failed to write learning error to coordinator log: %s",
+                            exc2,
                         )
-
             await self._reset_learning_state_async()
 
     async def reset_learning(self) -> None:
