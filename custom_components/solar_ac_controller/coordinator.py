@@ -93,6 +93,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
         self.action_executor = ActionExecutor(self)
 
         # --- Ensure all state attributes are initialized up front ---
+        self.outside_band: str | None = None
         self.next_zone: str | None = None
         self.last_zone: str | None = None
         self.zone_last_changed: dict[str, float] = {}
