@@ -72,40 +72,39 @@ def parse_numeric_list(val: Any) -> list[float] | None:
         return None
 
 # --- SHARED BASE FLOW FOR VALIDATION & CLEANING ---
-class SolarACBaseFlow:
-    def validate_solar_hysteresis(self, user_input, errors):
-        on_val = user_input.get(CONF_SOLAR_THRESHOLD_ON, getattr(self, 'data', {}).get(CONF_SOLAR_THRESHOLD_ON, DEFAULT_SOLAR_THRESHOLD_ON))
-        off_val = user_input.get(CONF_SOLAR_THRESHOLD_OFF, getattr(self, 'data', {}).get(CONF_SOLAR_THRESHOLD_OFF, DEFAULT_SOLAR_THRESHOLD_OFF))
-        if int(off_val) >= int(on_val):
-            errors["base"] = "invalid_solar_hysteresis"
-        return errors
+def validate_solar_hysteresis(user_input, data, errors):
+    on_val = user_input.get(CONF_SOLAR_THRESHOLD_ON, data.get(CONF_SOLAR_THRESHOLD_ON, DEFAULT_SOLAR_THRESHOLD_ON))
+    off_val = user_input.get(CONF_SOLAR_THRESHOLD_OFF, data.get(CONF_SOLAR_THRESHOLD_OFF, DEFAULT_SOLAR_THRESHOLD_OFF))
+    if int(off_val) >= int(on_val):
+        errors["base"] = "invalid_solar_hysteresis"
+    return errors
 
-    def validate_panic_threshold(self, user_input, errors):
-        panic_th = user_input.get(CONF_PANIC_THRESHOLD, getattr(self, 'data', {}).get(CONF_PANIC_THRESHOLD, DEFAULT_PANIC_THRESHOLD))
-        solar_on = getattr(self, 'data', {}).get(CONF_SOLAR_THRESHOLD_ON, DEFAULT_SOLAR_THRESHOLD_ON)
-        if int(panic_th) <= int(solar_on):
-            errors["base"] = "panic_too_low"
-        return errors
+def validate_panic_threshold(user_input, data, errors):
+    panic_th = user_input.get(CONF_PANIC_THRESHOLD, data.get(CONF_PANIC_THRESHOLD, DEFAULT_PANIC_THRESHOLD))
+    solar_on = data.get(CONF_SOLAR_THRESHOLD_ON, DEFAULT_SOLAR_THRESHOLD_ON)
+    if int(panic_th) <= int(solar_on):
+        errors["base"] = "panic_too_low"
+    return errors
 
-    def clean_zone_temp_sensors(self, zones, zone_temp_sensors):
-        if not isinstance(zone_temp_sensors, list):
-            if zone_temp_sensors is None or zone_temp_sensors == "":
-                zone_temp_sensors = []
-            else:
-                zone_temp_sensors = [zone_temp_sensors]
-        if len(zone_temp_sensors) < len(zones):
-            zone_temp_sensors = list(zone_temp_sensors) + [""] * (len(zones) - len(zone_temp_sensors))
-        if len(zone_temp_sensors) > len(zones):
-            zone_temp_sensors = zone_temp_sensors[:len(zones)]
-        return zone_temp_sensors
-
-    def clean_zone_manual_power(self, zones, zone_manual_power):
-        if isinstance(zone_manual_power, (list, tuple)):
-            return ", ".join(str(v) for v in zone_manual_power)
-        elif zone_manual_power is None:
-            return ""
+def clean_zone_temp_sensors(zones, zone_temp_sensors):
+    if not isinstance(zone_temp_sensors, list):
+        if zone_temp_sensors is None or zone_temp_sensors == "":
+            zone_temp_sensors = []
         else:
-            return str(zone_manual_power)
+            zone_temp_sensors = [zone_temp_sensors]
+    if len(zone_temp_sensors) < len(zones):
+        zone_temp_sensors = list(zone_temp_sensors) + [""] * (len(zones) - len(zone_temp_sensors))
+    if len(zone_temp_sensors) > len(zones):
+        zone_temp_sensors = zone_temp_sensors[:len(zones)]
+    return zone_temp_sensors
+
+def clean_zone_manual_power(zones, zone_manual_power):
+    if isinstance(zone_manual_power, (list, tuple)):
+        return ", ".join(str(v) for v in zone_manual_power)
+    elif zone_manual_power is None:
+        return ""
+    else:
+        return str(zone_manual_power)
 
 def schema_user(defaults):
     return vol.Schema({
@@ -248,7 +247,7 @@ async def _validate_zone_temp_sensors(
 
 
 
-class SolarACConfigFlow(SolarACBaseFlow, config_entries.ConfigFlow):
+class SolarACConfigFlow(config_entries.ConfigFlow):
     def _is_reconfigure(self) -> bool:
         return getattr(self, "_reconfigure_mode", False)
 
@@ -280,7 +279,7 @@ class SolarACConfigFlow(SolarACBaseFlow, config_entries.ConfigFlow):
             if not zones:
                 errors["base"] = "no_zones"
             else:
-                errors = self.validate_solar_hysteresis(user_input, errors)
+                errors = validate_solar_hysteresis(user_input, self.data, errors)
             if not errors:
                 self.data = {**self.data, **user_input}
                 return await self.async_step_timing()
@@ -295,7 +294,7 @@ class SolarACConfigFlow(SolarACBaseFlow, config_entries.ConfigFlow):
         errors: dict[str, str] = {}
         defaults = {**self._reconfigure_defaults, **self.data}
         if user_input is not None:
-            errors = self.validate_panic_threshold(user_input, errors)
+            errors = validate_panic_threshold(user_input, self.data, errors)
             if not errors:
                 self.data = {**self.data, **user_input}
                 if self.data.get(CONF_ENABLE_TEMP_MODULATION):
@@ -322,7 +321,7 @@ class SolarACConfigFlow(SolarACBaseFlow, config_entries.ConfigFlow):
             if zone_temp_sensors and len(zone_temp_sensors) != len(zones):
                 errors[CONF_ZONE_TEMP_SENSORS] = "zone_temp_sensors_mismatch"
             if not errors:
-                zone_temp_sensors = self.clean_zone_temp_sensors(zones, zone_temp_sensors)
+                zone_temp_sensors = clean_zone_temp_sensors(zones, zone_temp_sensors)
             validation_error = await _validate_zone_temp_sensors(
                 self.hass, zones, zone_temp_sensors
             )
@@ -343,7 +342,7 @@ class SolarACConfigFlow(SolarACBaseFlow, config_entries.ConfigFlow):
                     title="Solar AC Controller", data=self.data
                 )
         # Always show manual power as a string for UI
-        zone_manual_default = self.clean_zone_manual_power(
+        zone_manual_default = clean_zone_manual_power(
             self.data.get(CONF_ZONES, []), defaults.get(CONF_ZONE_MANUAL_POWER, "")
         )
         schema = schema_comfort(defaults, zone_manual_default)
@@ -383,7 +382,7 @@ class SolarACConfigFlow(SolarACBaseFlow, config_entries.ConfigFlow):
         return SolarACOptionsFlowHandler(config_entry)
 
 
-class SolarACOptionsFlowHandler(SolarACBaseFlow, config_entries.OptionsFlow):
+class SolarACOptionsFlowHandler(config_entries.OptionsFlow):
     """Handle runtime configuration changes."""
 
     def __init__(self, config_entry: config_entries.ConfigEntry):
@@ -403,7 +402,7 @@ class SolarACOptionsFlowHandler(SolarACBaseFlow, config_entries.OptionsFlow):
             if not zones:
                 errors["base"] = "no_zones"
             else:
-                errors = self.validate_solar_hysteresis(user_input, errors)
+                errors = validate_solar_hysteresis(user_input, self.data, errors)
             if not errors:
                 self.data = {**self.data, **user_input}
                 return await self.async_step_timing()
@@ -418,7 +417,7 @@ class SolarACOptionsFlowHandler(SolarACBaseFlow, config_entries.OptionsFlow):
         errors: dict[str, str] = {}
         defaults = {**self._current, **self.data}
         if user_input is not None:
-            errors = self.validate_panic_threshold(user_input, errors)
+            errors = validate_panic_threshold(user_input, self.data, errors)
             if not errors:
                 self.data = {**self.data, **user_input}
                 if self.data.get(CONF_ENABLE_TEMP_MODULATION):
@@ -443,7 +442,7 @@ class SolarACOptionsFlowHandler(SolarACBaseFlow, config_entries.OptionsFlow):
             if zone_temp_sensors and len(zone_temp_sensors) != len(zones):
                 errors[CONF_ZONE_TEMP_SENSORS] = "zone_temp_sensors_mismatch"
             if not errors:
-                zone_temp_sensors = self.clean_zone_temp_sensors(zones, zone_temp_sensors)
+                zone_temp_sensors = clean_zone_temp_sensors(zones, zone_temp_sensors)
             validation_error = await _validate_zone_temp_sensors(
                 self.hass, zones, zone_temp_sensors
             )
@@ -462,7 +461,7 @@ class SolarACOptionsFlowHandler(SolarACBaseFlow, config_entries.OptionsFlow):
                 self.data = {**self.data, **cleaned_input}
                 return self.async_create_entry(title="", data=self.data)
         # Always show manual power as a string for UI
-        zone_manual_default = self.clean_zone_manual_power(
+        zone_manual_default = clean_zone_manual_power(
             self.data.get(CONF_ZONES, []), defaults.get(CONF_ZONE_MANUAL_POWER, "")
         )
         schema = schema_comfort(defaults, zone_manual_default)
