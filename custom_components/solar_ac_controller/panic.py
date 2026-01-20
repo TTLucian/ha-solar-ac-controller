@@ -19,6 +19,15 @@ _PANIC_COOLDOWN_SECONDS = 120
 
 
 class PanicManager:
+
+        def is_panicking(self) -> bool:
+            """Return True if a panic event is currently active (panic task running or last action was panic)."""
+            # Consider panic active if the panic task is running or last_action is 'panic'
+            if getattr(self.coordinator, '_panic_task', None) and not self.coordinator._panic_task.done():
+                return True
+            if getattr(self.coordinator, 'last_action', None) == 'panic':
+                return True
+            return False
     """Manages emergency zone shedding when grid import exceeds panic threshold."""
 
     def __init__(self, coordinator: SolarACCoordinator) -> None:
