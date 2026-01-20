@@ -101,6 +101,8 @@ class SolarACCoordinator(DataUpdateCoordinator):
         self.export_margin: float | None = None
         self.master_off_since: float | None = None
 
+
+
         super().__init__(
             hass,
             logger=_LOGGER,
@@ -183,6 +185,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
                     except Exception:
                         continue
 
+
         if migrated:
             try:
                 payload = {
@@ -211,6 +214,8 @@ class SolarACCoordinator(DataUpdateCoordinator):
                 _LOGGER.exception(
                     "Failed to schedule persist of migrated learned_power: %s", exc
                 )
+
+
 
         # Internal state
         self.last_action: str | None = None
@@ -348,8 +353,9 @@ class SolarACCoordinator(DataUpdateCoordinator):
 
         self.zone_manual_power: dict[str, float] = {}
         for idx, zone_id in enumerate(zones_list):
-            if idx < len(parsed_list) and parsed_list[idx] is not None:
-                self.zone_manual_power[zone_id] = float(parsed_list[idx])
+            val = parsed_list[idx] if idx < len(parsed_list) else None
+            if val is not None:
+                self.zone_manual_power[zone_id] = float(val)
 
         self.zone_last_changed: dict[str, float] = {}
         self.zone_last_changed_type: dict[str, str] = {}
@@ -392,11 +398,9 @@ class SolarACCoordinator(DataUpdateCoordinator):
             self.config.get(CONF_REMOVE_CONFIDENCE, DEFAULT_REMOVE_CONFIDENCE)
         )
 
+
         from .controller import SolarACController
-
-        self.controller: "SolarACController" = SolarACController(hass, self, store)
-
-        # Initialize sub-managers
+        self.controller: "SolarACController" = SolarACController(self.hass, self, self.store)
         self.panic_manager = PanicManager(self)
         self.zone_manager = ZoneManager(self)
         self.decision_engine = DecisionEngine(self)
@@ -446,14 +450,17 @@ class SolarACCoordinator(DataUpdateCoordinator):
         if entry is None:
             return float(self.initial_learned_power)
         if isinstance(entry, dict):
+            val = None
             if mode and mode in entry:
-                return float(entry.get(mode))
-            if "default" in entry:
-                return float(entry.get("default"))
-            if "heat" in entry:
-                return float(entry.get("heat"))
-            if "cool" in entry:
-                return float(entry.get("cool"))
+                val = entry.get(mode)
+            elif "default" in entry:
+                val = entry.get("default")
+            elif "heat" in entry:
+                val = entry.get("heat")
+            elif "cool" in entry:
+                val = entry.get("cool")
+            if val is not None:
+                return float(val)
             return float(self.initial_learned_power)
         try:
             return float(entry)
@@ -488,26 +495,28 @@ class SolarACCoordinator(DataUpdateCoordinator):
         ALPHA = 0.3
 
         # Initialize zone entry if missing
+
         if zone_name not in self.learned_power or not isinstance(
             self.learned_power.get(zone_name), dict
         ):
-            base = float(
-                self.learned_power.get(zone_name)
-                if isinstance(self.learned_power.get(zone_name), (int, float))
-                else self.initial_learned_power
-            )
+            val = self.learned_power.get(zone_name)
+            if isinstance(val, (int, float)):
+                base = float(val)
+            else:
+                base = float(self.initial_learned_power)
             self.learned_power[zone_name] = {
                 "default": base,
                 "heat": base,
                 "cool": base,
             }
 
+
         entry = self.learned_power[zone_name]
-        current = float(
-            entry.get(
-                mode or "default", entry.get("default", self.initial_learned_power)
-            )
-        )
+        val = entry.get(mode or "default", entry.get("default", self.initial_learned_power))
+        if val is not None:
+            current = float(val)
+        else:
+            current = float(self.initial_learned_power)
 
         # Absolute outlier filter
         if not (MIN_W <= new_sample <= MAX_W):
@@ -732,10 +741,10 @@ class SolarACCoordinator(DataUpdateCoordinator):
 
         # 11. ADD zone decision
         if next_zone and self.decision_engine.should_add_zone(
-            next_zone, required_export
+            next_zone, required_export if required_export is not None else 0.0
         ):
             await self.action_executor.attempt_add_zone(
-                next_zone, ac_power, export, required_export
+                next_zone, ac_power, export, required_export if required_export is not None else 0.0
             )
             return
 

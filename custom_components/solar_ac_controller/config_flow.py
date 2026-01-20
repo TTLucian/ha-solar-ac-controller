@@ -203,11 +203,6 @@ class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: igno
                         )
                     ),
                 ): vol.All(vol.Coerce(int), vol.Range(min=0)),
-                # GROUP 5: Season Mode (Manual selection)
-                vol.Optional(
-                    CONF_SEASON_MODE,
-                    default=defaults.get(CONF_SEASON_MODE, DEFAULT_SEASON_MODE),
-                ): selector({"select": {"options": ["heat", "cool"]}}),
                 # GROUP 6: Optional Features
                 vol.Optional(
                     CONF_ENABLE_TEMP_MODULATION,
