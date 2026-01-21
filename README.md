@@ -7,7 +7,7 @@
   <img src="https://img.shields.io/github/actions/workflow/status/TTLucian/ha-solar-ac-controller/ci.yml?style=for-the-badge" />
 </p>
 
-A smart and adaptive Home Assistant integration that manages multi-zone AC systems based on real-time solar production, grid import/export, and learned compressor behavior.
+A smart and adaptive Home Assistant integration that manages multi-zone (milti-split) AC systems based on real-time solar production, grid import/export, and learned compressor behavior.
 
 This integration automatically:
 
