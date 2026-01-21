@@ -3,12 +3,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+from typing import Any, Awaitable, Callable, cast
 
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
-
-from .const import CONF_AC_POWER_SENSOR
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -123,8 +121,8 @@ class SolarACController:
                         mode = "cool"
 
             set_lp = getattr(self.coordinator, "set_learned_power", None)
-            persist = getattr(self.coordinator, "_persist_learned_values", None)
-            if not callable(set_lp) or not callable(persist):
+            persist_fn = cast(Callable[[], Awaitable[None]] | None, getattr(self.coordinator, "_persist_learned_values", None))
+            if not (set_lp and callable(set_lp)) or not persist_fn:
                 _LOGGER.error(
                     "Coordinator missing required persistence API; aborting learning save"
                 )
@@ -143,7 +141,9 @@ class SolarACController:
                 self.coordinator.samples = (
                     int(getattr(self.coordinator, "samples", 0) or 0) + 1
                 )
-                await persist()
+                persist_fn = cast(Callable[[], Awaitable[None]] | None, getattr(self.coordinator, "_persist_learned_values", None))
+                if persist_fn:
+                    await persist_fn()
                 _LOGGER.info(
                     "Finished learning: zone=%s mode=%s delta=%s samples=%s",
                     zone,
@@ -153,8 +153,8 @@ class SolarACController:
                 )
             except Exception as exc:
                 _LOGGER.exception("Error finishing learning for %s: %s", zone, exc)
-                log_fn = getattr(self.coordinator, "_log", None)
-                if callable(log_fn):
+                log_fn = cast(Callable[[str], Awaitable[None]] | None, getattr(self.coordinator, "_log", None))
+                if log_fn:
                     try:
                         await log_fn(f"[LEARNING_SAVE_ERROR] zone={zone} err={exc}")
                     except Exception as exc2:
@@ -167,20 +167,21 @@ class SolarACController:
     async def reset_learning(self) -> None:
         self.coordinator.learned_power = {}
         self.coordinator.samples = 0
-        persist = getattr(self.coordinator, "_persist_learned_values", None)
-        if not callable(persist):
+        persist_fn = cast(Callable[[], Awaitable[None]] | None, getattr(self.coordinator, "_persist_learned_values", None))
+        if not persist_fn:
             _LOGGER.error(
                 "Coordinator missing persistence API; cannot persist reset learning"
             )
             return
 
         try:
-            await persist()
+            if persist_fn:
+                await persist_fn()
             _LOGGER.info("Controller: reset learning and persisted empty learned_power")
         except Exception as exc:
             _LOGGER.exception("Controller: failed to persist reset learning: %s", exc)
-            log_fn = getattr(self.coordinator, "_log", None)
-            if callable(log_fn):
+            log_fn = cast(Callable[[str], Awaitable[None]] | None, getattr(self.coordinator, "_log", None))
+            if log_fn:
                 try:
                     await log_fn(f"[SERVICE_ERROR] reset_learning {exc}")
                 except Exception:
@@ -189,9 +190,9 @@ class SolarACController:
                     )
 
     async def _save(self) -> None:
-        persist = getattr(self.coordinator, "_persist_learned_values", None)
-        if callable(persist):
-            await persist()
+        persist_fn = cast(Callable[[], Awaitable[None]] | None, getattr(self.coordinator, "_persist_learned_values", None))
+        if persist_fn:
+            await persist_fn()
         else:
             _LOGGER.error("Coordinator missing persistence API; _save() no-op")
 

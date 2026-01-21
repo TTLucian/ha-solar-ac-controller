@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import voluptuous as vol
 from typing import Any
-from homeassistant import config_entries
 from homeassistant.config_entries import ConfigFlow, OptionsFlow, ConfigEntry
 from homeassistant.core import callback, HomeAssistant
 from homeassistant.helpers import selector
@@ -26,7 +25,6 @@ from .const import (
     CONF_REMOVE_CONFIDENCE,
     CONF_INITIAL_LEARNED_POWER,
     CONF_ENABLE_DIAGNOSTICS_SENSOR,
-    CONF_SEASON_MODE,
     CONF_ENABLE_TEMP_MODULATION,
     CONF_MAX_TEMP_WINTER,
     CONF_MIN_TEMP_SUMMER,
@@ -43,7 +41,6 @@ from .const import (
     DEFAULT_ADD_CONFIDENCE,
     DEFAULT_REMOVE_CONFIDENCE,
     DEFAULT_INITIAL_LEARNED_POWER,
-    DEFAULT_SEASON_MODE,
     DEFAULT_ENABLE_TEMP_MODULATION,
     DEFAULT_MAX_TEMP_WINTER,
     DEFAULT_MIN_TEMP_SUMMER,
@@ -268,7 +265,7 @@ async def _validate_zone_temp_sensors(
 
 
 
-class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+class SolarACConfigFlow(ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None):
@@ -385,30 +382,27 @@ class SolarACConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if entry:
             self._reconfigure_defaults = {**entry.data, **entry.options}
             self.context["title_placeholders"] = {"name": entry.title}
-            self._set_reconfigure(True)
-            self._reconfigure_entry = entry
             if user_input is not None:
-                await self.hass.config_entries.async_update_entry(
+                self.hass.config_entries.async_update_entry(
                     entry,
                     options={**entry.options, **user_input},
                 )
                 return self.async_abort(reason="reconfigured")
         else:
             self._reconfigure_defaults = {}
-            self._set_reconfigure(False)
 
         return await self.async_step_user(user_input)
 
     @staticmethod
     @callback
-    def async_get_options_flow(config_entry: config_entries.ConfigEntry):
+    def async_get_options_flow(config_entry: ConfigEntry):
         return SolarACOptionsFlowHandler(config_entry)
 
 
-class SolarACOptionsFlowHandler(config_entries.OptionsFlow):
+class SolarACOptionsFlowHandler(OptionsFlow):
     """Handle runtime configuration changes."""
 
-    def __init__(self, config_entry: config_entries.ConfigEntry):
+    def __init__(self, config_entry: ConfigEntry):
         self.entry = config_entry
         # Always merge data and options for a complete working set
         self.data = {**config_entry.data, **config_entry.options}

@@ -1,7 +1,7 @@
 # custom_components/solar_ac_controller/diagnostic.py
 from __future__ import annotations
 
-from typing import Callable, Any
+from typing import Callable, Any, cast
 from homeassistant.components.sensor import SensorEntity
 import logging
 
@@ -46,7 +46,7 @@ class SolarACDiagnosticEntity(SensorEntity):
         add_listener = getattr(self.coordinator, "async_add_listener", None)
         if callable(add_listener):
             try:
-                self._unsub = add_listener(self.async_write_ha_state)
+                self._unsub = cast(Callable[[], None], add_listener(self.async_write_ha_state))
             except Exception as exc:
                 _LOGGER.debug("Diagnostics: async_add_listener failed: %s", exc)
                 self._unsub = None

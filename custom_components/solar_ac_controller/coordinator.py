@@ -1,10 +1,9 @@
 # custom_components/solar_ac_controller/coordinator.py
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import timedelta
-from typing import Any, TYPE_CHECKING
+from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
@@ -53,9 +52,6 @@ from .panic import PanicManager
 from .zones import ZoneManager
 from .decisions import DecisionEngine
 from .actions import ActionExecutor
-
-if TYPE_CHECKING:
-    from .controller import SolarACController
 
 _LOGGER = logging.getLogger(__name__)
 

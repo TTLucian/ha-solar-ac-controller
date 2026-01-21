@@ -103,7 +103,7 @@ class DecisionEngine:
         Uses time.monotonic() for interval measurement if both now and last are monotonic values.
         If last is a wall-clock timestamp (from dt_util), uses dt_util.utcnow().timestamp().
         """
-        import time
+        
         if not zone:
             return False
         last = self.coordinator.zone_last_changed.get(zone)
