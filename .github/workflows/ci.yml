@@ -1,4 +1,4 @@
-name: Solar AC CI
+name: Solar AC Controller CI
 
 on:
   push:
