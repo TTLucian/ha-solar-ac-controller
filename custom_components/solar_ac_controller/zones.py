@@ -152,7 +152,6 @@ class ZoneManager:
 
         # Separate zones by comfort status
         zones_at_target = [z for z, t, at_target in zones_info if at_target]
-        zones_not_at_target = [z for z, t, at_target in zones_info if not at_target]
 
         # Prioritize removing zones that have reached comfort target
         if zones_at_target:
@@ -163,7 +162,6 @@ class ZoneManager:
                 for z in candidate_zones
             ]
             valid_temp_zones = [(z, t) for z, t in zones_with_temps if t is not None]
-            no_temp_zones = [z for z, t in zones_with_temps if t is None]
             if not valid_temp_zones:
                 # No valid temps among at-target zones, pick the oldest activated one
                 return candidate_zones[-1] if candidate_zones else None
