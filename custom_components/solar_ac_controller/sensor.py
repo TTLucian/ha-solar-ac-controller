@@ -44,7 +44,10 @@ async def async_setup_entry(
         zone_name = zone.split(".")[-1]
         entities.append(SolarACLearnedPowerSensor(coordinator, entry_id, zone_name))
 
-    if entry.options.get(CONF_ENABLE_DIAGNOSTICS_SENSOR, entry.data.get(CONF_ENABLE_DIAGNOSTICS_SENSOR, False)):
+    if entry.options.get(
+        CONF_ENABLE_DIAGNOSTICS_SENSOR,
+        entry.data.get(CONF_ENABLE_DIAGNOSTICS_SENSOR, False),
+    ):
         entities.append(SolarACDiagnosticEntity(coordinator, entry_id))
 
     async_add_entities(entities)

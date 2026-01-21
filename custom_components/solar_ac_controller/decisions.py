@@ -89,7 +89,10 @@ class DecisionEngine:
             return False
 
         # Allow removal during panic, even if comfort target is not reached
-        if self.coordinator.panic_manager and self.coordinator.panic_manager.is_panicking:
+        if (
+            self.coordinator.panic_manager
+            and self.coordinator.panic_manager.is_panicking
+        ):
             return True
         # Block removal if the specific zone being removed hasn't reached its comfort target
         if not self.coordinator._all_active_zones_at_target(last_zone):
@@ -103,7 +106,7 @@ class DecisionEngine:
         Uses time.monotonic() for interval measurement if both now and last are monotonic values.
         If last is a wall-clock timestamp (from dt_util), uses dt_util.utcnow().timestamp().
         """
-        
+
         if not zone:
             return False
         last = self.coordinator.zone_last_changed.get(zone)
@@ -112,6 +115,7 @@ class DecisionEngine:
         # If last is monotonic, use monotonic; else fallback to wall time
         # (Assume all zone_last_changed are wall time for HA compatibility)
         from homeassistant.util import dt as dt_util
+
         now = dt_util.utcnow().timestamp()
         last_type = self.coordinator.zone_last_changed_type.get(zone)
         if last_type == "on":

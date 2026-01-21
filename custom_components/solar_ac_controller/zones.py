@@ -29,7 +29,9 @@ class ZoneManager:
         for zone in self.coordinator.config.get(CONF_ZONES, []):
             state_obj = self.coordinator.hass.states.get(zone)
             if not state_obj:
-                _LOGGER.warning(f"Configured zone entity '{zone}' is missing in Home Assistant. Check for typos or missing entities.")
+                _LOGGER.warning(
+                    f"Configured zone entity '{zone}' is missing in Home Assistant. Check for typos or missing entities."
+                )
                 continue
 
             state = state_obj.state
@@ -82,11 +84,7 @@ class ZoneManager:
 
         # Next zone always uses config order (simplest, most predictable)
         next_zone = next(
-            (
-                z
-                for z in all_zones
-                if z not in active_zones and not self.is_locked(z)
-            ),
+            (z for z in all_zones if z not in active_zones and not self.is_locked(z)),
             None,
         )
 
@@ -117,11 +115,7 @@ class ZoneManager:
         """
         # This method is no longer called but kept to avoid breaking imports
         return next(
-            (
-                z
-                for z in all_zones
-                if z not in active_zones and not self.is_locked(z)
-            ),
+            (z for z in all_zones if z not in active_zones and not self.is_locked(z)),
             None,
         )
 
@@ -158,8 +152,7 @@ class ZoneManager:
             candidate_zones = zones_at_target
             # Among removal candidates, sort by comfort margin
             zones_with_temps = [
-                (z, self.coordinator.zone_current_temps.get(z))
-                for z in candidate_zones
+                (z, self.coordinator.zone_current_temps.get(z)) for z in candidate_zones
             ]
             valid_temp_zones = [(z, t) for z, t in zones_with_temps if t is not None]
             if not valid_temp_zones:
@@ -167,7 +160,9 @@ class ZoneManager:
                 return candidate_zones[-1] if candidate_zones else None
             if self.coordinator.season_mode == "heat":
                 # Heat: remove warmest first (highest temp = most above target)
-                sorted_zones = sorted(valid_temp_zones, key=lambda x: x[1], reverse=True)
+                sorted_zones = sorted(
+                    valid_temp_zones, key=lambda x: x[1], reverse=True
+                )
             else:  # cool
                 # Cool: remove coolest first (lowest temp = most below target)
                 sorted_zones = sorted(valid_temp_zones, key=lambda x: x[1])
@@ -180,7 +175,9 @@ class ZoneManager:
             # For now, return the oldest unlocked zone (last in list)
             return unlocked[-1] if unlocked else None
 
-    def is_short_cycling(self, zone: str | None, bypass_short_cycle: bool = False) -> bool:
+    def is_short_cycling(
+        self, zone: str | None, bypass_short_cycle: bool = False
+    ) -> bool:
         """Return True if a zone is in short-cycle protection.
         If bypass_short_cycle is True, always return False (for panic/critical situations).
         """

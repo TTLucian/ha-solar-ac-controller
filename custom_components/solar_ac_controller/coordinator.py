@@ -58,8 +58,6 @@ _LOGGER = logging.getLogger(__name__)
 _EMA_RESET_AFTER_OFF_SECONDS = 600
 
 
-
-
 class SolarACCoordinator(DataUpdateCoordinator):
     # Note: Breadcrumb for diagnostics (reason for last no-op or decision)
     note: str = ""
@@ -69,7 +67,6 @@ class SolarACCoordinator(DataUpdateCoordinator):
         self.integration_enabled = enabled
         await self._log(f"Integration {'enabled' if enabled else 'disabled'} by user.")
         self.async_update_listeners()
-
 
     def __init__(
         self,
@@ -81,6 +78,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
     ) -> None:
 
         from .const import DOMAIN
+
         super().__init__(
             hass,
             logger=_LOGGER,
@@ -142,7 +140,6 @@ class SolarACCoordinator(DataUpdateCoordinator):
             )
         )
 
-
         # Build zone→sensor mapping from parallel lists into a dict
         zones_list = self.config.get(CONF_ZONES, [])
         zone_temp_sensors_list = list(
@@ -184,7 +181,11 @@ class SolarACCoordinator(DataUpdateCoordinator):
                             continue
         elif isinstance(raw_manual, (list, tuple)):
             # If all items are numbers, map by index
-            if all(isinstance(item, (int, float)) or (isinstance(item, str) and item.replace(".", "", 1).isdigit()) for item in raw_manual):
+            if all(
+                isinstance(item, (int, float))
+                or (isinstance(item, str) and item.replace(".", "", 1).isdigit())
+                for item in raw_manual
+            ):
                 for idx, val in enumerate(raw_manual):
                     if idx < len(zones_list):
                         try:
@@ -203,17 +204,34 @@ class SolarACCoordinator(DataUpdateCoordinator):
         self.required_export_source = "Initializing"
 
         # Initialize other attributes needed later
-        self.panic_threshold = float(self.config.get(CONF_PANIC_THRESHOLD, DEFAULT_PANIC_THRESHOLD))
+        self.panic_threshold = float(
+            self.config.get(CONF_PANIC_THRESHOLD, DEFAULT_PANIC_THRESHOLD)
+        )
         self.panic_delay = int(self.config.get(CONF_PANIC_DELAY, DEFAULT_PANIC_DELAY))
-        self.manual_lock_seconds = int(self.config.get(CONF_MANUAL_LOCK_SECONDS, DEFAULT_MANUAL_LOCK_SECONDS))
-        self.short_cycle_on_seconds = int(self.config.get(CONF_SHORT_CYCLE_ON_SECONDS, DEFAULT_SHORT_CYCLE_ON_SECONDS))
-        self.short_cycle_off_seconds = int(self.config.get(CONF_SHORT_CYCLE_OFF_SECONDS, DEFAULT_SHORT_CYCLE_OFF_SECONDS))
-        self.action_delay_seconds = int(self.config.get(CONF_ACTION_DELAY_SECONDS, DEFAULT_ACTION_DELAY_SECONDS))
-        self.add_confidence_threshold = float(self.config.get(CONF_ADD_CONFIDENCE, DEFAULT_ADD_CONFIDENCE))
-        self.remove_confidence_threshold = float(self.config.get(CONF_REMOVE_CONFIDENCE, DEFAULT_REMOVE_CONFIDENCE))
+        self.manual_lock_seconds = int(
+            self.config.get(CONF_MANUAL_LOCK_SECONDS, DEFAULT_MANUAL_LOCK_SECONDS)
+        )
+        self.short_cycle_on_seconds = int(
+            self.config.get(CONF_SHORT_CYCLE_ON_SECONDS, DEFAULT_SHORT_CYCLE_ON_SECONDS)
+        )
+        self.short_cycle_off_seconds = int(
+            self.config.get(
+                CONF_SHORT_CYCLE_OFF_SECONDS, DEFAULT_SHORT_CYCLE_OFF_SECONDS
+            )
+        )
+        self.action_delay_seconds = int(
+            self.config.get(CONF_ACTION_DELAY_SECONDS, DEFAULT_ACTION_DELAY_SECONDS)
+        )
+        self.add_confidence_threshold = float(
+            self.config.get(CONF_ADD_CONFIDENCE, DEFAULT_ADD_CONFIDENCE)
+        )
+        self.remove_confidence_threshold = float(
+            self.config.get(CONF_REMOVE_CONFIDENCE, DEFAULT_REMOVE_CONFIDENCE)
+        )
 
         # Controller and confidence tracking
         from .controller import SolarACController
+
         self.controller = SolarACController(self.hass, self, self.store)
         self.last_add_conf = 0.0
         self.last_remove_conf = 0.0
@@ -222,7 +240,6 @@ class SolarACCoordinator(DataUpdateCoordinator):
         self.last_action_duration = None
         self._panic_task = None
         self.last_panic_ts = None
-
 
         # Initial learned power
         self.initial_learned_power = config_entry.options.get(
@@ -240,7 +257,6 @@ class SolarACCoordinator(DataUpdateCoordinator):
 
         self.learned_power = {}
         self.samples = int(raw_samples)
-
 
         if isinstance(raw_learned, dict):
             for zone_name, val in raw_learned.items():
@@ -273,13 +289,6 @@ class SolarACCoordinator(DataUpdateCoordinator):
         else:
             self.learned_power = {}
 
-
-
-
-
-
-
-
         # Internal state
         self.last_action = None
         self.learning_active = False
@@ -290,10 +299,11 @@ class SolarACCoordinator(DataUpdateCoordinator):
         self.ema_5m = 0.0
 
         # Season mode (manual selection: heat or cool)
+
     @property
     def season_mode(self) -> str:
         # Check runtime value first, then fall back to persisted config
-        if hasattr(self, '_season_mode'):
+        if hasattr(self, "_season_mode"):
             return self._season_mode
         return (
             self.config_entry.options.get(
@@ -378,9 +388,10 @@ class SolarACCoordinator(DataUpdateCoordinator):
                 "cool": base,
             }
 
-
         entry = self.learned_power[zone_name]
-        val = entry.get(mode or "default", entry.get("default", self.initial_learned_power))
+        val = entry.get(
+            mode or "default", entry.get("default", self.initial_learned_power)
+        )
         if val is not None:
             current = float(val)
         else:
@@ -430,8 +441,6 @@ class SolarACCoordinator(DataUpdateCoordinator):
         if "cool" not in entry:
             entry["cool"] = entry["default"]
 
-
-
     async def _persist_learned_values(self) -> None:
         """Persist learned values to storage."""
         try:
@@ -471,7 +480,6 @@ class SolarACCoordinator(DataUpdateCoordinator):
     # -------------------------------------------------------------------------
     # Main update loop
     # -------------------------------------------------------------------------
-
 
     async def _async_update_data(self) -> None:
         """Main loop executed every 5 seconds."""
@@ -625,7 +633,10 @@ class SolarACCoordinator(DataUpdateCoordinator):
         ):
             self.note = f"Adding zone {next_zone}: conditions met."
             await self.action_executor.attempt_add_zone(
-                next_zone, ac_power, export, required_export if required_export is not None else 0.0
+                next_zone,
+                ac_power,
+                export,
+                required_export if required_export is not None else 0.0,
             )
             return
 

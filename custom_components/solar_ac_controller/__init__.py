@@ -64,7 +64,6 @@ async def _async_migrate_data(
                     val[mode] = initial_lp
                     modified = True
 
-
     payload = {
         "learned_power": learned_power,
         "samples": old_data.get("samples", 0),
@@ -79,6 +78,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     # Register services at setup for schema validation and best practices
     _svc_flag = "__svc_reset_learning_registered"
     if _svc_flag not in hass.data.setdefault(DOMAIN, {}):
+
         async def handle_reset_learning(call: ServiceCall):
             # Reset learning for all loaded coordinators
             for entry_dict in hass.data[DOMAIN].values():
@@ -108,7 +108,9 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                         await controller.reset_learning()
                         zone_found = True
             if zone and not zone_found:
-                _LOGGER.warning(f"force_relearn: Provided zone '{zone}' not found in any loaded Solar AC Controller instance.")
+                _LOGGER.warning(
+                    f"force_relearn: Provided zone '{zone}' not found in any loaded Solar AC Controller instance."
+                )
 
         hass.services.async_register(DOMAIN, "reset_learning", handle_reset_learning)
         hass.services.async_register(DOMAIN, "force_relearn", handle_force_relearn)
@@ -149,7 +151,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         CONF_INITIAL_LEARNED_POWER,
         entry.data.get(CONF_INITIAL_LEARNED_POWER, DEFAULT_INITIAL_LEARNED_POWER),
     )
-
 
     # 2. Storage Setup (manual migration because Store no longer accepts migrate_fn)
     store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
@@ -196,7 +197,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         configuration_url="https://github.com/TTLucian/ha-solar-ac-controller",
     )
 
-
     # 5. Initialize Coordinator
     coordinator = SolarACCoordinator(
         hass,
@@ -208,8 +208,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Integration enable/disable state (persisted)
     coordinator.integration_enabled = stored_data.get("integration_enabled", True)
-
-
 
     async def async_set_integration_enabled(enabled: bool):
         coordinator.integration_enabled = enabled
