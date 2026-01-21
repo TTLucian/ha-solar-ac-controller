@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List
-from datetime import datetime
 
 from homeassistant.util import dt as dt_util
 
@@ -121,7 +120,11 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
         try:
             hass = getattr(coordinator, "hass", None)
             st_obj = None
-            if hass is not None and hasattr(hass, "states") and hasattr(hass.states, "get"):
+            if (
+                hass is not None
+                and hasattr(hass, "states")
+                and hasattr(hass.states, "get")
+            ):
                 st_obj = hass.states.get(z)
             state = None
             if st_obj:

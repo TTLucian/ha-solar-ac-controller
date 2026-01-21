@@ -18,23 +18,25 @@ _LOGGER = logging.getLogger(__name__)
 _PANIC_COOLDOWN_SECONDS = 120
 
 
-
 class PanicManager:
     """Manages emergency zone shedding when grid import exceeds panic threshold."""
 
-    def __init__(self, coordinator: 'SolarACCoordinator') -> None:
+    def __init__(self, coordinator: "SolarACCoordinator") -> None:
         self.coordinator = coordinator
 
     @property
     def is_panicking(self) -> bool:
         """Return True if a panic task is currently running (zones are being shed)."""
-        return self.coordinator._panic_task is not None and not self.coordinator._panic_task.done()
+        return (
+            self.coordinator._panic_task is not None
+            and not self.coordinator._panic_task.done()
+        )
 
     @property
     def should_panic(self) -> bool:
         """Return True if panic shedding should be triggered."""
         # Use on_count from coordinator if available, else default to 2
-        on_count = getattr(self.coordinator, 'on_count', 2)
+        on_count = getattr(self.coordinator, "on_count", 2)
         return (
             self.coordinator.ema_30s > self.coordinator.panic_threshold and on_count > 1
         )

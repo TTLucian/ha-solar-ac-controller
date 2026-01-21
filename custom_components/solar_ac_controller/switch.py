@@ -1,15 +1,18 @@
 """
 Switch entity for enabling/disabling the Solar AC Controller integration.
 """
+
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import DOMAIN
 
 INTEGRATION_ENABLE_SWITCH = "integration_enable"
 
+
 async def async_setup_entry(hass, entry, async_add_entities):
     coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
     async_add_entities([IntegrationEnableSwitch(coordinator, entry)])
+
 
 class IntegrationEnableSwitch(CoordinatorEntity, SwitchEntity):
     @property
@@ -18,6 +21,7 @@ class IntegrationEnableSwitch(CoordinatorEntity, SwitchEntity):
             "identifiers": {(DOMAIN, self.entry.entry_id)},
             "name": "Solar AC Controller",
         }
+
     _attr_should_poll = False
     _attr_has_entity_name = True
     _attr_name = "Integration Enable"

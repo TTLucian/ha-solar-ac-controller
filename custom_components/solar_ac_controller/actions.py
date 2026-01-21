@@ -116,7 +116,6 @@ class ActionExecutor:
             f"[ZONE_REMOVE_SUCCESS] zone={zone} import_after={round(self.coordinator.ema_5m)}"
         )
 
-
     async def call_entity_service(self, entity_id: str, turn_on: bool) -> None:
         """Call turn_on/turn_off service for the entity's domain, with climate fallback. If climate, set hvac_mode if needed."""
         domain = entity_id.split(".")[0]

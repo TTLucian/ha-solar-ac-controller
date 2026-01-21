@@ -121,7 +121,10 @@ class SolarACController:
                         mode = "cool"
 
             set_lp = getattr(self.coordinator, "set_learned_power", None)
-            persist_fn = cast(Callable[[], Awaitable[None]] | None, getattr(self.coordinator, "_persist_learned_values", None))
+            persist_fn = cast(
+                Callable[[], Awaitable[None]] | None,
+                getattr(self.coordinator, "_persist_learned_values", None),
+            )
             if not (set_lp and callable(set_lp)) or not persist_fn:
                 _LOGGER.error(
                     "Coordinator missing required persistence API; aborting learning save"
@@ -135,13 +138,15 @@ class SolarACController:
                     )
                 return
 
-
             try:
                 set_lp(zone_name, float(delta), mode=mode)
                 self.coordinator.samples = (
                     int(getattr(self.coordinator, "samples", 0) or 0) + 1
                 )
-                persist_fn = cast(Callable[[], Awaitable[None]] | None, getattr(self.coordinator, "_persist_learned_values", None))
+                persist_fn = cast(
+                    Callable[[], Awaitable[None]] | None,
+                    getattr(self.coordinator, "_persist_learned_values", None),
+                )
                 if persist_fn:
                     await persist_fn()
                 _LOGGER.info(
@@ -153,7 +158,10 @@ class SolarACController:
                 )
             except Exception as exc:
                 _LOGGER.exception("Error finishing learning for %s: %s", zone, exc)
-                log_fn = cast(Callable[[str], Awaitable[None]] | None, getattr(self.coordinator, "_log", None))
+                log_fn = cast(
+                    Callable[[str], Awaitable[None]] | None,
+                    getattr(self.coordinator, "_log", None),
+                )
                 if log_fn:
                     try:
                         await log_fn(f"[LEARNING_SAVE_ERROR] zone={zone} err={exc}")
@@ -167,7 +175,10 @@ class SolarACController:
     async def reset_learning(self) -> None:
         self.coordinator.learned_power = {}
         self.coordinator.samples = 0
-        persist_fn = cast(Callable[[], Awaitable[None]] | None, getattr(self.coordinator, "_persist_learned_values", None))
+        persist_fn = cast(
+            Callable[[], Awaitable[None]] | None,
+            getattr(self.coordinator, "_persist_learned_values", None),
+        )
         if not persist_fn:
             _LOGGER.error(
                 "Coordinator missing persistence API; cannot persist reset learning"
@@ -180,7 +191,10 @@ class SolarACController:
             _LOGGER.info("Controller: reset learning and persisted empty learned_power")
         except Exception as exc:
             _LOGGER.exception("Controller: failed to persist reset learning: %s", exc)
-            log_fn = cast(Callable[[str], Awaitable[None]] | None, getattr(self.coordinator, "_log", None))
+            log_fn = cast(
+                Callable[[str], Awaitable[None]] | None,
+                getattr(self.coordinator, "_log", None),
+            )
             if log_fn:
                 try:
                     await log_fn(f"[SERVICE_ERROR] reset_learning {exc}")
@@ -190,7 +204,10 @@ class SolarACController:
                     )
 
     async def _save(self) -> None:
-        persist_fn = cast(Callable[[], Awaitable[None]] | None, getattr(self.coordinator, "_persist_learned_values", None))
+        persist_fn = cast(
+            Callable[[], Awaitable[None]] | None,
+            getattr(self.coordinator, "_persist_learned_values", None),
+        )
         if persist_fn:
             await persist_fn()
         else:
