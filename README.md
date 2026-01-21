@@ -77,8 +77,8 @@ Temperature bands are configurable (defaults: cold < 5°C, mild_cold 5-15°C, mi
 
 When indoor temperature sensors are configured, the system can intelligently defer zone removal until all active zones reach comfortable temperatures:
 
-- Winter mode (heat): Keeps zones ON until all reach max_temp_winter (default 22C)
-- Summer mode (cool): Keeps zones ON until all reach min_temp_summer (default 20C)
+- Winter mode (heat): Keeps zones ON until all reach max_temp_winter (default 21C)
+- Summer mode (cool): Keeps zones ON until all reach min_temp_summer (default 21C)
 - Neutral mode: No comfort blocking, zones follow solar availability
 
 Missing sensors are handled gracefully (assumes not at target, conservatively keeps zones ON). **Temperature modulation is automatically disabled if no zone temperature sensors are configured.** Comfort targets use 0.1C precision.
@@ -237,13 +237,13 @@ Add the integration via:
 - **Panic delay** (default: 60s) — How long panic condition must persist
 - **Manual lock seconds** (default: 1200s) — Duration zones are locked after manual changes
 - **Short cycle ON seconds** (default: 1200s) — Minimum ON time before allowing OFF
-- **Short cycle OFF seconds** (default: 1200s) — Minimum OFF time before allowing ON
+- **Short cycle OFF seconds** (default: 20s) — Minimum OFF time before allowing ON
 - **Action delay seconds** (default: 3s) — Delay between consecutive service calls
 - **Add confidence** (default: 25 points) — Minimum confidence to add zones
 - **Remove confidence** (default: 10 points) — Minimum negative confidence to remove zones
 - **Initial learned power** (default: 1000W) — Bootstrap estimate before learning completes
-- **Max temperature winter** (default: 22C) — Comfort target for zones in heat mode
-- **Min temperature summer** (default: 20C) — Comfort target for zones in cool mode
+- **Max temperature winter** (default: 21C) — Comfort target for zones in heat mode
+- **Min temperature summer** (default: 21C) — Comfort target for zones in cool mode
 - **Zone temperature sensors** (optional) — Per-zone indoor temperature sensor entities for comfort-aware removal blocking
 - **Enable diagnostics sensor** (default: disabled) — Optional JSON diagnostics sensor
 
@@ -258,7 +258,7 @@ When launched via Reconfigure, the form now pre-fills with your existing data+op
 
 - **`manual_lock_seconds`** — Duration a zone remains locked after manual override (default: 1200s / 20 min)
 - **`short_cycle_on_seconds`** — Minimum ON time before allowing OFF transition (default: 1200s)
-- **`short_cycle_off_seconds`** — Minimum OFF time before allowing ON transition (default: 1200s)
+- **`short_cycle_off_seconds`** — Minimum OFF time before allowing ON transition (default: 20s)
 - **`action_delay_seconds`** — Inter-service-call delay for sequential zone actions (default: 3s)
 
 ### Threshold Parameters (Watts)
