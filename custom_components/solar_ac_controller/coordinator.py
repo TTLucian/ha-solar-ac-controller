@@ -78,7 +78,10 @@ class SolarACCoordinator(DataUpdateCoordinator):
             f"Activity logging {'enabled' if enabled else 'disabled'} by user."
         )
         self.stored_data["activity_logging_enabled"] = enabled
-        await self.store.async_save(self.stored_data)
+        try:
+            await self.store.async_save(self.stored_data)
+        except Exception as exc:
+            _LOGGER.exception("Error saving activity logging state: %s", exc)
         self.async_update_listeners()
 
     def __init__(
