@@ -20,7 +20,6 @@ CONF_ZONES = "zones"
 CONF_SEASON_MODE = "season_mode"  # Manual: 'heat' or 'cool'
 
 
-
 # Solar thresholds (W)
 CONF_SOLAR_THRESHOLD_ON = "solar_threshold_on"
 CONF_SOLAR_THRESHOLD_OFF = "solar_threshold_off"
@@ -73,7 +72,6 @@ DEFAULT_ADD_CONFIDENCE = 25
 DEFAULT_REMOVE_CONFIDENCE = 10
 
 
-
 # Comfort temperature targets (C) - 0.1 increment precision
 DEFAULT_MAX_TEMP_WINTER = 21.0
 DEFAULT_MIN_TEMP_SUMMER = 21.0
@@ -84,6 +82,6 @@ DEFAULT_ENABLE_TEMP_MODULATION = True
 # Storage
 # Use a literal storage key so the on-disk filename remains stable even if DOMAIN changes.
 STORAGE_KEY = "solar_ac_controller"
- # Bumped storage version to support migration to per-mode learned_power structure.
+# Bumped storage version to support migration to per-mode learned_power structure.
 # Increment this integer whenever the on-disk schema changes and implement a corresponding migration.
 STORAGE_VERSION = 3

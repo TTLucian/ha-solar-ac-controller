@@ -72,7 +72,9 @@ class SolarACCoordinator(DataUpdateCoordinator):
     async def async_set_activity_logging_enabled(self, enabled: bool) -> None:
         """Toggle activity logging to logbook."""
         self.activity_logging_enabled = enabled
-        await self._log(f"Activity logging {'enabled' if enabled else 'disabled'} by user.")
+        await self._log(
+            f"Activity logging {'enabled' if enabled else 'disabled'} by user."
+        )
         self.async_update_listeners()
 
     def __init__(
@@ -479,11 +481,13 @@ class SolarACCoordinator(DataUpdateCoordinator):
         try:
             # Keep this simple and non-blocking; expand if persistent logs are desired
             _LOGGER.info(message)
-            
+
             # Also fire event for activity logging if enabled
-            if getattr(self, 'activity_logging_enabled', False):
+            if getattr(self, "activity_logging_enabled", False):
                 try:
-                    diagnostics_entity_id = f"sensor.{self.config_entry.entry_id}_diagnostics"
+                    diagnostics_entity_id = (
+                        f"sensor.{self.config_entry.entry_id}_diagnostics"
+                    )
                     # Fire logbook entry event
                     self.hass.bus.async_fire(
                         "logbook_entry",
@@ -492,7 +496,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
                             "message": message,
                             "domain": DOMAIN,
                             "entity_id": diagnostics_entity_id,
-                        }
+                        },
                     )
                 except Exception:
                     _LOGGER.debug("Failed to fire activity log event")

@@ -12,10 +12,12 @@ ACTIVITY_LOGGING_SWITCH = "activity_logging"
 
 async def async_setup_entry(hass, entry, async_add_entities):
     coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
-    async_add_entities([
-        IntegrationEnableSwitch(coordinator, entry),
-        ActivityLoggingSwitch(coordinator, entry)
-    ])
+    async_add_entities(
+        [
+            IntegrationEnableSwitch(coordinator, entry),
+            ActivityLoggingSwitch(coordinator, entry),
+        ]
+    )
 
 
 class IntegrationEnableSwitch(CoordinatorEntity, SwitchEntity):
