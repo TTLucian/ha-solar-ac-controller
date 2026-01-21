@@ -11,9 +11,11 @@ from homeassistant.loader import async_get_integration
 
 from .const import (
     CONF_INITIAL_LEARNED_POWER,
+    CONF_SEASON_MODE,
     CONF_ZONE_TEMP_SENSORS,
     CONF_ZONES,
     DEFAULT_INITIAL_LEARNED_POWER,
+    DEFAULT_SEASON_MODE,
     DOMAIN,
     STORAGE_KEY,
     STORAGE_VERSION,
@@ -179,6 +181,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # 3b. Activity logging enabled state (persisted)
     stored_data["activity_logging_enabled"] = stored_data.get(
         "activity_logging_enabled", False
+    )
+    # 3c. Season mode state (persisted)
+    stored_data["season_mode"] = stored_data.get(
+        "season_mode",
+        entry.options.get(
+            CONF_SEASON_MODE, entry.data.get(CONF_SEASON_MODE, DEFAULT_SEASON_MODE)
+        ),
     )
 
     # 4. Save ONCE
