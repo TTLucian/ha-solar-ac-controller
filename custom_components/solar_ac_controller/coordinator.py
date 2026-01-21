@@ -47,6 +47,7 @@ from .const import (
     DEFAULT_ENABLE_TEMP_MODULATION,
     DEFAULT_MAX_TEMP_WINTER,
     DEFAULT_MIN_TEMP_SUMMER,
+    DOMAIN,
 )
 from .panic import PanicManager
 from .zones import ZoneManager
@@ -68,6 +69,12 @@ class SolarACCoordinator(DataUpdateCoordinator):
         await self._log(f"Integration {'enabled' if enabled else 'disabled'} by user.")
         self.async_update_listeners()
 
+    async def async_set_activity_logging_enabled(self, enabled: bool) -> None:
+        """Toggle activity logging to logbook."""
+        self.activity_logging_enabled = enabled
+        await self._log(f"Activity logging {'enabled' if enabled else 'disabled'} by user.")
+        self.async_update_listeners()
+
     def __init__(
         self,
         hass: HomeAssistant,
@@ -76,8 +83,6 @@ class SolarACCoordinator(DataUpdateCoordinator):
         stored: dict[str, Any] | None,
         version: str | None = None,
     ) -> None:
-
-        from .const import DOMAIN
 
         super().__init__(
             hass,
@@ -94,6 +99,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
         self.version = version
         self.zone_manual_power = {}
         self.integration_enabled = True
+        self.activity_logging_enabled = False
         self.zone_manager = ZoneManager(self)
         self.panic_manager = PanicManager(self)
         self.decision_engine = DecisionEngine(self)
@@ -470,10 +476,26 @@ class SolarACCoordinator(DataUpdateCoordinator):
     # -------------------------------------------------------------------------
     async def _log(self, message: str) -> None:
         """Async logging hook used by coordinator and controller."""
-        """Async logging hook used by coordinator and controller."""
         try:
             # Keep this simple and non-blocking; expand if persistent logs are desired
             _LOGGER.info(message)
+            
+            # Also fire event for activity logging if enabled
+            if getattr(self, 'activity_logging_enabled', False):
+                try:
+                    diagnostics_entity_id = f"sensor.{self.config_entry.entry_id}_diagnostics"
+                    # Fire logbook entry event
+                    self.hass.bus.async_fire(
+                        "logbook_entry",
+                        {
+                            "name": "Solar AC Controller",
+                            "message": message,
+                            "domain": DOMAIN,
+                            "entity_id": diagnostics_entity_id,
+                        }
+                    )
+                except Exception:
+                    _LOGGER.debug("Failed to fire activity log event")
         except Exception:
             _LOGGER.debug("Failed to write coordinator log message: %s", message)
 
