@@ -4,14 +4,16 @@ Switch entities for the Solar AC Controller integration.
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
-from .const import DOMAIN
+
+from .const import DOMAIN, SolarACData
 
 INTEGRATION_ENABLE_SWITCH = "integration_enable"
 ACTIVITY_LOGGING_SWITCH = "activity_logging"
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
-    coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    domain_data: SolarACData = hass.data[DOMAIN]
+    coordinator = domain_data[entry.entry_id]["coordinator"]
     async_add_entities(
         [
             IntegrationEnableSwitch(coordinator, entry),

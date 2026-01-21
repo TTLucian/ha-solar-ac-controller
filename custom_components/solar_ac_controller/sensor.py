@@ -1,18 +1,19 @@
 from __future__ import annotations
 
 from typing import Any, Callable
+
 from homeassistant.components.sensor import (
-    SensorEntity,
     SensorDeviceClass,
+    SensorEntity,
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, CONF_ENABLE_DIAGNOSTICS_SENSOR, CONF_ZONES
+from .const import CONF_ENABLE_DIAGNOSTICS_SENSOR, CONF_ZONES, DOMAIN, SolarACData
 from .helpers import build_diagnostics
 
 
@@ -21,7 +22,8 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    data = hass.data[DOMAIN][entry.entry_id]
+    domain_data: SolarACData = hass.data[DOMAIN]
+    data = domain_data[entry.entry_id]
     coordinator = data["coordinator"]
     entry_id = entry.entry_id
 

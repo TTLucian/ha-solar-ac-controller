@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 """Constants for the Solar AC Controller integration."""
 
 # When changing the on-disk schema, increment STORAGE_VERSION and add a migration.
@@ -85,3 +87,6 @@ STORAGE_KEY = "solar_ac_controller"
 # Bumped storage version to support migration to per-mode learned_power structure.
 # Increment this integer whenever the on-disk schema changes and implement a corresponding migration.
 STORAGE_VERSION = 3
+
+# Type definitions for better type safety
+SolarACData = dict[str, Any]  # Can contain both entry data and service flags

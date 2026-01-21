@@ -2,18 +2,19 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+
 from homeassistant.components.binary_sensor import (
-    BinarySensorEntity,
     BinarySensorDeviceClass,
+    BinarySensorEntity,
 )
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
-from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, CONF_AC_SWITCH, CONF_ZONES
+from .const import CONF_AC_SWITCH, CONF_ZONES, DOMAIN, SolarACData
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -23,7 +24,8 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    data = hass.data[DOMAIN][entry.entry_id]
+    domain_data: SolarACData = hass.data[DOMAIN]
+    data = domain_data[entry.entry_id]
     coordinator = data["coordinator"]
     entry_id = entry.entry_id
 

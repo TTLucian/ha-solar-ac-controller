@@ -17,6 +17,7 @@ from .const import (
     DOMAIN,
     STORAGE_KEY,
     STORAGE_VERSION,
+    SolarACData,
 )
 from .coordinator import SolarACCoordinator
 
@@ -67,11 +68,12 @@ async def _async_migrate_data(
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     # Register services at setup for schema validation and best practices
     _svc_flag = "__svc_reset_learning_registered"
-    if _svc_flag not in hass.data.setdefault(DOMAIN, {}):
+    domain_data: SolarACData = hass.data.setdefault(DOMAIN, {})
+    if _svc_flag not in domain_data:
 
         async def handle_reset_learning(call: ServiceCall):
             # Reset learning for all loaded coordinators
-            for entry_dict in hass.data[DOMAIN].values():
+            for entry_dict in domain_data.values():
                 if not isinstance(entry_dict, dict):
                     continue
                 coordinator = entry_dict.get("coordinator")
@@ -83,7 +85,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             # Reset learned power for a specific zone or all zones, with validation
             zone = call.data.get("zone")
             zone_found = False
-            for entry_dict in hass.data[DOMAIN].values():
+            for entry_dict in domain_data.values():
                 if not isinstance(entry_dict, dict):
                     continue
                 coordinator = entry_dict.get("coordinator")
@@ -104,7 +106,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
         hass.services.async_register(DOMAIN, "reset_learning", handle_reset_learning)
         hass.services.async_register(DOMAIN, "force_relearn", handle_force_relearn)
-        hass.data[DOMAIN][_svc_flag] = True
+        domain_data[_svc_flag] = True
     return True
 
 
@@ -170,6 +172,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # 3. Integration enabled state (persisted)
     # Use stored_data directly (store.data does not exist)
     stored_data["integration_enabled"] = stored_data.get("integration_enabled", True)
+    # 3b. Activity logging enabled state (persisted)
+    stored_data["activity_logging_enabled"] = stored_data.get(
+        "activity_logging_enabled", False
+    )
 
     # 4. Save ONCE
     try:
@@ -198,15 +204,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Integration enable/disable state (persisted)
     coordinator.integration_enabled = stored_data.get("integration_enabled", True)
-
-    async def async_set_integration_enabled(enabled: bool):
-        coordinator.integration_enabled = enabled
-        # Persist state efficiently: update in-memory stored_data and save
-        stored_data["integration_enabled"] = enabled
-        await store.async_save(stored_data)
-        coordinator.async_update_listeners()
-
-    coordinator.async_set_integration_enabled = async_set_integration_enabled
+    coordinator.activity_logging_enabled = stored_data.get(
+        "activity_logging_enabled", False
+    )
 
     hass.data[DOMAIN][entry.entry_id] = {"coordinator": coordinator}
 
@@ -225,12 +225,25 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Unload a config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, ALL_PLATFORMS)
-    if unload_ok:
-        hass.data[DOMAIN].pop(entry.entry_id, None)
 
-    if not hass.data.get(DOMAIN):
-        if hass.services.has_service(DOMAIN, "reset_learning"):
-            hass.services.async_remove(DOMAIN, "reset_learning")
+    if unload_ok:
+        # Remove the specific instance data
+        domain_data: SolarACData = hass.data.get(DOMAIN, {})
+        domain_data.pop(entry.entry_id, None)
+
+    # If this was the last instance, clean up the global services
+    # We check if DOMAIN is in hass.data and if it has any keys other than the service flag
+    remaining_entries = [
+        k for k in hass.data.get(DOMAIN, {}) if k != "__svc_reset_learning_registered"
+    ]
+
+    if not remaining_entries:
+        for service in ["reset_learning", "force_relearn"]:
+            if hass.services.has_service(DOMAIN, service):
+                hass.services.async_remove(DOMAIN, service)
+        # Optional: remove the service flag too
+        hass.data[DOMAIN].pop("__svc_reset_learning_registered", None)
 
     return unload_ok

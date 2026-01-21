@@ -123,7 +123,7 @@ class SolarACController:
             set_lp = getattr(self.coordinator, "set_learned_power", None)
             persist_fn = cast(
                 Callable[[], Awaitable[None]] | None,
-                getattr(self.coordinator, "_persist_learned_values", None),
+                getattr(self.coordinator, "async_persist_learned_values", None),
             )
             if not (set_lp and callable(set_lp)) or not persist_fn:
                 _LOGGER.error(
@@ -145,7 +145,7 @@ class SolarACController:
                 )
                 persist_fn = cast(
                     Callable[[], Awaitable[None]] | None,
-                    getattr(self.coordinator, "_persist_learned_values", None),
+                    getattr(self.coordinator, "async_persist_learned_values", None),
                 )
                 if persist_fn:
                     await persist_fn()
@@ -177,7 +177,7 @@ class SolarACController:
         self.coordinator.samples = 0
         persist_fn = cast(
             Callable[[], Awaitable[None]] | None,
-            getattr(self.coordinator, "_persist_learned_values", None),
+            getattr(self.coordinator, "async_persist_learned_values", None),
         )
         if not persist_fn:
             _LOGGER.error(
@@ -206,7 +206,7 @@ class SolarACController:
     async def _save(self) -> None:
         persist_fn = cast(
             Callable[[], Awaitable[None]] | None,
-            getattr(self.coordinator, "_persist_learned_values", None),
+            getattr(self.coordinator, "async_persist_learned_values", None),
         )
         if persist_fn:
             await persist_fn()

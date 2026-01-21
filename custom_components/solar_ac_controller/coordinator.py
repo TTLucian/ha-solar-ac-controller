@@ -9,50 +9,50 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
+from .actions import ActionExecutor
 from .const import (
     CONF_AC_POWER_SENSOR,
     CONF_AC_SWITCH,
+    CONF_ACTION_DELAY_SECONDS,
+    CONF_ADD_CONFIDENCE,
+    CONF_ENABLE_TEMP_MODULATION,
     CONF_GRID_SENSOR,
+    CONF_INITIAL_LEARNED_POWER,
     CONF_MANUAL_LOCK_SECONDS,
+    CONF_MAX_TEMP_WINTER,
+    CONF_MIN_TEMP_SUMMER,
     CONF_PANIC_DELAY,
     CONF_PANIC_THRESHOLD,
+    CONF_REMOVE_CONFIDENCE,
+    CONF_SEASON_MODE,
     CONF_SHORT_CYCLE_OFF_SECONDS,
     CONF_SHORT_CYCLE_ON_SECONDS,
     CONF_SOLAR_SENSOR,
     CONF_SOLAR_THRESHOLD_OFF,
     CONF_SOLAR_THRESHOLD_ON,
-    CONF_ZONES,
-    CONF_ADD_CONFIDENCE,
-    CONF_REMOVE_CONFIDENCE,
-    CONF_INITIAL_LEARNED_POWER,
-    CONF_ACTION_DELAY_SECONDS,
-    CONF_SEASON_MODE,
-    CONF_ENABLE_TEMP_MODULATION,
-    CONF_MAX_TEMP_WINTER,
-    CONF_MIN_TEMP_SUMMER,
-    CONF_ZONE_TEMP_SENSORS,
     CONF_ZONE_MANUAL_POWER,
-    DEFAULT_INITIAL_LEARNED_POWER,
-    DEFAULT_SOLAR_THRESHOLD_ON,
-    DEFAULT_SOLAR_THRESHOLD_OFF,
-    DEFAULT_PANIC_THRESHOLD,
-    DEFAULT_PANIC_DELAY,
-    DEFAULT_MANUAL_LOCK_SECONDS,
-    DEFAULT_SHORT_CYCLE_ON_SECONDS,
-    DEFAULT_SHORT_CYCLE_OFF_SECONDS,
+    CONF_ZONE_TEMP_SENSORS,
+    CONF_ZONES,
     DEFAULT_ACTION_DELAY_SECONDS,
     DEFAULT_ADD_CONFIDENCE,
-    DEFAULT_REMOVE_CONFIDENCE,
-    DEFAULT_SEASON_MODE,
     DEFAULT_ENABLE_TEMP_MODULATION,
+    DEFAULT_INITIAL_LEARNED_POWER,
+    DEFAULT_MANUAL_LOCK_SECONDS,
     DEFAULT_MAX_TEMP_WINTER,
     DEFAULT_MIN_TEMP_SUMMER,
+    DEFAULT_PANIC_DELAY,
+    DEFAULT_PANIC_THRESHOLD,
+    DEFAULT_REMOVE_CONFIDENCE,
+    DEFAULT_SEASON_MODE,
+    DEFAULT_SHORT_CYCLE_OFF_SECONDS,
+    DEFAULT_SHORT_CYCLE_ON_SECONDS,
+    DEFAULT_SOLAR_THRESHOLD_OFF,
+    DEFAULT_SOLAR_THRESHOLD_ON,
     DOMAIN,
 )
+from .decisions import DecisionEngine
 from .panic import PanicManager
 from .zones import ZoneManager
-from .decisions import DecisionEngine
-from .actions import ActionExecutor
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -64,17 +64,21 @@ class SolarACCoordinator(DataUpdateCoordinator):
     note: str = ""
 
     async def async_set_integration_enabled(self, enabled: bool) -> None:
-        """Toggle the integration logic and trigger a refresh."""
+        """Update and persist integration state."""
         self.integration_enabled = enabled
         await self._log(f"Integration {'enabled' if enabled else 'disabled'} by user.")
+        self.stored_data["integration_enabled"] = enabled
+        await self.store.async_save(self.stored_data)
         self.async_update_listeners()
 
     async def async_set_activity_logging_enabled(self, enabled: bool) -> None:
-        """Toggle activity logging to logbook."""
+        """Toggle activity logging and persist state."""
         self.activity_logging_enabled = enabled
         await self._log(
             f"Activity logging {'enabled' if enabled else 'disabled'} by user."
         )
+        self.stored_data["activity_logging_enabled"] = enabled
+        await self.store.async_save(self.stored_data)
         self.async_update_listeners()
 
     def __init__(
@@ -98,10 +102,13 @@ class SolarACCoordinator(DataUpdateCoordinator):
         # Initialize runtime season_mode from persisted config
         self._season_mode = self.config.get(CONF_SEASON_MODE, DEFAULT_SEASON_MODE)
         self.store = store
+        self.stored_data = stored or {}
         self.version = version
         self.zone_manual_power = {}
-        self.integration_enabled = True
-        self.activity_logging_enabled = False
+        self.integration_enabled = self.stored_data.get("integration_enabled", True)
+        self.activity_logging_enabled = self.stored_data.get(
+            "activity_logging_enabled", False
+        )
         self.zone_manager = ZoneManager(self)
         self.panic_manager = PanicManager(self)
         self.decision_engine = DecisionEngine(self)
@@ -449,7 +456,7 @@ class SolarACCoordinator(DataUpdateCoordinator):
         if "cool" not in entry:
             entry["cool"] = entry["default"]
 
-    async def _persist_learned_values(self) -> None:
+    async def async_persist_learned_values(self) -> None:
         """Persist learned values to storage."""
         try:
             payload = {

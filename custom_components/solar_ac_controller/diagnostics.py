@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 from typing import Any
+
+from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.components.diagnostics import async_redact_data
 
-from .const import DOMAIN, CONF_SOLAR_SENSOR, CONF_GRID_SENSOR
+from .const import CONF_GRID_SENSOR, CONF_SOLAR_SENSOR, DOMAIN, SolarACData
 
 # Keys to redact for privacy (e.g., if you had API keys)
 TO_REDACT = {CONF_SOLAR_SENSOR, CONF_GRID_SENSOR}
@@ -16,7 +17,8 @@ async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: ConfigEntry
 ) -> dict[str, Any]:
     """Return diagnostics for a config entry."""
-    coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    domain_data: SolarACData = hass.data[DOMAIN]
+    coordinator = domain_data[entry.entry_id]["coordinator"]
 
     # 1. Start with Config & Options
     diag_data = {
