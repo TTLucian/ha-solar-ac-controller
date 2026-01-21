@@ -42,6 +42,9 @@ async def _async_migrate_data(
     if not isinstance(old_data, dict):
         return {"learned_power": {}, "samples": 0}
 
+    # Start with a copy of old_data to preserve non-migrated keys
+    migrated_data = dict(old_data)
+
     learned_power = old_data.get("learned_power", {})
     if not isinstance(learned_power, dict):
         learned_power = {}
@@ -59,10 +62,11 @@ async def _async_migrate_data(
             for mode in ["default", "heat", "cool"]:
                 if mode not in val:
                     val[mode] = initial_lp
-    return {
-        "learned_power": learned_power,
-        "samples": old_data.get("samples", 0),
-    }
+
+    migrated_data["learned_power"] = learned_power
+    migrated_data["samples"] = old_data.get("samples", 0)
+
+    return migrated_data
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:

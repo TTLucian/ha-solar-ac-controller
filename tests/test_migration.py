@@ -29,3 +29,20 @@ async def test_migrate_dict_adds_modes():
     out = await _async_migrate_data(0, 0, old, 1000.0)
     assert out["learned_power"]["z"]["heat"] == 1000.0
     assert out["learned_power"]["z"]["cool"] == 1000.0
+
+
+@pytest.mark.asyncio
+async def test_migrate_preserves_other_keys():
+    old = {
+        "learned_power": {"zone.a": 1000},
+        "samples": 5,
+        "integration_enabled": True,
+        "activity_logging_enabled": True,
+        "custom_key": "value",
+    }
+    out = await _async_migrate_data(0, 0, old, 1000.0)
+    assert out["samples"] == 5
+    assert out["integration_enabled"] is True
+    assert out["activity_logging_enabled"] is True
+    assert out["custom_key"] == "value"
+    assert out["learned_power"]["zone.a"]["default"] == 1000.0
