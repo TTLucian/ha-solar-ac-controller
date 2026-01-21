@@ -74,7 +74,9 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         async def handle_reset_learning(_call: ServiceCall) -> None:
             """Reset learning for all loaded coordinators."""
             for entry_dict in hass.data[DOMAIN].values():
-                if isinstance(entry_dict, dict) and (coordinator := entry_dict.get("coordinator")):
+                if isinstance(entry_dict, dict) and (
+                    coordinator := entry_dict.get("coordinator")
+                ):
                     if controller := getattr(coordinator, "controller", None):
                         await controller.reset_learning()
 
@@ -94,14 +96,14 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                         elif zone in zones:
                             await controller.reset_learning(zone)
                             zone_found = True
-            
+
             if zone and not zone_found:
                 _LOGGER.warning("Zone '%s' not found in any loaded instance", zone)
 
         hass.services.async_register(DOMAIN, "reset_learning", handle_reset_learning)
         hass.services.async_register(DOMAIN, "force_relearn", handle_force_relearn)
         hass_data[_svc_flag] = True
-    
+
     return True
 
 
@@ -115,18 +117,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     needs_update = False
 
     for data_dict in [new_data, new_options]:
-        if (zone_temp_sensors := data_dict.get(CONF_ZONE_TEMP_SENSORS)) and isinstance(zone_temp_sensors, dict):
+        if (zone_temp_sensors := data_dict.get(CONF_ZONE_TEMP_SENSORS)) and isinstance(
+            zone_temp_sensors, dict
+        ):
             zones = data_dict.get(CONF_ZONES, [])
-            data_dict[CONF_ZONE_TEMP_SENSORS] = [zone_temp_sensors.get(z_id, "") for z_id in zones]
+            data_dict[CONF_ZONE_TEMP_SENSORS] = [
+                zone_temp_sensors.get(z_id, "") for z_id in zones
+            ]
             needs_update = True
 
     if needs_update:
-        hass.config_entries.async_update_entry(entry, data=new_data, options=new_options)
+        hass.config_entries.async_update_entry(
+            entry, data=new_data, options=new_options
+        )
 
     # Storage and Versioning
     integration = await async_get_integration(hass, DOMAIN)
     version = str(integration.version) if integration.version else None
-    
+
     initial_lp = entry.options.get(
         CONF_INITIAL_LEARNED_POWER,
         entry.data.get(CONF_INITIAL_LEARNED_POWER, DEFAULT_INITIAL_LEARNED_POWER),
@@ -163,11 +171,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
 
     coordinator = SolarACCoordinator(hass, entry, store, stored_data, version=version)
-    
+
     # Functional persistence
     coordinator.integration_enabled = stored_data["integration_enabled"]
     coordinator.activity_logging_enabled = stored_data["activity_logging_enabled"]
 
     # Entry forward setup would go here (hass.config_entries.async_forward_entry_setups)
-    
+
     return True
