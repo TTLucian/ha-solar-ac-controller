@@ -9,7 +9,7 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
@@ -180,6 +180,7 @@ class SolarACConfidenceSensor(_BaseSolarACSensor):
     _attr_name = "Confidence"
     _attr_native_unit_of_measurement = "pts"
     _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     @property
     def unique_id(self) -> str:
@@ -192,6 +193,7 @@ class SolarACConfidenceSensor(_BaseSolarACSensor):
 
 class SolarACConfidenceThresholdSensor(_BaseSolarACSensor):
     _attr_name = "Confidence Thresholds"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     @property
     def unique_id(self) -> str:
@@ -253,6 +255,7 @@ class SolarACImportPowerSensor(_NumericSolarACSensor):
 
 class SolarACPanicCooldownSensor(_BaseSolarACSensor):
     _attr_name = "Panic Cooldown Active"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     @property
     def unique_id(self) -> str:
@@ -286,6 +289,7 @@ class SolarACLearnedPowerSensor(_NumericSolarACSensor):
 class SolarACDiagnosticEntity(_BaseSolarACSensor):
     _attr_name = "Diagnostics"
     _attr_icon = "mdi:brain"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     @property
     def unique_id(self) -> str:
