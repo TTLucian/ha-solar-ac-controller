@@ -763,6 +763,11 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                 f"ema5m={round(self.ema_5m)} zones={on_count} samples={self.samples}"
             )
             self.metrics.record_cycle_end(cycle_start, success=True)
+        except (SensorUnavailableError, SensorInvalidError) as e:
+            # Sensor issues are expected during startup or temporary outages
+            self.note = f"Sensor error: {e}"
+            _LOGGER.warning("Sensor error in update cycle: %s", e)
+            self.metrics.record_cycle_end(cycle_start, success=False)
         except Exception as e:
             self.note = f"Unexpected error in update cycle: {e}"
             _LOGGER.exception("Unexpected error in _async_update_data")
