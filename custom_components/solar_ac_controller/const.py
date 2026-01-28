@@ -28,6 +28,7 @@ CONF_SOLAR_THRESHOLD_OFF = "solar_threshold_off"
 
 # Feature toggles
 CONF_ENABLE_TEMP_MODULATION = "enable_temperature_modulation"
+CONF_ENABLE_DIAGNOSTICS_SENSOR = "enable_diagnostics_sensor"
 
 # Behavioral tuning
 CONF_PANIC_THRESHOLD = "panic_threshold"
