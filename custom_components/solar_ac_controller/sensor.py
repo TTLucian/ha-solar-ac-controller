@@ -281,14 +281,16 @@ class SolarACDiagnosticEntity(_BaseSolarACSensor):
 
     @property
     def native_value(self) -> str:
-        """Show detailed last action with context for better logbook visibility."""
+        """Show meaningful state changes for logbook, avoid noise from fluctuating values."""
         last_action = getattr(self.coordinator, "last_action", "idle")
         note = getattr(self.coordinator, "note", "")
 
-        # For logbook visibility, include key context in the state
-        if last_action == "balanced" and note:
-            # Extract key metrics from the note
-            return f"balanced: {note.split(':')[1].strip() if ':' in note else note}"
+        # For stable states like "solar_too_low", don't include fluctuating details in state
+        # This prevents excessive logbook entries from minor solar power variations
+        stable_states = {"solar_too_low", "idle", "balanced"}
+
+        if last_action in stable_states:
+            return last_action
         elif last_action.startswith("add_") and note:
             return (
                 f"{last_action}: {note.split(':')[1].strip() if ':' in note else note}"
