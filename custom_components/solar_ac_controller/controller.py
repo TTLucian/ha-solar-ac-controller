@@ -58,6 +58,23 @@ class SolarACController:
                 zone_entity_id,
                 self.coordinator.ac_power_before,
             )
+            # Enhanced logging for learning start
+            log_fn = cast(
+                Callable[[str], Awaitable[None]] | None,
+                getattr(self.coordinator, "_log", None),
+            )
+            if log_fn:
+                try:
+                    await log_fn(
+                        f"[LEARNING_START] zone={zone_entity_id} "
+                        f"ac_before={round(self.coordinator.ac_power_before or 0, 2)}W "
+                        f"mode={getattr(self.coordinator, 'season_mode', 'unknown')}"
+                    )
+                except Exception as exc:
+                    _LOGGER.exception(
+                        "Failed to write learning start to coordinator log: %s",
+                        exc,
+                    )
 
     async def finish_learning(self) -> None:
         """Finish learning for the current zone, update learned power, and persist."""
@@ -156,6 +173,23 @@ class SolarACController:
                     round(delta, 2),
                     self.coordinator.samples,
                 )
+                # Enhanced logging for learning completion
+                log_fn = cast(
+                    Callable[[str], Awaitable[None]] | None,
+                    getattr(self.coordinator, "_log", None),
+                )
+                if log_fn:
+                    try:
+                        await log_fn(
+                            f"[LEARNING_COMPLETE] zone={zone} mode={mode or 'default'} "
+                            f"ac_before={round(ac_before, 2)}W ac_after={round(ac_power_now, 2)}W "
+                            f"delta={round(delta, 2)}W samples={self.coordinator.samples}"
+                        )
+                    except Exception as exc2:
+                        _LOGGER.exception(
+                            "Failed to write learning completion to coordinator log: %s",
+                            exc2,
+                        )
             except Exception as exc:
                 _LOGGER.exception("Error finishing learning for %s: %s", zone, exc)
                 log_fn = cast(

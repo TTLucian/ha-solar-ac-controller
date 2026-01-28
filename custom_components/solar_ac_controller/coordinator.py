@@ -624,6 +624,12 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                 ac_power,
             )
 
+            # Enhanced logging with sensor values and calculations
+            await self._log(
+                f"[SENSORS] grid={round(grid_raw)}W solar={round(solar)}W ac_power={round(ac_power)}W "
+                f"ema30s={round(self.ema_30s)}W ema5m={round(self.ema_5m)}W"
+            )
+
             # EMA updates
             self._update_ema(grid_raw)
 
@@ -645,7 +651,8 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                 self.last_action = "solar_too_low"
                 self.note = f"Solar {round(solar)}W <= threshold_off {off_threshold}W: freezing zone management."
                 await self._log(
-                    f"[FREEZE] solar={round(solar)} <= threshold_off={off_threshold}, freezing zone management"
+                    f"[FREEZE] solar={round(solar)}W <= threshold_off={off_threshold}W, "
+                    f"freezing zone management"
                 )
                 return
 
@@ -699,6 +706,18 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                 None if required_export is None else export - required_export
             )
 
+            # Enhanced logging for zone selection and calculations
+            zone_info = f"active_zones={len(active_zones)}"
+            if next_zone:
+                zone_info += f" next_zone={next_zone}"
+            if last_zone:
+                zone_info += f" last_zone={last_zone}"
+            if required_export is not None:
+                zone_info += f" required_export={round(required_export)}W"
+            zone_info += f" export={round(export)}W import_power={round(import_power)}W"
+
+            await self._log(f"[ZONE_CALC] {zone_info}")
+
             self.last_add_conf = self.decision_engine.compute_add_conf(
                 export=export,
                 required_export=required_export,
@@ -711,6 +730,15 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
 
             # Unified confidence
             self.confidence = self.last_add_conf - self.last_remove_conf
+
+            # Enhanced logging for confidence calculations
+            conf_info = f"add_conf={round(self.last_add_conf, 2)} remove_conf={round(self.last_remove_conf, 2)} "
+            conf_info += f"confidence={round(self.confidence, 2)} "
+            conf_info += f"add_threshold={round(self.add_confidence_threshold, 2)} "
+            conf_info += (
+                f"remove_threshold={round(self.remove_confidence_threshold, 2)}"
+            )
+            await self._log(f"[CONFIDENCE] {conf_info}")
 
             now_ts = dt_util.utcnow().timestamp()
 
@@ -731,14 +759,26 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             if self.panic_manager.is_in_cooldown:
                 self.last_action = "panic_cooldown"
                 self.note = "Panic cooldown active: skipping add/remove decisions."
-                await self._log("[PANIC_COOLDOWN] skipping add/remove decisions")
+                # Calculate remaining cooldown time
+                now_ts = dt_util.utcnow().timestamp()
+                cooldown_remaining = max(0, 120 - (now_ts - (self.last_panic_ts or 0)))
+                await self._log(
+                    f"[PANIC_COOLDOWN] active for {round(cooldown_remaining)}s, "
+                    f"skipping add/remove decisions (active_zones={len(active_zones)})"
+                )
                 return
 
             # 11. ADD zone decision
             if next_zone and self.decision_engine.should_add_zone(
                 next_zone, required_export if required_export is not None else 0.0
             ):
-                self.note = f"Adding zone {next_zone}: conditions met."
+                zone_name = next_zone.split(".")[-1]
+                learned_power = self.get_learned_power(zone_name, self.season_mode)
+                reason = f"Adding zone {next_zone}: confidence={round(self.confidence, 2)} >= threshold={round(self.add_confidence_threshold, 2)}, "
+                reason += f"export={round(export)}W >= required={round(required_export or 0)}W, "
+                reason += f"learned_power={round(learned_power)}W"
+                self.note = reason
+                await self._log(f"[ADD_ZONE] {reason}")
                 await self.action_executor.attempt_add_zone(
                     next_zone,
                     ac_power,
@@ -751,7 +791,13 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             if last_zone and self.decision_engine.should_remove_zone(
                 last_zone, import_power, active_zones
             ):
-                self.note = f"Removing zone {last_zone}: conditions met."
+                zone_name = last_zone.split(".")[-1]
+                learned_power = self.get_learned_power(zone_name, self.season_mode)
+                reason = f"Removing zone {last_zone}: confidence={round(self.confidence, 2)} <= threshold={round(self.remove_confidence_threshold, 2)}, "
+                reason += f"import_power={round(import_power)}W > 0W, "
+                reason += f"learned_power={round(learned_power)}W, active_zones={len(active_zones)}"
+                self.note = reason
+                await self._log(f"[REMOVE_ZONE] {reason}")
                 await self.action_executor.attempt_remove_zone(last_zone, import_power)
                 return
 
@@ -759,8 +805,8 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             self.last_action = "balanced"
             self.note = f"No action: system balanced. ema30={round(self.ema_30s)}, ema5m={round(self.ema_5m)}, zones={on_count}, samples={self.samples}"
             await self._log(
-                f"[SYSTEM_BALANCED] ema30={round(self.ema_30s)} "
-                f"ema5m={round(self.ema_5m)} zones={on_count} samples={self.samples}"
+                f"[SYSTEM_BALANCED] ema30s={round(self.ema_30s)}W ema5m={round(self.ema_5m)}W "
+                f"active_zones={on_count} confidence={round(self.confidence, 2)} samples={self.samples}"
             )
             self.metrics.record_cycle_end(cycle_start, success=True)
         except (SensorUnavailableError, SensorInvalidError) as e:
@@ -1032,7 +1078,8 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         # Turn ON when solar is above or equal to ON threshold
         if solar >= on_threshold and switch_state == "off":
             await self._log(
-                f"[MASTER_ON] solar={round(solar)} threshold_on={on_threshold}"
+                f"[MASTER_ON] solar={round(solar)}W >= threshold_on={on_threshold}W, "
+                f"turning AC master switch ON"
             )
             await self.hass.services.async_call(
                 "switch",
@@ -1049,7 +1096,8 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         # Turn OFF when solar is below or equal to OFF threshold
         if solar <= off_threshold and switch_state == "on":
             await self._log(
-                f"[MASTER_OFF_TRIGGER] solar={round(solar)} threshold_off={off_threshold}"
+                f"[MASTER_OFF_TRIGGER] solar={round(solar)}W <= threshold_off={off_threshold}W, "
+                f"turning AC master switch OFF"
             )
             await self.hass.services.async_call(
                 "switch",
