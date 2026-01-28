@@ -11,7 +11,6 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.util import dt as dt_util
 
 from .const import CONF_ENABLE_DIAGNOSTICS_SENSOR, CONF_ZONES, DOMAIN, SolarACData
 from .helpers import build_diagnostics
@@ -38,7 +37,6 @@ async def async_setup_entry(
         SolarACConfidenceThresholdSensor(coordinator, entry_id),
         SolarACRequiredExportSensor(coordinator, entry_id),
         SolarACExportMarginSensor(coordinator, entry_id),
-        SolarACImportPowerSensor(coordinator, entry_id),
         SolarACPanicCooldownSensor(coordinator, entry_id),
     ]
 
@@ -110,8 +108,17 @@ class SolarACActiveZonesSensor(_BaseSolarACSensor):
         return ", ".join(zones) if zones else "none"
 
 
-class SolarACNextZoneSensor(_BaseSolarACSensor):
+class _ZoneStateSensor(_BaseSolarACSensor):
+    zone_attr = ""
+
+    @property
+    def state(self) -> str:
+        return getattr(self.coordinator, self.zone_attr, "none")
+
+
+class SolarACNextZoneSensor(_ZoneStateSensor):
     _attr_name = "Next Zone"
+    zone_attr = "next_zone"
 
     @property
     def unique_id(self) -> str:
@@ -122,16 +129,13 @@ class SolarACNextZoneSensor(_BaseSolarACSensor):
         return self.coordinator.next_zone or "none"
 
 
-class SolarACLastZoneSensor(_BaseSolarACSensor):
+class SolarACLastZoneSensor(_ZoneStateSensor):
     _attr_name = "Last Zone"
+    zone_attr = "last_zone"
 
     @property
     def unique_id(self) -> str:
         return f"{self._entry_id}_last_zone"
-
-    @property
-    def state(self) -> str:
-        return self.coordinator.last_zone or "none"
 
 
 class SolarACLastActionSensor(_BaseSolarACSensor):
@@ -241,18 +245,6 @@ class SolarACExportMarginSensor(_NumericSolarACSensor):
         return round(val, 2) if val is not None else None
 
 
-class SolarACImportPowerSensor(_NumericSolarACSensor):
-    _attr_name = "Import Power"
-
-    @property
-    def unique_id(self) -> str:
-        return f"{self._entry_id}_import_power"
-
-    @property
-    def native_value(self) -> float:
-        return round(getattr(self.coordinator, "ema_5m", 0.0), 2)
-
-
 class SolarACPanicCooldownSensor(_BaseSolarACSensor):
     _attr_name = "Panic Cooldown Active"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
@@ -263,15 +255,7 @@ class SolarACPanicCooldownSensor(_BaseSolarACSensor):
 
     @property
     def state(self) -> str:
-        ts = getattr(self.coordinator, "last_panic_ts", None)
-        if not ts:
-            return "no"
-        cooldown = getattr(self.coordinator, "panic_cooldown_seconds", 120)
-        return (
-            "yes"
-            if (dt_util.utcnow().timestamp() - float(ts)) < float(cooldown)
-            else "no"
-        )
+        return "yes" if self.coordinator.panic_manager.is_in_cooldown else "no"
 
 
 class SolarACLearnedPowerSensor(_NumericSolarACSensor):
@@ -297,8 +281,26 @@ class SolarACDiagnosticEntity(_BaseSolarACSensor):
 
     @property
     def native_value(self) -> str:
-        """Show last action as the main state."""
-        return getattr(self.coordinator, "last_action", "idle")
+        """Show detailed last action with context for better logbook visibility."""
+        last_action = getattr(self.coordinator, "last_action", "idle")
+        note = getattr(self.coordinator, "note", "")
+
+        # For logbook visibility, include key context in the state
+        if last_action == "balanced" and note:
+            # Extract key metrics from the note
+            return f"balanced: {note.split(':')[1].strip() if ':' in note else note}"
+        elif last_action.startswith("add_") and note:
+            return (
+                f"{last_action}: {note.split(':')[1].strip() if ':' in note else note}"
+            )
+        elif last_action.startswith("remove_") and note:
+            return (
+                f"{last_action}: {note.split(':')[1].strip() if ':' in note else note}"
+            )
+        elif note:
+            return f"{last_action}: {note}"
+
+        return last_action
 
     @property
     def extra_state_attributes(self) -> dict[str, object]:

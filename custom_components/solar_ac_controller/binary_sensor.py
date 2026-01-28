@@ -105,11 +105,7 @@ class SolarACPanicCooldownBinarySensor(_BaseSolarACBinary):
     @property
     def is_on(self) -> bool:
         # Note: This will only update when the coordinator updates.
-        ts = getattr(self.coordinator, "last_panic_ts", None)
-        if not ts:
-            return False
-        cooldown = getattr(self.coordinator, "panic_cooldown_seconds", 120)
-        return (dt_util.utcnow().timestamp() - float(ts)) < float(cooldown)
+        return self.coordinator.panic_manager.is_in_cooldown
 
 
 class SolarACShortCycleBinarySensor(_BaseSolarACBinary):

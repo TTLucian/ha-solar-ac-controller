@@ -563,22 +563,6 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             if sensor and not self.hass.states.get(sensor):
                 _LOGGER.warning(f"Zone {zone} temperature sensor {sensor} not found")
 
-    def _dump_state_for_debugging(self) -> Dict[str, Any]:
-        """Development helper to dump current state."""
-        return {
-            "season_mode": self.season_mode,
-            "integration_enabled": getattr(self, "integration_enabled", True),
-            "activity_logging_enabled": getattr(
-                self, "activity_logging_enabled", False
-            ),
-            "zones": self.config.get(CONF_ZONES, []),
-            "learned_power": self.learned_power,
-            "samples": self.samples,
-            "metrics": self.metrics.get_summary() if self.metrics else {},
-            "last_action": getattr(self, "last_action", None),
-            "note": getattr(self, "note", None),
-        }
-
     # -------------------------------------------------------------------------
     # Main update loop
     # -------------------------------------------------------------------------
@@ -758,10 +742,10 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             # 10. Panic cooldown
             if self.panic_manager.is_in_cooldown:
                 self.last_action = "panic_cooldown"
-                self.note = "Panic cooldown active: skipping add/remove decisions."
                 # Calculate remaining cooldown time
                 now_ts = dt_util.utcnow().timestamp()
                 cooldown_remaining = max(0, 120 - (now_ts - (self.last_panic_ts or 0)))
+                self.note = f"Panic cooldown active for {round(cooldown_remaining)}s: skipping add/remove decisions."
                 await self._log(
                     f"[PANIC_COOLDOWN] active for {round(cooldown_remaining)}s, "
                     f"skipping add/remove decisions (active_zones={len(active_zones)})"

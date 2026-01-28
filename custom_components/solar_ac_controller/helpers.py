@@ -158,16 +158,10 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
     panic_delay = int(getattr(coordinator, "panic_delay", 0) or 0)
     last_panic_ts = getattr(coordinator, "last_panic_ts", None)
     last_panic = _human_delta(last_panic_ts)
-    panic_cooldown_active = False
-    try:
-        if last_panic_ts is not None:
-            cooldown = getattr(coordinator, "panic_cooldown_seconds", None) or getattr(
-                coordinator, "_PANIC_COOLDOWN_SECONDS", 120
-            )
-            now = dt_util.utcnow().timestamp()
-            panic_cooldown_active = (now - float(last_panic_ts)) < float(cooldown)
-    except Exception:
-        panic_cooldown_active = False
+    panic_cooldown_active = (
+        getattr(coordinator, "panic_manager", None)
+        and coordinator.panic_manager.is_in_cooldown
+    )
 
     master_off_since_raw = getattr(coordinator, "master_off_since", None)
     master_off = _human_delta(master_off_since_raw)

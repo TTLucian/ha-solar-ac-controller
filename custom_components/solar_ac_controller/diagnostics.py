@@ -52,9 +52,7 @@ async def async_get_config_entry_diagnostics(
         "last_action_started_at": iso_ts(
             getattr(coordinator, "last_action_start_ts", None)
         ),
-        "last_action_start_ts": getattr(coordinator, "last_action_start_ts", None),
         "last_panic_at": iso_ts(getattr(coordinator, "last_panic_ts", None)),
-        "last_panic_ts": getattr(coordinator, "last_panic_ts", None),
     }
 
     # 3. Learning Data (The most important part for troubleshooting)
