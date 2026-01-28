@@ -223,6 +223,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
 
         # Learning state
         self.last_action = None
+        self.was_in_freeze = False  # Track previous freeze state for logging
         self.learning_active = False
         self.learning_start_time = None
         self.ac_power_before = None
@@ -634,11 +635,19 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                 await self._perform_freeze_cleanup()
                 self.last_action = "solar_too_low"
                 self.note = f"Solar {round(solar)}W <= threshold_off {off_threshold}W: freezing zone management."
-                await self._log(
-                    f"[FREEZE] solar={round(solar)}W <= threshold_off={off_threshold}W, "
-                    f"freezing zone management"
-                )
+
+                # Only log freeze entry, not every cycle
+                if not self.was_in_freeze:
+                    await self._log(
+                        f"[FREEZE] solar={round(solar)}W <= threshold_off={off_threshold}W, "
+                        f"freezing zone management"
+                    )
+                    self.was_in_freeze = True
                 return
+
+            # Reset freeze flag when exiting freeze mode
+            if self.was_in_freeze:
+                self.was_in_freeze = False
 
             # 4. Update zone temperatures for comfort target checking
             self._read_zone_temps()
