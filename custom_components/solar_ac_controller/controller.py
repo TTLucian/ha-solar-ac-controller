@@ -26,6 +26,11 @@ class SolarACController:
         self.store = store
         self._lock = asyncio.Lock()
 
+    async def is_learning_active(self) -> bool:
+        """Check if learning is active, with proper locking."""
+        async with self._lock:
+            return getattr(self.coordinator, "learning_active", False)
+
     async def start_learning(
         self, zone_entity_id: str, ac_power_before: float | None
     ) -> None:

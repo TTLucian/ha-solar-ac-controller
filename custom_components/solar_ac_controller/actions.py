@@ -6,8 +6,9 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
-
 from homeassistant.util import dt as dt_util
+
+from .const import CLIMATE_STATE_UPDATE_DELAY
 from .zones import ZoneManager
 
 if TYPE_CHECKING:
@@ -159,7 +160,7 @@ class ActionExecutor:
                     return
             # After turning on, check and set hvac_mode if needed
             # Wait briefly for state to update
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(CLIMATE_STATE_UPDATE_DELAY)
             state = self.coordinator.hass.states.get(entity_id)
             desired_mode = getattr(self.coordinator, "season_mode", "cool")
             if state:

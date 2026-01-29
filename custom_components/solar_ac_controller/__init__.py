@@ -90,25 +90,36 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         async def handle_force_relearn(call: ServiceCall):
             # Reset learned power for a specific zone or all zones, with validation
             zone = call.data.get("zone")
-            zone_found = False
+
+            # Validate zone if provided
+            if zone:
+                all_configured_zones = set()
+                for entry_dict in domain_data.values():
+                    if isinstance(entry_dict, dict):
+                        coordinator = entry_dict.get("coordinator")
+                        if coordinator:
+                            zones = set(coordinator.config.get(CONF_ZONES, []))
+                            all_configured_zones.update(zones)
+
+                # Extract zone names (entity_id -> short name)
+                zone_names = {z.split(".")[-1] for z in all_configured_zones}
+
+                if zone not in zone_names:
+                    raise ValueError(
+                        f"Zone '{zone}' not found. Available zones: {', '.join(sorted(zone_names))}"
+                    )
+
+            # Proceed with reset
             for entry_dict in domain_data.values():
                 if not isinstance(entry_dict, dict):
                     continue
                 coordinator = entry_dict.get("coordinator")
                 controller = getattr(coordinator, "controller", None)
                 if controller:
-                    zones = set(getattr(coordinator, "config", {}).get(CONF_ZONES, []))
                     if zone:
-                        if zone in zones:
-                            await controller.reset_learning(zone)
-                            zone_found = True
+                        await controller.reset_learning(zone)
                     else:
                         await controller.reset_learning()
-                        zone_found = True
-            if zone and not zone_found:
-                _LOGGER.warning(
-                    f"force_relearn: Provided zone '{zone}' not found in any loaded Solar AC Controller instance."
-                )
 
         hass.services.async_register(DOMAIN, "reset_learning", handle_reset_learning)
         hass.services.async_register(DOMAIN, "force_relearn", handle_force_relearn)

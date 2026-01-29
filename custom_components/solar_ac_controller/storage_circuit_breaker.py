@@ -1,6 +1,7 @@
 # custom_components/solar_ac_controller/storage_circuit_breaker.py
 """Circuit breaker pattern for storage operations."""
 
+import threading
 import time
 from typing import Optional
 
@@ -14,31 +15,36 @@ class StorageCircuitBreaker:
         self.reset_timeout = reset_timeout
         self.failure_count = 0
         self.last_failure_time: Optional[float] = None
+        self._lock = threading.Lock()
 
     def should_attempt_operation(self) -> bool:
         """Check if operation should be attempted."""
-        if self.failure_count < self.max_failures:
-            return True
+        with self._lock:
+            if self.failure_count < self.max_failures:
+                return True
 
-        if self.last_failure_time is None:
-            return True
+            if self.last_failure_time is None:
+                return True
 
-        # Check if reset timeout has passed
-        if time.time() - self.last_failure_time > self.reset_timeout:
-            self.failure_count = 0
-            return True
+            # Check if reset timeout has passed
+            if time.time() - self.last_failure_time > self.reset_timeout:
+                self.failure_count = 0
+                self.last_failure_time = None
+                return True
 
-        return False
+            return False
 
     def record_success(self) -> None:
         """Record successful operation."""
-        self.failure_count = 0
-        self.last_failure_time = None
+        with self._lock:
+            self.failure_count = 0
+            self.last_failure_time = None
 
     def record_failure(self) -> None:
         """Record failed operation."""
-        self.failure_count += 1
-        self.last_failure_time = time.time()
+        with self._lock:
+            self.failure_count += 1
+            self.last_failure_time = time.time()
 
     @property
     def is_open(self) -> bool:

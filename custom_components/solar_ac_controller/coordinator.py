@@ -1,6 +1,7 @@
 # custom_components/solar_ac_controller/coordinator.py
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import timedelta
 from typing import Any, Dict, Optional
@@ -48,6 +49,12 @@ from .const import (
     DEFAULT_SOLAR_THRESHOLD_OFF,
     DEFAULT_SOLAR_THRESHOLD_ON,
     DOMAIN,
+    LEARNING_EMA_ALPHA,
+    LEARNING_MAX_POWER_W,
+    LEARNING_MIN_POWER_W,
+    LEARNING_RELATIVE_TOLERANCE,
+    LEARNING_TIMEOUT_SECONDS,
+    ZONE_SWAP_MIN_INTERVAL_SECONDS,
 )
 from .decisions import DecisionEngine
 from .exceptions import SensorInvalidError, SensorUnavailableError
@@ -218,7 +225,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         self.confidence = 0.0
         self.last_action_start_ts = None
         self.last_action_duration = None
-        self._panic_task = None
+        self._panic_task: Optional[asyncio.Task[None]] = None
         self.last_panic_ts = None
 
         # Learning state
@@ -396,13 +403,28 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         except (TypeError, ValueError):
             return
 
+        # Validate zone_name against configured zones
+        all_zones = self.config.get(CONF_ZONES, [])
+        zone_names = [z.split(".")[-1] for z in all_zones]
+
+        if zone_name not in zone_names:
+            _LOGGER.warning(
+                "Attempted to set learned power for unconfigured zone: %s. "
+                "Configured zones: %s",
+                zone_name,
+                zone_names,
+            )
+            return
+
         # Reasonable absolute bounds for a single zone incremental draw (W)
-        MIN_W = 200.0
-        MAX_W = 3000.0
+        MIN_W = LEARNING_MIN_POWER_W
+        MAX_W = LEARNING_MAX_POWER_W
         # Relative tolerance around existing learned value (± fraction)
-        REL_TOL = 0.5  # accept within ±50% of current learned value
+        REL_TOL = (
+            LEARNING_RELATIVE_TOLERANCE  # accept within ±50% of current learned value
+        )
         # Smoothing factor for EMA update
-        ALPHA = 0.3
+        ALPHA = LEARNING_EMA_ALPHA
 
         # Initialize zone entry if missing
 
@@ -482,11 +504,10 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             return
 
         try:
-            payload = {
-                "learned_power": self._rounded_power(self.learned_power),
-                "samples": int(self.samples),
-            }
-            await self.store.async_save(payload)
+            # Update stored_data in place instead of replacing it
+            self.stored_data["learned_power"] = self._rounded_power(self.learned_power)
+            self.stored_data["samples"] = int(self.samples)
+            await self.store.async_save(self.stored_data)
             self.storage_circuit_breaker.record_success()
         except Exception as exc:
             _LOGGER.exception("Error saving learned values: %s", exc)
@@ -749,8 +770,8 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             now_ts = dt_util.utcnow().timestamp()
 
             # 8. Learning timeout
-            if self.learning_active and self.learning_start_time:
-                if now_ts - self.learning_start_time >= 360:
+            if await self.controller.is_learning_active() and self.learning_start_time:
+                if now_ts - self.learning_start_time >= LEARNING_TIMEOUT_SECONDS:
                     await self._log(f"[LEARNING_TIMEOUT] zone={self.learning_zone}")
                     await self.controller.finish_learning()
                     return
@@ -828,6 +849,13 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                 f"[SYSTEM_BALANCED] ema30s={round(self.ema_30s)}W ema5m={round(self.ema_5m)}W "
                 f"active_zones={on_count} confidence={round(self.confidence, 2)} samples={self.samples}"
             )
+
+            # Periodic cleanup of stale tracking data (every hour)
+            now_ts = dt_util.utcnow().timestamp()
+            if getattr(self, "_last_cleanup_time", 0) + 3600 < now_ts:
+                self._cleanup_stale_tracking_data()
+                self._last_cleanup_time = now_ts
+
             self.metrics.record_cycle_end(cycle_start, success=True)
         except (SensorUnavailableError, SensorInvalidError) as e:
             # Sensor issues are expected during startup or temporary outages
@@ -957,7 +985,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             # Prevent rapid swapping (minimum 5 minutes between swaps for same zone)
             now_ts = dt_util.utcnow().timestamp()
             last_swap = self.zone_last_swap_time.get(zone_to_remove, 0)
-            if now_ts - last_swap < 300:  # 5 minutes
+            if now_ts - last_swap < ZONE_SWAP_MIN_INTERVAL_SECONDS:  # 5 minutes
                 return
 
             # Log the swap
@@ -998,10 +1026,13 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         """Cancel tasks and reset learning state when master is off."""
         # Cancel panic task
         if self._panic_task and not self._panic_task.done():
+            self._panic_task.cancel()
             try:
-                self._panic_task.cancel()
-            except Exception:
-                _LOGGER.debug("Failed to cancel panic task")
+                await self._panic_task
+            except asyncio.CancelledError:
+                pass  # Expected
+            except Exception as e:
+                _LOGGER.debug("Error during panic task cancellation: %s", e)
             self._panic_task = None
 
         # Reset controller learning state (safe)
@@ -1193,3 +1224,29 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             self.master_off_since = dt_util.utcnow().timestamp()
             self.metrics.record_cycle_end(cycle_start, success=True)
             return
+
+    def _cleanup_stale_tracking_data(self) -> None:
+        """Remove tracking data for zones no longer in configuration."""
+        current_zones = set(self.config.get(CONF_ZONES, []))
+
+        # Clean temp EMA tracking
+        stale_zones = set(self.temp_ema_10m.keys()) - current_zones
+        for zone in stale_zones:
+            del self.temp_ema_10m[zone]
+
+        # Clean swap time tracking
+        stale_zones = set(self.zone_last_swap_time.keys()) - current_zones
+        for zone in stale_zones:
+            del self.zone_last_swap_time[zone]
+
+        # Also clean: zone_last_changed, zone_manual_lock_until, zone_current_temps
+        for tracking_dict in [
+            self.zone_last_changed,
+            self.zone_manual_lock_until,
+            self.zone_current_temps,
+            self.zone_last_changed_type,
+            self.zone_last_state,
+        ]:
+            stale = set(tracking_dict.keys()) - current_zones
+            for zone in stale:
+                del tracking_dict[zone]
