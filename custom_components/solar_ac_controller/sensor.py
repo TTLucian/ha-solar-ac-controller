@@ -299,8 +299,8 @@ class SolarACDiagnosticEntity(_BaseSolarACSensor):
         if not getattr(self.coordinator, "activity_logging_enabled", False):
             return "activity_logging_disabled"
 
-        last_action = getattr(self.coordinator, "last_action", "idle")
-        note = getattr(self.coordinator, "note", "")
+        last_action = getattr(self.coordinator, "last_action", "idle") or "idle"
+        note = getattr(self.coordinator, "note", "") or ""
 
         # For stable states like "solar_too_low", don't include fluctuating details in state
         # This prevents excessive logbook entries from minor solar power variations
