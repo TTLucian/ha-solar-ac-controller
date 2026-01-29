@@ -316,7 +316,7 @@ async def _validate_zone_temp_sensors(
 
 
 class SolarACConfigFlow(ConfigFlow, domain=DOMAIN):
-    VERSION = 1
+    VERSION = 2
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None):
         errors: dict[str, str] = {}
