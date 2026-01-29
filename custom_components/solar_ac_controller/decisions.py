@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from .const import CONF_ZONES
+
 if TYPE_CHECKING:
     from .coordinator import SolarACCoordinator
 
@@ -69,6 +71,12 @@ class DecisionEngine:
         if self.coordinator.ema_5m > -200:
             return False
 
+        # Check if we have sufficient export capacity
+        if required_export is not None:
+            current_export = -self.coordinator.ema_30s  # Convert to positive export
+            if current_export < required_export:
+                return False
+
         return (
             self.coordinator.last_add_conf >= self.coordinator.add_confidence_threshold
         )
@@ -79,8 +87,8 @@ class DecisionEngine:
         """
         Return True if remove zone conditions are met.
 
-        Checks confidence first, then verifies the specific zone being removed
-        has reached its comfort target before allowing removal.
+        Only checks remove confidence - comfort targets are ignored to allow
+        aggressive zone removal based on power conditions alone.
         """
         if (
             self.coordinator.last_remove_conf
@@ -88,16 +96,14 @@ class DecisionEngine:
         ):
             return False
 
-        # Allow removal during panic, even if comfort target is not reached
+        # Allow removal during panic (emergency override)
         if (
             self.coordinator.panic_manager
             and self.coordinator.panic_manager.is_panicking
         ):
             return True
-        # Block removal if the specific zone being removed hasn't reached its comfort target
-        if not self.coordinator._all_active_zones_at_target(last_zone):
-            return False
 
+        # Remove based on confidence alone - no comfort target check
         return True
 
     def _is_short_cycling_for_add(self, zone: str | None) -> bool:
@@ -130,3 +136,86 @@ class DecisionEngine:
     def _is_short_cycling_for_remove(self, zone: str | None) -> bool:
         """Check if zone is short-cycling (for remove penalty)."""
         return self._is_short_cycling_for_add(zone)
+
+    def should_swap_zone(self, satisfied_zone: str, import_power: float) -> str | None:
+        """
+        Check if we should swap a satisfied zone with a higher-priority needy zone.
+
+        Returns the zone to add, or None if no swap needed.
+        """
+        # Only swap when confidence is in balanced range (won't add or remove zones)
+        # This allows optimization without changing net zone count
+        if not (
+            self.coordinator.remove_confidence_threshold
+            <= self.coordinator.confidence
+            < self.coordinator.add_confidence_threshold
+        ):
+            return None
+
+        # Check if satisfied zone actually reached target (using 10min EMA)
+        if not self._zone_reached_target_stable(satisfied_zone):
+            return None
+
+        # Find highest priority zone that needs heating but isn't active
+        active_zones = self.coordinator.active_zones
+        available_zones = [
+            z
+            for z in self.coordinator.config.get(CONF_ZONES, [])
+            if z not in active_zones and not self.coordinator.zone_manager.is_locked(z)
+        ]
+
+        for zone in sorted(
+            available_zones,
+            key=lambda z: self.coordinator.zone_priorities.get(z.split(".")[-1], 999),
+        ):
+            if self._zone_needs_heating(zone) and self._power_compatible_for_swap(zone):
+                return zone
+
+        return None
+
+    def _zone_reached_target_stable(self, zone: str) -> bool:
+        """Check if zone reached target using stable 10min EMA."""
+        ema_temp = self.coordinator.temp_ema_10m.get(zone)
+        if ema_temp is None:
+            return False
+
+        target = (
+            self.coordinator.max_temp_winter
+            if self.coordinator.season_mode == "heat"
+            else self.coordinator.min_temp_summer
+        )
+        margin = 0.5  # 0.5°C stability margin
+
+        return (
+            (ema_temp >= target - margin)
+            if self.coordinator.season_mode == "heat"
+            else (ema_temp <= target + margin)
+        )
+
+    def _zone_needs_heating(self, zone: str) -> bool:
+        """Check if zone needs heating based on current temp vs target."""
+        current_temp = self.coordinator.zone_current_temps.get(zone)
+        if current_temp is None:
+            return False
+
+        return current_temp < self.coordinator.max_temp_winter - 1  # 1°C below target
+
+    def _power_compatible_for_swap(self, zone: str) -> bool:
+        """Check if zone's power requirements are compatible for swapping."""
+        zone_name = zone.split(".")[-1]
+        zone_power = self.coordinator.get_learned_power(
+            zone_name, self.coordinator.season_mode
+        )
+
+        # For multi-split: first zone typically draws most power
+        # Allow swap if new zone power is <= current highest power zone + buffer
+        active_zones = self.coordinator.active_zones
+        active_powers = [
+            self.coordinator.get_learned_power(
+                z.split(".")[-1], self.coordinator.season_mode
+            )
+            for z in active_zones
+        ]
+        max_active_power = max(active_powers) if active_powers else 0
+
+        return zone_power <= max_active_power + 200  # 200W buffer

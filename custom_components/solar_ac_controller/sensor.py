@@ -38,6 +38,7 @@ async def async_setup_entry(
         SolarACRequiredExportSensor(coordinator, entry_id),
         SolarACExportMarginSensor(coordinator, entry_id),
         SolarACPanicCooldownSensor(coordinator, entry_id),
+        SolarACSamplesSensor(coordinator, entry_id),
     ]
 
     for zone in coordinator.config.get(CONF_ZONES, []):
@@ -258,6 +259,20 @@ class SolarACPanicCooldownSensor(_BaseSolarACSensor):
         return "yes" if self.coordinator.panic_manager.is_in_cooldown else "no"
 
 
+class SolarACSamplesSensor(_BaseSolarACSensor):
+    _attr_name = "Samples"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    @property
+    def unique_id(self) -> str:
+        return f"{self._entry_id}_samples"
+
+    @property
+    def native_value(self) -> int:
+        return getattr(self.coordinator, "samples", 0)
+
+
 class SolarACLearnedPowerSensor(_NumericSolarACSensor):
     def __init__(self, coordinator: Any, entry_id: str, zone_name: str):
         super().__init__(coordinator, entry_id)
@@ -281,7 +296,11 @@ class SolarACDiagnosticEntity(_BaseSolarACSensor):
 
     @property
     def native_value(self) -> str:
-        """Show meaningful state changes for logbook, avoid noise from fluctuating values."""
+        """Show meaningful state changes for logbook when activity logging is enabled, avoid noise from fluctuating values."""
+        # If activity logging is disabled, don't change state to avoid logbook spam
+        if not getattr(self.coordinator, "activity_logging_enabled", False):
+            return "activity_logging_disabled"
+
         last_action = getattr(self.coordinator, "last_action", "idle")
         note = getattr(self.coordinator, "note", "")
 

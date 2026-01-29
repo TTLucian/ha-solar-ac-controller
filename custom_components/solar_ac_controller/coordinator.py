@@ -231,6 +231,10 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         self.ema_30s = 0.0
         self.ema_5m = 0.0
 
+        # Temperature stability tracking for zone swapping
+        self.temp_ema_10m = {}  # zone -> 10min EMA temperature
+        self.zone_last_swap_time = {}  # zone -> last swap timestamp
+
         # Defensive initialization
         self.required_export_source = "Initializing"
 
@@ -296,6 +300,12 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         self.zone_manual_power = ZoneConfigParser.parse_manual_power(
             self.config_entry, zones_list
         )
+
+        # Initialize zone priorities based on config order (first = highest priority)
+        self.zone_priorities = {}
+        for i, zone in enumerate(zones_list):
+            zone_name = zone.split(".")[-1]
+            self.zone_priorities[zone_name] = i
 
     def _init_learned_data(self, stored: Optional[Dict[str, Any]]) -> None:
         """Initialize learned power data from storage."""
@@ -663,6 +673,9 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             active_zones = await self.zone_manager.update_zone_states_and_overrides()
             on_count = len(active_zones)
 
+            # Store active zones for decision engine
+            self.active_zones = active_zones
+
             # 7. Compute required export and confidences
             next_zone, last_zone = self.zone_manager.select_next_and_last_zone(
                 active_zones
@@ -767,7 +780,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             ):
                 zone_name = next_zone.split(".")[-1]
                 learned_power = self.get_learned_power(zone_name, self.season_mode)
-                reason = f"Adding zone {next_zone}: confidence={round(self.confidence, 2)} >= threshold={round(self.add_confidence_threshold, 2)}, "
+                reason = f"Adding zone {next_zone}: confidence={round(self.last_add_conf, 2)} >= threshold={round(self.add_confidence_threshold, 2)}, "
                 reason += f"export={round(export)}W >= required={round(required_export or 0)}W, "
                 reason += f"learned_power={round(learned_power)}W"
                 self.note = reason
@@ -786,13 +799,27 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             ):
                 zone_name = last_zone.split(".")[-1]
                 learned_power = self.get_learned_power(zone_name, self.season_mode)
-                reason = f"Removing zone {last_zone}: confidence={round(self.confidence, 2)} <= threshold={round(self.remove_confidence_threshold, 2)}, "
+                reason = f"Removing zone {last_zone}: confidence={round(self.last_remove_conf, 2)} <= threshold={round(self.remove_confidence_threshold, 2)}, "
                 reason += f"import_power={round(import_power)}W > 0W, "
                 reason += f"learned_power={round(learned_power)}W, active_zones={len(active_zones)}"
                 self.note = reason
                 await self._log(f"[REMOVE_ZONE] {reason}")
                 await self.action_executor.attempt_remove_zone(last_zone, import_power)
                 return
+
+            # 11.5. ZONE SWAP decision (only when no net add/remove needed)
+            # Sort active zones by reverse priority (remove lowest priority satisfied zones first)
+            for active_zone in sorted(
+                active_zones,
+                key=lambda z: self.zone_priorities.get(z.split(".")[-1], 999),
+                reverse=True,
+            ):
+                zone_to_add = self.decision_engine.should_swap_zone(
+                    active_zone, import_power
+                )
+                if zone_to_add:
+                    await self._perform_zone_swap(active_zone, zone_to_add)
+                    return
 
             # 12. SYSTEM BALANCED
             self.last_action = "balanced"
@@ -819,6 +846,20 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         """Update EMA metrics for grid power."""
         self.ema_30s = 0.25 * grid_raw + 0.75 * self.ema_30s
         self.ema_5m = 0.03 * grid_raw + 0.97 * self.ema_5m
+
+    def _update_temp_ema_10m(self, zone_id: str, current_temp: float) -> None:
+        """Update 10-minute EMA for temperature stability tracking."""
+        # Alpha for ~10 minute response time: alpha = 2/(N+1) where N = 120 samples (10min/5s)
+        # alpha ≈ 0.0165, but we'll use 0.1 for faster response to changes
+        EMA_10M_ALPHA = 0.1
+
+        if zone_id not in self.temp_ema_10m:
+            self.temp_ema_10m[zone_id] = current_temp
+        else:
+            self.temp_ema_10m[zone_id] = (
+                EMA_10M_ALPHA * current_temp
+                + (1 - EMA_10M_ALPHA) * self.temp_ema_10m[zone_id]
+            )
 
     def _compute_required_export(
         self, next_zone: str | None, mode: str | None = None
@@ -857,7 +898,10 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                 st = self.hass.states.get(temp_sensor_id)
                 if st and st.state not in ("unknown", "unavailable", ""):
                     try:
-                        self.zone_current_temps[zone_id] = float(st.state)
+                        temp = float(st.state)
+                        self.zone_current_temps[zone_id] = temp
+                        # Update 10-minute EMA for temperature stability
+                        self._update_temp_ema_10m(zone_id, temp)
                         continue
                     except (TypeError, ValueError):
                         pass
@@ -868,7 +912,10 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                 current_temp = zone_state.attributes.get("current_temperature")
                 if current_temp is not None:
                     try:
-                        self.zone_current_temps[zone_id] = float(current_temp)
+                        temp = float(current_temp)
+                        self.zone_current_temps[zone_id] = temp
+                        # Update 10-minute EMA for temperature stability
+                        self._update_temp_ema_10m(zone_id, temp)
                         continue
                     except (TypeError, ValueError):
                         pass
@@ -903,6 +950,48 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             return current_temp <= self.min_temp_summer
 
         return True  # Shouldn't reach here, but don't block by default
+
+    async def _perform_zone_swap(self, zone_to_remove: str, zone_to_add: str) -> None:
+        """Perform a zone swap: remove satisfied zone, add needy zone."""
+        try:
+            # Prevent rapid swapping (minimum 5 minutes between swaps for same zone)
+            now_ts = dt_util.utcnow().timestamp()
+            last_swap = self.zone_last_swap_time.get(zone_to_remove, 0)
+            if now_ts - last_swap < 300:  # 5 minutes
+                return
+
+            # Log the swap
+            remove_name = zone_to_remove.split(".")[-1]
+            add_name = zone_to_add.split(".")[-1]
+            await self._log(
+                f"[ZONE_SWAP] removing satisfied {remove_name}, adding needy {add_name}"
+            )
+
+            # Remove the satisfied zone
+            await self.action_executor.attempt_remove_zone(zone_to_remove, self.ema_5m)
+
+            # Add the needy zone (use current power readings)
+            ac_power = self._validate_sensor_state(
+                self.hass.states.get(self.config_manager.get(CONF_AC_POWER_SENSOR)),
+                "AC power sensor",
+            )
+            required_export = self._compute_required_export(
+                zone_to_add, mode=self.season_mode
+            )
+            assert required_export is not None
+            await self.action_executor.attempt_add_zone(
+                zone_to_add,
+                ac_power,
+                -self.ema_30s,  # export
+                required_export,
+            )
+
+            # Record swap time
+            self.zone_last_swap_time[zone_to_remove] = now_ts
+            self.last_action = "zone_swap"
+
+        except Exception as e:
+            _LOGGER.exception(f"Failed to perform zone swap: {e}")
 
     async def _perform_freeze_cleanup(self) -> None:
         """Cancel tasks and reset learning state when master is off."""
