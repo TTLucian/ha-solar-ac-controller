@@ -8,9 +8,6 @@ from typing import TYPE_CHECKING
 
 from homeassistant.util import dt as dt_util
 
-from .const import CLIMATE_STATE_UPDATE_DELAY
-from .zones import ZoneManager
-
 if TYPE_CHECKING:
     from .coordinator import SolarACCoordinator
 
@@ -37,11 +34,10 @@ class ActionExecutor:
 
         await self.coordinator._log(
             f"[ZONE_ADD_ATTEMPT] zone={next_zone} "
-            f"add_conf={round(self.coordinator.last_add_conf)} export={round(export)} "
-            f"req_export={round(required_export)} samples={self.coordinator.samples} "
-            f"conf={round(self.coordinator.confidence)} "
-            f"thr_add={self.coordinator.add_confidence_threshold} "
-            f"thr_rem={self.coordinator.remove_confidence_threshold}"
+            f"unified_conf={round(self.coordinator.confidence)} "
+            f"(add={round(self.coordinator.last_add_conf)}, remove={round(self.coordinator.last_remove_conf)}) "
+            f"export={round(export)} req_export={round(required_export)} samples={self.coordinator.samples} "
+            f"threshold={self.coordinator.unified_add_threshold}"
         )
 
         await self.add_zone(next_zone, ac_power_before)
@@ -56,23 +52,21 @@ class ActionExecutor:
         if self.coordinator.last_action == f"remove_{last_zone}":
             return
 
-        zone_mgr = ZoneManager(self.coordinator)
+        zone_mgr = self.coordinator.zone_manager
 
         await self.coordinator._log(
             f"[ZONE_REMOVE_ATTEMPT] zone={last_zone} "
-            f"remove_conf={round(self.coordinator.last_remove_conf)} "
-            f"import={round(import_power)} "
-            f"short_cycling={zone_mgr.is_short_cycling(last_zone)} "
-            f"conf={round(self.coordinator.confidence)} "
-            f"thr_add={self.coordinator.add_confidence_threshold} "
-            f"thr_rem={self.coordinator.remove_confidence_threshold}"
+            f"unified_conf={round(self.coordinator.confidence)} "
+            f"(add={round(self.coordinator.last_add_conf)}, remove={round(self.coordinator.last_remove_conf)}) "
+            f"import={round(import_power)} short_cycling={zone_mgr.is_short_cycling(last_zone)} "
+            f"threshold={self.coordinator.unified_remove_threshold}"
         )
         await self.remove_zone(last_zone)
         self.coordinator.last_action = f"remove_{last_zone}"
 
     async def add_zone(self, zone: str, ac_power_before: float) -> None:
         """Start learning and turn on zone."""
-        if self.coordinator.learning_active:
+        if await self.coordinator.controller.is_learning_active():
             await self.coordinator._log(
                 f"[LEARNING_SKIPPED_ALREADY_ACTIVE] zone={zone} "
                 f"current_zone={self.coordinator.learning_zone}"
@@ -118,63 +112,36 @@ class ActionExecutor:
         )
 
     async def call_entity_service(self, entity_id: str, turn_on: bool) -> None:
-        """Call turn_on/turn_off service for the entity's domain, with climate fallback. If climate, set hvac_mode if needed."""
+        """Call turn_on/turn_off service for the entity's domain, with climate fallback."""
         domain = entity_id.split(".")[0]
         service = "turn_on" if turn_on else "turn_off"
 
-        # If turning ON a climate entity, first turn on, then check/set hvac_mode
-        if turn_on and domain == "climate":
+        # For climate entities being turned on: set HVAC mode first based on season
+        if (
+            turn_on
+            and domain == "climate"
+            and self.coordinator.season_mode in ("heat", "cool")
+        ):
             try:
                 await self.coordinator.hass.services.async_call(
-                    domain,
-                    service,
-                    {"entity_id": entity_id},
+                    "climate",
+                    "set_hvac_mode",
+                    {"entity_id": entity_id, "hvac_mode": self.coordinator.season_mode},
                     blocking=True,
                 )
-            except Exception as e:
                 _LOGGER.debug(
-                    "Primary service %s.%s failed for %s: %s",
-                    domain,
-                    service,
+                    "Set HVAC mode to '%s' for %s before turning on",
+                    self.coordinator.season_mode,
+                    entity_id,
+                )
+            except Exception as e:
+                _LOGGER.warning(
+                    "Failed to set HVAC mode '%s' for %s: %s — will proceed with turn_on",
+                    self.coordinator.season_mode,
                     entity_id,
                     e,
                 )
-                try:
-                    await self.coordinator.hass.services.async_call(
-                        "climate",
-                        service,
-                        {"entity_id": entity_id},
-                        blocking=True,
-                    )
-                    _LOGGER.warning(
-                        "Primary service %s.%s failed for %s — used climate.%s as fallback",
-                        domain,
-                        service,
-                        entity_id,
-                        service,
-                    )
-                except Exception as e:
-                    _LOGGER.exception(
-                        "Fallback climate.%s failed for %s: %s", service, entity_id, e
-                    )
-                    return
-            # After turning on, check and set hvac_mode if needed
-            # Wait briefly for state to update
-            await asyncio.sleep(CLIMATE_STATE_UPDATE_DELAY)
-            state = self.coordinator.hass.states.get(entity_id)
-            desired_mode = getattr(self.coordinator, "season_mode", "cool")
-            if state:
-                current_mode = state.attributes.get("hvac_mode")
-                if current_mode != desired_mode:
-                    await self.coordinator.hass.services.async_call(
-                        "climate",
-                        "set_hvac_mode",
-                        {"entity_id": entity_id, "hvac_mode": desired_mode},
-                        blocking=True,
-                    )
-            return
 
-        # Non-climate or turn_off: original logic
         try:
             await self.coordinator.hass.services.async_call(
                 domain,

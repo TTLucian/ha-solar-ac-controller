@@ -211,11 +211,9 @@ class SolarACConfidenceThresholdSensor(_BaseSolarACSensor):
     @property
     def extra_state_attributes(self) -> dict:
         return {
-            "add_threshold": getattr(
-                self.coordinator, "add_confidence_threshold", None
-            ),
+            "add_threshold": getattr(self.coordinator, "unified_add_threshold", None),
             "remove_threshold": getattr(
-                self.coordinator, "remove_confidence_threshold", None
+                self.coordinator, "unified_remove_threshold", None
             ),
         }
 

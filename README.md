@@ -89,7 +89,7 @@ Exposes **20+ sensors and binary sensors** showing EMAs, confidence scores, zone
 - **EMA 30s** — 30-second exponential moving average of grid power
 - **EMA 5m** — 5-minute exponential moving average of grid power
 - **Confidence** — Current decision confidence score (points)
-- **Confidence Thresholds** — Shows add/remove confidence thresholds as attributes
+- **Confidence Thresholds** — Shows unified add/remove confidence thresholds as attributes
 - **Required Export** — Minimum export needed to add the next zone
 - **Export Margin** — Current export headroom above required export
 - **Import Power** — Current import power (mirrors EMA 5m)
@@ -216,8 +216,8 @@ Add the integration via:
 - **Short cycle ON seconds** (default: 1200s) — Minimum ON time before allowing OFF
 - **Short cycle OFF seconds** (default: 20s) — Minimum OFF time before allowing ON
 - **Action delay seconds** (default: 3s) — Delay between consecutive service calls
-- **Add confidence** (default: 25 points) — Minimum confidence to add zones
-- **Remove confidence** (default: 10 points) — Minimum negative confidence to remove zones
+- **Unified add threshold** (default: 20 points) — Add zones when unified confidence >= this value
+- **Unified remove threshold** (default: 10 points) — Remove zones when unified confidence <= this value
 - **Initial learned power** (default: 1000W) — Bootstrap estimate before learning completes
 - **Max temperature winter** (default: 21C) — Comfort target for zones in heat mode
 - **Min temperature summer** (default: 21C) — Comfort target for zones in cool mode
@@ -247,8 +247,8 @@ When launched via Reconfigure, the form now pre-fills with your existing data+op
 
 ### Decision Engine Parameters
 
-- **`add_confidence`** — Minimum confidence score to add zones (default: 25 points)
-- **`remove_confidence`** — Negative confidence threshold to remove zones (default: 10 points)
+- **`unified_add_threshold`** — Add zones when unified confidence >= this value (default: 20 points)
+- **`unified_remove_threshold`** — Remove zones when unified confidence <= this value (default: 10 points)
 - **`initial_learned_power`** — Bootstrap estimate before learning completes (default: 1000W)
 
 ### Diagnostics

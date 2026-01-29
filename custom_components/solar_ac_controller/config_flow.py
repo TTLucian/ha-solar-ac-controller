@@ -11,7 +11,6 @@ from .const import (
     CONF_AC_POWER_SENSOR,
     CONF_AC_SWITCH,
     CONF_ACTION_DELAY_SECONDS,
-    CONF_ADD_CONFIDENCE,
     CONF_ENABLE_DIAGNOSTICS_SENSOR,
     CONF_ENABLE_TEMP_MODULATION,
     CONF_GRID_SENSOR,
@@ -21,17 +20,17 @@ from .const import (
     CONF_MIN_TEMP_SUMMER,
     CONF_PANIC_DELAY,
     CONF_PANIC_THRESHOLD,
-    CONF_REMOVE_CONFIDENCE,
     CONF_SHORT_CYCLE_OFF_SECONDS,
     CONF_SHORT_CYCLE_ON_SECONDS,
     CONF_SOLAR_SENSOR,
     CONF_SOLAR_THRESHOLD_OFF,
     CONF_SOLAR_THRESHOLD_ON,
+    CONF_UNIFIED_ADD_THRESHOLD,
+    CONF_UNIFIED_REMOVE_THRESHOLD,
     CONF_ZONE_MANUAL_POWER,
     CONF_ZONE_TEMP_SENSORS,
     CONF_ZONES,
     DEFAULT_ACTION_DELAY_SECONDS,
-    DEFAULT_ADD_CONFIDENCE,
     DEFAULT_ENABLE_TEMP_MODULATION,
     DEFAULT_INITIAL_LEARNED_POWER,
     DEFAULT_MANUAL_LOCK_SECONDS,
@@ -39,11 +38,12 @@ from .const import (
     DEFAULT_MIN_TEMP_SUMMER,
     DEFAULT_PANIC_DELAY,
     DEFAULT_PANIC_THRESHOLD,
-    DEFAULT_REMOVE_CONFIDENCE,
     DEFAULT_SHORT_CYCLE_OFF_SECONDS,
     DEFAULT_SHORT_CYCLE_ON_SECONDS,
     DEFAULT_SOLAR_THRESHOLD_OFF,
     DEFAULT_SOLAR_THRESHOLD_ON,
+    DEFAULT_UNIFIED_ADD_THRESHOLD,
+    DEFAULT_UNIFIED_REMOVE_THRESHOLD,
     DOMAIN,
 )
 
@@ -164,13 +164,19 @@ def schema_user(defaults):
                 ),
             ): int,
             vol.Optional(
-                CONF_ADD_CONFIDENCE,
-                default=int(defaults.get(CONF_ADD_CONFIDENCE, DEFAULT_ADD_CONFIDENCE)),
+                CONF_UNIFIED_ADD_THRESHOLD,
+                default=int(
+                    defaults.get(
+                        CONF_UNIFIED_ADD_THRESHOLD, DEFAULT_UNIFIED_ADD_THRESHOLD
+                    )
+                ),
             ): int,
             vol.Optional(
-                CONF_REMOVE_CONFIDENCE,
+                CONF_UNIFIED_REMOVE_THRESHOLD,
                 default=int(
-                    defaults.get(CONF_REMOVE_CONFIDENCE, DEFAULT_REMOVE_CONFIDENCE)
+                    defaults.get(
+                        CONF_UNIFIED_REMOVE_THRESHOLD, DEFAULT_UNIFIED_REMOVE_THRESHOLD
+                    )
                 ),
             ): int,
             vol.Optional(

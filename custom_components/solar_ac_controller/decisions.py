@@ -5,7 +5,21 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from .const import CONF_ZONES
+from .const import (
+    CONF_ZONES,
+    DECISION_ADD_CONFIDENCE_BASE_MAX,
+    DECISION_CONFIDENCE_OFFSET,
+    DECISION_EXPORT_MARGIN_DIVISOR,
+    DECISION_HEAVY_IMPORT_BONUS,
+    DECISION_HEAVY_IMPORT_THRESHOLD,
+    DECISION_IMPORT_BASE_OFFSET,
+    DECISION_IMPORT_DIVISOR,
+    DECISION_REMOVE_BASE_MAX,
+    DECISION_SAMPLE_BONUS_MAX,
+    DECISION_SAMPLE_BONUS_MULTIPLIER,
+    DECISION_SHORT_CYCLE_PENALTY_ADD,
+    DECISION_SHORT_CYCLE_PENALTY_REMOVE,
+)
 
 if TYPE_CHECKING:
     from .coordinator import SolarACCoordinator
@@ -39,11 +53,21 @@ class DecisionEngine:
 
         export_margin = export_val - required_export_val
 
-        base = min(40, max(0, export_margin / 25))
-        sample_bonus = min(20, self.coordinator.samples * 2)
-        short_cycle_penalty = -30 if self._is_short_cycling_for_add(last_zone) else 0
+        base = min(
+            DECISION_ADD_CONFIDENCE_BASE_MAX,
+            max(0.0, export_margin / DECISION_EXPORT_MARGIN_DIVISOR),
+        )
+        sample_bonus = min(
+            DECISION_SAMPLE_BONUS_MAX,
+            self.coordinator.samples * DECISION_SAMPLE_BONUS_MULTIPLIER,
+        )
+        short_cycle_penalty = (
+            DECISION_SHORT_CYCLE_PENALTY_ADD
+            if self._is_short_cycling_for_add(last_zone)
+            else 0.0
+        )
 
-        return base + 5 + sample_bonus + short_cycle_penalty
+        return base + DECISION_CONFIDENCE_OFFSET + sample_bonus + short_cycle_penalty
 
     def compute_remove_conf(
         self,
@@ -57,15 +81,33 @@ class DecisionEngine:
         if import_power >= self.coordinator.panic_threshold:
             return 100.0
 
-        base = min(60, max(0, (import_power - 200) / 8))
-        heavy_import_bonus = 20 if import_power > 1500 else 0
-        short_cycle_penalty = -40 if self._is_short_cycling_for_remove(last_zone) else 0
+        base = min(
+            DECISION_REMOVE_BASE_MAX,
+            max(
+                0.0,
+                (import_power - DECISION_IMPORT_BASE_OFFSET) / DECISION_IMPORT_DIVISOR,
+            ),
+        )
+        heavy_import_bonus = (
+            DECISION_HEAVY_IMPORT_BONUS
+            if import_power > DECISION_HEAVY_IMPORT_THRESHOLD
+            else 0.0
+        )
+        short_cycle_penalty = (
+            DECISION_SHORT_CYCLE_PENALTY_REMOVE
+            if self._is_short_cycling_for_remove(last_zone)
+            else 0.0
+        )
 
-        return base + 5 + heavy_import_bonus + short_cycle_penalty
+        return (
+            base + DECISION_CONFIDENCE_OFFSET + heavy_import_bonus + short_cycle_penalty
+        )
 
-    def should_add_zone(self, next_zone: str, required_export: float | None) -> bool:
+    async def should_add_zone(
+        self, next_zone: str, required_export: float | None
+    ) -> bool:
         """Return True if add zone conditions are met."""
-        if self.coordinator.learning_active:
+        if await self.coordinator.controller.is_learning_active():
             return False
 
         if self.coordinator.ema_5m > -200:
@@ -77,11 +119,9 @@ class DecisionEngine:
             if current_export < required_export:
                 return False
 
-        return (
-            self.coordinator.last_add_conf >= self.coordinator.add_confidence_threshold
-        )
+        return self.coordinator.confidence >= self.coordinator.unified_add_threshold
 
-    def should_remove_zone(
+    async def should_remove_zone(
         self, last_zone: str, import_power: float, active_zones: list[str]
     ) -> bool:
         """
@@ -90,10 +130,7 @@ class DecisionEngine:
         Only checks remove confidence - comfort targets are ignored to allow
         aggressive zone removal based on power conditions alone.
         """
-        if (
-            self.coordinator.last_remove_conf
-            < self.coordinator.remove_confidence_threshold
-        ):
+        if self.coordinator.confidence > self.coordinator.unified_remove_threshold:
             return False
 
         # Allow removal during panic (emergency override)
@@ -137,7 +174,9 @@ class DecisionEngine:
         """Check if zone is short-cycling (for remove penalty)."""
         return self._is_short_cycling_for_add(zone)
 
-    def should_swap_zone(self, satisfied_zone: str, import_power: float) -> str | None:
+    async def should_swap_zone(
+        self, satisfied_zone: str, import_power: float
+    ) -> str | None:
         """
         Check if we should swap a satisfied zone with a higher-priority needy zone.
 
@@ -146,9 +185,9 @@ class DecisionEngine:
         # Only swap when confidence is in balanced range (won't add or remove zones)
         # This allows optimization without changing net zone count
         if not (
-            self.coordinator.remove_confidence_threshold
-            <= self.coordinator.confidence
-            < self.coordinator.add_confidence_threshold
+            self.coordinator.unified_remove_threshold
+            < self.coordinator.confidence
+            < self.coordinator.unified_add_threshold
         ):
             return None
 

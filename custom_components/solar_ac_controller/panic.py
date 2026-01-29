@@ -8,14 +8,12 @@ from typing import TYPE_CHECKING
 
 from homeassistant.util import dt as dt_util
 
-from .const import CONF_AC_SWITCH
+from .const import CONF_AC_SWITCH, PANIC_COOLDOWN_SECONDS
 
 if TYPE_CHECKING:
     from .coordinator import SolarACCoordinator
 
 _LOGGER = logging.getLogger(__name__)
-
-_PANIC_COOLDOWN_SECONDS = 120
 
 
 class PanicManager:
@@ -23,6 +21,7 @@ class PanicManager:
 
     def __init__(self, coordinator: "SolarACCoordinator") -> None:
         self.coordinator = coordinator
+        self._cancel_requested = False
 
     @property
     def is_panicking(self) -> bool:
@@ -47,7 +46,22 @@ class PanicManager:
         now_ts = dt_util.utcnow().timestamp()
         if self.coordinator.last_panic_ts is None:
             return False
-        return (now_ts - self.coordinator.last_panic_ts) < _PANIC_COOLDOWN_SECONDS
+        return (now_ts - self.coordinator.last_panic_ts) < PANIC_COOLDOWN_SECONDS
+
+    async def cancel_panic(self) -> None:
+        """Request panic cancellation and cancel any running panic task."""
+        self._cancel_requested = True
+        if self.coordinator._panic_task and not self.coordinator._panic_task.done():
+            self.coordinator._panic_task.cancel()
+            try:
+                await self.coordinator._panic_task
+            except asyncio.CancelledError:
+                # Expected during cooperative cancellation
+                pass
+            except Exception as exc:
+                _LOGGER.debug("Error during panic task cancellation: %s", exc)
+            finally:
+                self.coordinator._panic_task = None
 
     async def schedule_panic(self, active_zones: list[str]) -> None:
         """Schedule panic task if not already running."""
@@ -59,6 +73,8 @@ class PanicManager:
                 f"zones={active_zones}"
             )
             if not self.coordinator._panic_task or self.coordinator._panic_task.done():
+                # Reset any previous cancellation request when starting a new panic
+                self._cancel_requested = False
                 self.coordinator._panic_task = self.coordinator.hass.async_create_task(
                     self._panic_task_runner(active_zones)
                 )
@@ -67,7 +83,7 @@ class PanicManager:
         """Shed all but the first active zone during panic."""
         start = dt_util.utcnow().timestamp()
         for zone in active_zones[1:]:
-            await self.coordinator._call_entity_service(zone, False)
+            await self.coordinator.action_executor.call_entity_service(zone, False)
             await asyncio.sleep(self.coordinator.action_delay_seconds)
         end = dt_util.utcnow().timestamp()
         self.coordinator.last_action_start_ts = start
@@ -78,6 +94,9 @@ class PanicManager:
         try:
             if self.coordinator.panic_delay > 0:
                 await asyncio.sleep(self.coordinator.panic_delay)
+                if self._cancel_requested:
+                    _LOGGER.debug("Panic task cancelled during delay before shedding")
+                    return
 
             # If master turned off during delay, abort
             ac_switch = self.coordinator.config.get(CONF_AC_SWITCH)
@@ -88,6 +107,10 @@ class PanicManager:
                         "[PANIC_ABORTED] master switch turned off during panic delay"
                     )
                     return
+
+            if self._cancel_requested:
+                _LOGGER.debug("Panic task cancelled before evaluating panic condition")
+                return
 
             if self.coordinator.ema_30s > self.coordinator.panic_threshold:
                 await self._panic_shed(active_zones)

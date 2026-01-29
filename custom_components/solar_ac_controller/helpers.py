@@ -6,6 +6,156 @@ from typing import Any, Dict, List
 from homeassistant.util import dt as dt_util
 
 
+def short_entity_name(entity_id: str) -> str:
+    """Extract the short name from an entity ID (e.g., 'climate.zone1' -> 'zone1')."""
+    return entity_id.split(".")[-1]
+
+
+class EmaTracker:
+    """Tracks EMA values for power metrics."""
+
+    def __init__(self, alpha_30s: float, alpha_5m: float) -> None:
+        self.alpha_30s = alpha_30s
+        self.alpha_5m = alpha_5m
+        self.ema_30s = 0.0
+        self.ema_5m = 0.0
+
+    def update(self, value: float) -> tuple[float, float]:
+        """Update EMA values with new measurement."""
+        self.ema_30s = self.alpha_30s * value + (1 - self.alpha_30s) * self.ema_30s
+        self.ema_5m = self.alpha_5m * value + (1 - self.alpha_5m) * self.ema_5m
+        return self.ema_30s, self.ema_5m
+
+    def reset(self) -> None:
+        """Reset EMA values to zero."""
+        self.ema_30s = 0.0
+        self.ema_5m = 0.0
+
+    @property
+    def current_30s(self) -> float:
+        return self.ema_30s
+
+    @property
+    def current_5m(self) -> float:
+        return self.ema_5m
+
+
+class MasterSwitchController:
+    """Handles master AC switch auto-control logic."""
+
+    def __init__(self, coordinator: Any) -> None:
+        self.coordinator = coordinator
+
+    async def handle_master_switch(self, solar: float, cycle_start: Any) -> None:
+        """Master relay control with sticky manual lock until natural solar cycle aligns."""
+        ac_switch = self.coordinator.config_manager.get("ac_switch")
+        if not ac_switch:
+            return
+
+        try:
+            on_threshold = self.coordinator.config_manager.get_float(
+                "solar_threshold_on", 1200.0
+            )
+        except (TypeError, ValueError):
+            on_threshold = 1200.0
+
+        try:
+            off_threshold = self.coordinator.config_manager.get_float(
+                "solar_threshold_off", 800.0
+            )
+        except (TypeError, ValueError):
+            off_threshold = 800.0
+
+        switch_state_obj = self.coordinator.hass.states.get(ac_switch)
+        if not switch_state_obj:
+            return
+
+        switch_state = switch_state_obj.state
+
+        # Detect manual changes (state changed without recent coordinator action)
+        if (
+            self.coordinator.master_last_state is not None
+            and switch_state != self.coordinator.master_last_state
+        ):
+            now = dt_util.utcnow().timestamp()
+            # If no recent coordinator action (within 10s), it's a manual change
+            if (
+                self.coordinator.master_last_action_time is None
+                or (now - self.coordinator.master_last_action_time) > 10
+            ):
+                self.coordinator.master_manual_lock_state = switch_state
+                await self.coordinator._log(
+                    f"[MASTER_MANUAL_LOCK] detected manual change to {switch_state}, locking until natural cycle aligns"
+                )
+
+        # Check if lock should be released
+        if self.coordinator.master_manual_lock_state is not None:
+            # Release lock if locked ON and solar would naturally turn it ON
+            if (
+                self.coordinator.master_manual_lock_state == "on"
+                and solar >= on_threshold
+            ):
+                await self.coordinator._log(
+                    f"[MASTER_LOCK_RELEASE] solar={round(solar)} >= threshold_on={on_threshold}, resuming auto-control"
+                )
+                self.coordinator.master_manual_lock_state = None
+            # Release lock if locked OFF and solar would naturally turn it OFF
+            elif (
+                self.coordinator.master_manual_lock_state == "off"
+                and solar <= off_threshold
+            ):
+                await self.coordinator._log(
+                    f"[MASTER_LOCK_RELEASE] solar={round(solar)} <= threshold_off={off_threshold}, resuming auto-control"
+                )
+                self.coordinator.master_manual_lock_state = None
+            else:
+                # Still locked, skip auto-control
+                self.coordinator.master_last_state = switch_state
+                return
+
+        # Update last known state
+        self.coordinator.master_last_state = switch_state
+
+        # Normal auto-control (only when not locked)
+        # Turn ON when solar is above or equal to ON threshold
+        if solar >= on_threshold and switch_state == "off":
+            await self.coordinator._log(
+                f"[MASTER_ON] solar={round(solar)}W >= threshold_on={on_threshold}W, "
+                f"turning AC master switch ON"
+            )
+            await self.coordinator.hass.services.async_call(
+                "switch",
+                "turn_on",
+                {"entity_id": ac_switch},
+                blocking=True,
+            )
+            self.coordinator.last_action = "master_on"
+            self.coordinator.master_last_action_time = dt_util.utcnow().timestamp()
+            # reset master_off_since when turned on
+            self.coordinator.master_off_since = None
+            return
+
+        # Turn OFF when solar is below or equal to OFF threshold
+        if solar <= off_threshold and switch_state == "on":
+            await self.coordinator._log(
+                f"[MASTER_OFF_TRIGGER] solar={round(solar)}W <= threshold_off={off_threshold}W, "
+                f"turning AC master switch OFF"
+            )
+            await self.coordinator.hass.services.async_call(
+                "switch",
+                "turn_off",
+                {"entity_id": ac_switch},
+                blocking=True,
+            )
+            self.coordinator.last_action = "master_off"
+            self.coordinator.master_last_action_time = dt_util.utcnow().timestamp()
+            # mark master_off_since for EMA reset logic
+            self.coordinator.master_off_since = dt_util.utcnow().timestamp()
+            # Record cycle end since we're returning early
+            self.coordinator.metrics.record_cycle_end(cycle_start, success=True)
+            return
+
+
 def _safe_float(val: Any, default: float | None = None) -> float | None:
     """Safely convert a value to float, or return default if conversion fails."""
     try:

@@ -106,19 +106,6 @@ class ZoneManager:
 
         return next_zone, last_zone
 
-    def _select_next_by_temperature(
-        self, all_zones: list[str], active_zones: list[str]
-    ) -> str | None:
-        """
-        DEPRECATED: Zone add no longer uses temperature prioritization.
-        Kept for reference only; select_next_and_last_zone now always uses config order.
-        """
-        # This method is no longer called but kept to avoid breaking imports
-        return next(
-            (z for z in all_zones if z not in active_zones and not self.is_locked(z)),
-            None,
-        )
-
     def _select_last_by_temperature(self, active_zones: list[str]) -> str | None:
         """
         Select zone to remove based on comfort achievement.

@@ -38,9 +38,9 @@ CONF_SHORT_CYCLE_ON_SECONDS = "short_cycle_on_seconds"
 CONF_SHORT_CYCLE_OFF_SECONDS = "short_cycle_off_seconds"
 CONF_ACTION_DELAY_SECONDS = "action_delay_seconds"
 
-# Unified confidence thresholds (points)
-CONF_ADD_CONFIDENCE = "add_confidence"
-CONF_REMOVE_CONFIDENCE = "remove_confidence"
+# Unified confidence thresholds (points) - hysteresis system
+CONF_UNIFIED_ADD_THRESHOLD = "unified_add_threshold"
+CONF_UNIFIED_REMOVE_THRESHOLD = "unified_remove_threshold"
 
 # Learning system
 CONF_INITIAL_LEARNED_POWER = "initial_learned_power"
@@ -71,8 +71,8 @@ DEFAULT_SHORT_CYCLE_ON_SECONDS = 1200  # seconds
 DEFAULT_SHORT_CYCLE_OFF_SECONDS = 20  # seconds
 DEFAULT_ACTION_DELAY_SECONDS = 3  # seconds
 
-DEFAULT_ADD_CONFIDENCE = 25
-DEFAULT_REMOVE_CONFIDENCE = 10
+DEFAULT_UNIFIED_ADD_THRESHOLD = 10
+DEFAULT_UNIFIED_REMOVE_THRESHOLD = -10
 
 # Learning configuration
 LEARNING_TIMEOUT_SECONDS = 360
@@ -87,6 +87,15 @@ ZONE_SWAP_MIN_INTERVAL_SECONDS = 300
 # Climate state delays
 CLIMATE_STATE_UPDATE_DELAY = 0.2
 
+# EMA configuration
+EMA_30S_ALPHA = 0.25
+EMA_5M_ALPHA = 0.03
+EMA_10M_ALPHA = 0.1
+EMA_RESET_AFTER_OFF_SECONDS = 600
+
+# Panic / safety configuration
+PANIC_COOLDOWN_SECONDS = 120
+
 # Comfort temperature targets (C) - 0.1 increment precision
 DEFAULT_MAX_TEMP_WINTER = 21.0
 DEFAULT_MIN_TEMP_SUMMER = 21.0
@@ -100,6 +109,22 @@ STORAGE_KEY = "solar_ac_controller"
 # Bumped storage version to support migration to per-mode learned_power structure.
 # Increment this integer whenever the on-disk schema changes and implement a corresponding migration.
 STORAGE_VERSION = 3
+
+# Decision engine tuning constants
+DECISION_EXPORT_MARGIN_DIVISOR = 25.0
+DECISION_ADD_CONFIDENCE_BASE_MAX = 40.0
+DECISION_SAMPLE_BONUS_MULTIPLIER = 2.0
+DECISION_SAMPLE_BONUS_MAX = 20.0
+DECISION_SHORT_CYCLE_PENALTY_ADD = -30.0
+
+DECISION_REMOVE_BASE_MAX = 60.0
+DECISION_IMPORT_BASE_OFFSET = 200.0
+DECISION_IMPORT_DIVISOR = 8.0
+DECISION_HEAVY_IMPORT_THRESHOLD = 1500.0
+DECISION_HEAVY_IMPORT_BONUS = 20.0
+DECISION_SHORT_CYCLE_PENALTY_REMOVE = -40.0
+
+DECISION_CONFIDENCE_OFFSET = 5.0
 
 # Type definitions for better type safety
 SolarACData = dict[str, Any]  # Can contain both entry data and service flags
