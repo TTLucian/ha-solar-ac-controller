@@ -295,6 +295,10 @@ class SolarACDiagnosticEntity(_BaseSolarACSensor):
     @property
     def native_value(self) -> str:
         """Show meaningful state changes for logbook when activity logging is enabled, avoid noise from fluctuating values."""
+        # If integration is disabled, don't log to avoid logbook entries
+        if not getattr(self.coordinator, "integration_enabled", True):
+            return "integration_disabled_quiet"
+
         # If activity logging is disabled, don't change state to avoid logbook spam
         if not getattr(self.coordinator, "activity_logging_enabled", False):
             return "activity_logging_disabled"
@@ -304,7 +308,12 @@ class SolarACDiagnosticEntity(_BaseSolarACSensor):
 
         # For stable states like "solar_too_low", don't include fluctuating details in state
         # This prevents excessive logbook entries from minor solar power variations
-        stable_states = {"solar_too_low", "idle", "balanced"}
+        stable_states = {
+            "solar_too_low",
+            "idle",
+            "balanced",
+            "integration_disabled_quiet",
+        }
 
         if last_action in stable_states:
             return last_action
