@@ -444,6 +444,38 @@ class SolarACConfigFlow(ConfigFlow, domain=DOMAIN):
         return await self.async_step_user(user_input)
 
     @staticmethod
+    async def async_migrate_entry(
+        hass: HomeAssistant, config_entry: ConfigEntry
+    ) -> bool:
+        """Migrate config entry from version 1 to 2."""
+        if config_entry.version == 1:
+            # Migration from v1 to v2: Replace separate add_confidence/remove_confidence
+            # with unified_add_threshold/unified_remove_threshold
+            data = dict(config_entry.data)
+
+            # Check if old keys exist
+            old_add_conf = data.pop("add_confidence", None)
+            old_remove_conf = data.pop("remove_confidence", None)
+
+            if old_add_conf is not None and old_remove_conf is not None:
+                # Convert old separate confidence values to unified thresholds
+                # The unified system uses: unified_conf = add_conf - remove_conf
+                # Decision: add if unified_conf >= add_threshold, remove if unified_conf <= remove_threshold
+                # For migration, we'll use the difference as the threshold values
+                # This preserves the hysteresis behavior
+                data[CONF_UNIFIED_ADD_THRESHOLD] = old_add_conf - old_remove_conf
+                data[CONF_UNIFIED_REMOVE_THRESHOLD] = old_remove_conf - old_add_conf
+            else:
+                # Fallback to defaults if old values not found
+                data[CONF_UNIFIED_ADD_THRESHOLD] = DEFAULT_UNIFIED_ADD_THRESHOLD
+                data[CONF_UNIFIED_REMOVE_THRESHOLD] = DEFAULT_UNIFIED_REMOVE_THRESHOLD
+
+            hass.config_entries.async_update_entry(config_entry, data=data, version=2)
+            return True
+
+        return False
+
+    @staticmethod
     @callback
     def async_get_options_flow(config_entry: ConfigEntry):
         return SolarACOptionsFlowHandler(config_entry)
