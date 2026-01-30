@@ -201,8 +201,9 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         # Initialize zone mappings
         self._init_zone_mappings()
 
-        # Initialize learned data from storage
-        self._init_learned_data(stored)
+        # Validate configuration once during initialization (after zone mappings are set up)
+        self._validate_configuration()
+        self._config_validated = True
 
         # Initialize runtime state
         self._init_runtime_state()
@@ -450,9 +451,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             CONF_INITIAL_LEARNED_POWER, DEFAULT_INITIAL_LEARNED_POWER
         )
 
-        # Validate configuration once during initialization
-        self._validate_configuration()
-        self._config_validated = True
+        # Configuration validation moved to _init_core_components after zone mappings
 
     def _init_zone_mappings(self) -> None:
         """Initialize zone-related mappings."""
