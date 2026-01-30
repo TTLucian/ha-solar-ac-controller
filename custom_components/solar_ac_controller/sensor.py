@@ -109,7 +109,7 @@ class _BaseSolarACSensor(SensorEntity):
             self._unsub = self.coordinator.async_add_listener(
                 self._smart_write_ha_state
             )
-        except Exception:
+        except (AttributeError, TypeError):
             await self._smart_write_ha_state()
 
     async def async_will_remove_from_hass(self) -> None:
@@ -366,5 +366,5 @@ class SolarACDiagnosticEntity(_BaseSolarACSensor):
         """
         try:
             return build_diagnostics(self.coordinator)
-        except Exception as exc:
+        except (AttributeError, TypeError, ValueError, KeyError) as exc:
             return {"diagnostics_error": str(exc)}

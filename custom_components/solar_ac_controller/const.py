@@ -87,6 +87,9 @@ LEARNING_MAX_POWER_W = 3000.0
 LEARNING_RELATIVE_TOLERANCE = 0.5
 LEARNING_EMA_ALPHA = 0.3
 
+# Grid import tolerance for zone additions (allows some grid import when adding zones)
+GRID_IMPORT_TOLERANCE_W = 350.0  # Allow up to 350W grid import when adding zones
+
 # Zone swap configuration
 ZONE_SWAP_MIN_INTERVAL_SECONDS = 300
 

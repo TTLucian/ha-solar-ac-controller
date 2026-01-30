@@ -33,14 +33,14 @@ class ActionExecutor:
             return
 
         await self.coordinator._log(
-            f"[ZONE_ADD_ATTEMPT] zone={next_zone} "
-            f"unified_conf={round(self.coordinator.confidence)} "
-            f"(add={round(self.coordinator.last_add_conf)}, remove={round(self.coordinator.last_remove_conf)}) "
-            f"export={round(export)} req_export={round(required_export)} samples={self.coordinator.samples} "
-            f"threshold={self.coordinator.unified_add_threshold}"
+            f"Activating zone '{next_zone.split('.')[-1]}' - "
+            f"confidence score {round(self.coordinator.confidence, 1)} meets activation threshold, "
+            f"solar export {round(export)}W available, "
+            f"requires {round(required_export)}W, "
+            f"based on {self.coordinator.samples} power samples"
         )
 
-        await self.add_zone(next_zone, ac_power_before)
+        await self.add_zone_without_learning(next_zone, ac_power_before)
         self.coordinator.last_action = f"add_{next_zone}"
 
     async def attempt_remove_zone(
@@ -55,11 +55,10 @@ class ActionExecutor:
         zone_mgr = self.coordinator.zone_manager
 
         await self.coordinator._log(
-            f"[ZONE_REMOVE_ATTEMPT] zone={last_zone} "
-            f"unified_conf={round(self.coordinator.confidence)} "
-            f"(add={round(self.coordinator.last_add_conf)}, remove={round(self.coordinator.last_remove_conf)}) "
-            f"import={round(import_power)} short_cycling={zone_mgr.is_short_cycling(last_zone)} "
-            f"threshold={self.coordinator.unified_remove_threshold}"
+            f"Deactivating zone '{last_zone.split('.')[-1]}' - "
+            f"confidence score {round(self.coordinator.confidence, 1)} below deactivation threshold, "
+            f"grid import {round(import_power)}W, "
+            f"short cycling protection: {zone_mgr.is_short_cycling(last_zone)}"
         )
         await self.remove_zone(last_zone)
         self.coordinator.last_action = f"remove_{last_zone}"
@@ -68,8 +67,9 @@ class ActionExecutor:
         """Start learning and turn on zone."""
         if await self.coordinator.controller.is_learning_active():
             await self.coordinator._log(
-                f"[LEARNING_SKIPPED_ALREADY_ACTIVE] zone={zone} "
-                f"current_zone={self.coordinator.learning_zone}"
+                f"Power learning for '{zone.split('.')[-1]}' skipped - "
+                f"another zone ('{self.coordinator.learning_zone.split('.')[-1] if self.coordinator.learning_zone else 'unknown'}') "
+                f"is currently being measured"
             )
             return
 
@@ -86,6 +86,11 @@ class ActionExecutor:
             self.coordinator.zone_last_changed[zone] = now_ts
             self.coordinator.zone_last_changed_type[zone] = "on"
 
+        # Notify learning session of zone addition (for contamination detection)
+        await self.coordinator.controller.session.notify_zone_added_during_learning(
+            zone
+        )
+
         # Check for cancellation before delay
         if self.coordinator.hass.is_stopping:
             return
@@ -93,8 +98,38 @@ class ActionExecutor:
         await asyncio.sleep(self.coordinator.action_delay_seconds)
 
         await self.coordinator._log(
-            f"[LEARNING_START] zone={zone} ac_before={round(ac_power_before)} "
-            f"samples={self.coordinator.samples}"
+            f"Learning power consumption for zone '{zone.split('.')[-1]}' - "
+            f"AC power before activation: {round(ac_power_before)}W, "
+            f"will measure power increase to determine zone requirements"
+        )
+
+    async def add_zone_without_learning(
+        self, zone: str, ac_power_before: float
+    ) -> None:
+        """Turn on zone without starting learning (for multi-zone additions)."""
+        start = dt_util.utcnow().timestamp()
+        try:
+            await self.call_entity_service(zone, True)
+        finally:
+            now_ts = dt_util.utcnow().timestamp()
+            self.coordinator.last_action_start_ts = start
+            self.coordinator.last_action_duration = now_ts - start
+            self.coordinator.zone_last_changed[zone] = now_ts
+            self.coordinator.zone_last_changed_type[zone] = "on"
+
+        # Notify learning session of zone addition (for contamination detection)
+        await self.coordinator.controller.session.notify_zone_added_during_learning(
+            zone
+        )
+
+        # Check for cancellation before delay
+        if self.coordinator.hass.is_stopping:
+            return
+
+        await asyncio.sleep(self.coordinator.action_delay_seconds)
+
+        await self.coordinator._log(
+            f"Activating zone '{zone.split('.')[-1]}' using previously learned power consumption data"
         )
 
     async def remove_zone(self, zone: str) -> None:
@@ -116,7 +151,8 @@ class ActionExecutor:
         await asyncio.sleep(self.coordinator.action_delay_seconds)
 
         await self.coordinator._log(
-            f"[ZONE_REMOVE_SUCCESS] zone={zone} import_after={round(self.coordinator.ema_5m)}"
+            f"Zone '{zone.split('.')[-1]}' deactivated successfully - "
+            f"grid import now {round(self.coordinator.ema_5m)}W"
         )
 
     async def call_entity_service(self, entity_id: str, turn_on: bool) -> None:
@@ -142,7 +178,7 @@ class ActionExecutor:
                     self.coordinator.season_mode,
                     entity_id,
                 )
-            except Exception as e:
+            except (ValueError, TypeError, AttributeError, KeyError) as e:
                 _LOGGER.warning(
                     "Failed to set HVAC mode '%s' for %s: %s — will proceed with turn_on",
                     self.coordinator.season_mode,
@@ -158,7 +194,7 @@ class ActionExecutor:
                 blocking=True,
             )
             return
-        except Exception as e:
+        except (ValueError, TypeError, AttributeError, KeyError) as e:
             _LOGGER.debug(
                 "Primary service %s.%s failed for %s: %s",
                 domain,
@@ -182,7 +218,7 @@ class ActionExecutor:
                 service,
             )
             return
-        except Exception as e:
+        except (ValueError, TypeError, AttributeError, KeyError) as e:
             _LOGGER.exception(
                 "Fallback climate.%s failed for %s: %s", service, entity_id, e
             )

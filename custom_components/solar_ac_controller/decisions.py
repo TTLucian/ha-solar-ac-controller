@@ -19,6 +19,7 @@ from .const import (
     DECISION_SAMPLE_BONUS_MULTIPLIER,
     DECISION_SHORT_CYCLE_PENALTY_ADD,
     DECISION_SHORT_CYCLE_PENALTY_REMOVE,
+    GRID_IMPORT_TOLERANCE_W,
 )
 
 if TYPE_CHECKING:
@@ -113,13 +114,60 @@ class DecisionEngine:
         if self.coordinator.ema_5m > -200:
             return False
 
-        # Check if we have sufficient export capacity
+        # Check if we have sufficient export capacity (with grid import tolerance)
         if required_export is not None:
             current_export = -self.coordinator.ema_30s  # Convert to positive export
-            if current_export < required_export:
+            # Allow zone addition if export is sufficient or grid import is within tolerance
+            min_required_export = required_export - GRID_IMPORT_TOLERANCE_W
+            if current_export < min_required_export:
                 return False
 
         return self.coordinator.confidence >= self.coordinator.unified_add_threshold
+
+    def is_solar_abundant(
+        self, current_export: float, next_required_export: float | None
+    ) -> bool:
+        """Check if solar power is abundant enough for aggressive zone additions."""
+        if next_required_export is None:
+            return False
+
+        # Consider solar abundant if we have 1000W+ margin above next zone requirement
+        # This allows quick addition of multiple zones during solar spikes
+        SOLAR_ABUNDANCE_MARGIN_W = 1000.0
+        return current_export >= (next_required_export + SOLAR_ABUNDANCE_MARGIN_W)
+
+    async def should_add_multiple_zones(
+        self, available_zones: list[str], current_export: float, active_zones: list[str]
+    ) -> list[str]:
+        """Return list of zones to add when solar is abundant."""
+        zones_to_add = []
+        remaining_export = current_export
+
+        for zone in available_zones:
+            if not zone or zone in active_zones:
+                continue
+
+            # Check short cycling for this specific zone
+            if self._is_short_cycling_for_add(zone):
+                continue
+
+            # Get power requirement for this zone
+            zone_name = zone.split(".")[-1]
+            learned_power = self.coordinator.get_learned_power(
+                zone_name, self.coordinator.season_mode
+            )
+            if learned_power <= 0:
+                continue
+
+            # Check if we have enough remaining export (with tolerance)
+            required_with_tolerance = learned_power - GRID_IMPORT_TOLERANCE_W
+            if remaining_export >= required_with_tolerance:
+                zones_to_add.append(zone)
+                remaining_export -= learned_power
+            else:
+                break  # Stop if we don't have enough for next zone
+
+        return zones_to_add
 
     async def should_remove_zone(
         self, last_zone: str, import_power: float, active_zones: list[str]

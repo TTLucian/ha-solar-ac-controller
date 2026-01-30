@@ -14,6 +14,7 @@ from .actions import ActionExecutor
 from .config_manager import ConfigManager
 from .const import (
     CONF_AC_POWER_SENSOR,
+    CONF_AC_SWITCH,
     CONF_ACTION_DELAY_SECONDS,
     CONF_ENABLE_TEMP_MODULATION,
     CONF_GRID_SENSOR,
@@ -87,7 +88,9 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
     async def async_set_integration_enabled(self, enabled: bool) -> None:
         """Update and persist integration state."""
         self.integration_enabled = enabled
-        await self._log(f"Integration {'enabled' if enabled else 'disabled'} by user.")
+        await self._log(
+            f"Integration {'enabled' if enabled else 'disabled'} by user.", "info"
+        )
         self.stored_data["integration_enabled"] = enabled
         self._storage_dirty = True  # Mark as dirty
 
@@ -100,7 +103,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
 
         try:
             await self._debounced_save()
-        except Exception as exc:
+        except (asyncio.CancelledError, OSError, ValueError) as exc:
             _LOGGER.exception(
                 "Error scheduling integration enabled state save: %s", exc
             )
@@ -110,7 +113,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         """Toggle activity logging and persist state."""
         self.activity_logging_enabled = enabled
         await self._log(
-            f"Activity logging {'enabled' if enabled else 'disabled'} by user."
+            f"Activity logging {'enabled' if enabled else 'disabled'} by user.", "info"
         )
         self.stored_data["activity_logging_enabled"] = enabled
         self._storage_dirty = True  # Mark as dirty
@@ -125,7 +128,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
 
         try:
             await self._debounced_save()
-        except Exception as exc:
+        except (asyncio.CancelledError, OSError, ValueError) as exc:
             _LOGGER.exception("Error scheduling activity logging state save: %s", exc)
         self.async_update_listeners()
 
@@ -158,6 +161,8 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         self.store = store
         self.stored_data = stored or {}
         self.storage_circuit_breaker = StorageCircuitBreaker()
+        # Set coordinator reference for logging (avoiding circular import)
+        self.storage_circuit_breaker.coordinator = self
         self.metrics = MetricsCollector()
         self.version = version
 
@@ -202,6 +207,9 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         # Initialize runtime state
         self._init_runtime_state()
 
+        # Flag to log configuration validation on first update
+        self._config_validation_logged = False
+
         # Season mode (manual selection: heat or cool)
 
     @property
@@ -239,7 +247,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
 
         try:
             await self._debounced_save()
-        except Exception as exc:
+        except (asyncio.CancelledError, OSError, ValueError) as exc:
             _LOGGER.exception("Error scheduling season mode save: %s", exc)
         self.async_update_listeners()
 
@@ -248,6 +256,10 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         # Zone management state
         self.next_zone = None
         self.last_zone = None
+
+        # Performance optimization counters
+        self._cycle_counter = 0
+        self._last_sensor_log_cycle = 0
         self.zone_last_changed = {}
         self.zone_last_changed_type = {}
         self.zone_last_state = {}
@@ -288,6 +300,100 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
 
         # Defensive initialization
         self.required_export_source = "Initializing"
+
+        # Sensor recovery tracking
+        self._sensor_unavailable_since: Dict[str, float] = (
+            {}
+        )  # sensor_id -> timestamp when it became unavailable
+
+    async def _log_configuration_validation(self) -> None:
+        """Log configuration validation results during startup."""
+        try:
+            # Validate zones
+            zones = self.config.get(CONF_ZONES, [])
+            valid_zones = []
+            invalid_zones = []
+
+            for zone in zones:
+                if not zone or not isinstance(zone, str):
+                    invalid_zones.append(str(zone))
+                    continue
+
+                # Check if zone entity exists
+                state_obj = self.hass.states.get(zone)
+                if state_obj:
+                    valid_zones.append(zone)
+                else:
+                    invalid_zones.append(zone)
+
+            # Validate sensors
+            sensors_to_check = [
+                (CONF_SOLAR_SENSOR, "solar sensor"),
+                (CONF_GRID_SENSOR, "grid sensor"),
+                (CONF_AC_SWITCH, "AC switch"),
+            ]
+
+            valid_sensors = []
+            invalid_sensors = []
+
+            for sensor_key, sensor_desc in sensors_to_check:
+                sensor_id = self.config.get(sensor_key)
+                if sensor_id:
+                    state_obj = self.hass.states.get(sensor_id)
+                    if state_obj is not None:
+                        valid_sensors.append(f"{sensor_desc} ({sensor_id})")
+                    else:
+                        invalid_sensors.append(f"{sensor_desc} ({sensor_id})")
+
+            # Log configuration summary
+            await self._log(
+                f"Configuration validated: {len(valid_zones)} zones configured, "
+                f"{len(valid_sensors)} sensors connected, "
+                f"operating in {self.season_mode} mode, "
+                f"emergency threshold at {self.panic_threshold}W, "
+                f"zone activation confidence threshold at {self.unified_add_threshold}",
+                "info",
+            )
+
+            # Log details of invalid configurations
+            if invalid_zones:
+                await self._log(
+                    f"Warning: {len(invalid_zones)} zone(s) not found in Home Assistant: {', '.join(invalid_zones)}",
+                    "warning",
+                )
+
+            if invalid_sensors:
+                await self._log(
+                    f"Warning: {len(invalid_sensors)} sensor(s) not available: {', '.join(invalid_sensors)}",
+                    "warning",
+                )
+
+            if valid_zones:
+                await self._log(
+                    f"Active zones configured: {', '.join(valid_zones)}", "info"
+                )
+
+        except Exception as e:
+            await self._log(f"Configuration validation failed: {str(e)}", "error")
+
+    async def _log_decision_reasoning(
+        self, decision_type: str, reasoning: str, **kwargs
+    ) -> None:
+        """Log detailed decision reasoning (optional verbose logging)."""
+        # Only log if activity logging is enabled and we want verbose decision logging
+        if not getattr(self, "activity_logging_enabled", False):
+            return
+
+        # Check if verbose decision logging is enabled (could be a future config option)
+        verbose_decisions = getattr(self, "_verbose_decision_logging", False)
+        if not verbose_decisions:
+            return
+
+        details = " ".join(f"{k}={v}" for k, v in kwargs.items() if v is not None)
+        await self._log(
+            f"[DECISION_REASONING] type={decision_type} reasoning={reasoning} {details}",
+            "debug",
+        )
 
     def _init_core_components(self) -> None:
         """Initialize core component instances."""
@@ -344,6 +450,10 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             CONF_INITIAL_LEARNED_POWER, DEFAULT_INITIAL_LEARNED_POWER
         )
 
+        # Validate configuration once during initialization
+        self._validate_configuration()
+        self._config_validated = True
+
     def _init_zone_mappings(self) -> None:
         """Initialize zone-related mappings."""
         zones_list = self.config_manager.get_list(CONF_ZONES, [])
@@ -379,7 +489,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                     for k, vv in val.items():
                         try:
                             normalized[k.lower()] = float(vv)
-                        except Exception:
+                        except (ValueError, TypeError):
                             continue
                     if "default" not in normalized:
                         normalized["default"] = normalized.get(
@@ -428,7 +538,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             return float(self.initial_learned_power)
         try:
             return float(entry)
-        except Exception:
+        except (ValueError, TypeError):
             return float(self.initial_learned_power)
 
     def set_learned_power(
@@ -559,7 +669,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             self.stored_data["learned_power"] = self._rounded_power(self.learned_power)
             self.stored_data["samples"] = int(self.samples)
             await self._debounced_save()
-        except Exception as exc:
+        except (asyncio.CancelledError, OSError, ValueError) as exc:
             _LOGGER.exception("Error scheduling learned values save: %s", exc)
 
     def _rounded_power(self, value: Any) -> Any:
@@ -568,18 +678,19 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             return {k: self._rounded_power(v) for k, v in value.items()}
         try:
             return int(round(float(value)))
-        except Exception:
+        except (ValueError, TypeError):
             return value
 
     # -------------------------------------------------------------------------
     # Minimal async logging hook used by coordinator and controller
     # -------------------------------------------------------------------------
-    async def _log(self, message: str) -> None:
-        """Async logging hook used by coordinator and controller."""
-        # Early return if logging is disabled at this level
-        if not _LOGGER.isEnabledFor(logging.INFO):
-            return
+    async def _log(self, message: str, level: str = "info") -> None:
+        """Async logging hook used by coordinator and controller.
 
+        Args:
+            message: The log message
+            level: Log level for activity logging ("debug", "info", "warning", "error")
+        """
         try:
             # Prepare extra data once
             extra_data = {
@@ -590,30 +701,42 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                 "activity_logging": getattr(self, "activity_logging_enabled", False),
             }
 
-            # Log to standard logger
+            # Always log to standard logger at INFO level (system logs unaffected by activity logging toggle)
             _LOGGER.info(message, extra=extra_data)
 
-            # Activity logging with reduced overhead
+            # Activity logging (only when enabled) - use specified level for better diagnostics
             if getattr(self, "activity_logging_enabled", False):
-                # Use fire_event_no_wait for non-blocking event firing
                 try:
                     diagnostics_entity_id = (
                         f"sensor.{self.config_entry.entry_id}_diagnostics"
                     )
-                    # Use async_fire with no wait to avoid blocking
+
+                    # Map level to logbook level
+                    level_map = {
+                        "debug": "DEBUG",
+                        "info": "INFO",
+                        "warning": "WARNING",
+                        "error": "ERROR",
+                    }
+                    logbook_level = level_map.get(level.lower(), "INFO")
+
+                    # Enhanced message with context for better diagnostics
+                    enhanced_message = f"[{logbook_level}] {message}"
+
                     self.hass.bus.async_fire(
                         "logbook_entry",
                         {
                             "name": "Solar AC Controller",
-                            "message": message,
+                            "message": enhanced_message,
                             "domain": DOMAIN,
                             "entity_id": diagnostics_entity_id,
+                            "level": logbook_level,
                         },
                     )
-                except Exception:
+                except (ValueError, TypeError, AttributeError):
                     # Silent failure for activity logging
                     pass
-        except Exception:
+        except (ValueError, TypeError, AttributeError):
             # Silent failure for main logging to avoid recursive errors
             pass
 
@@ -638,6 +761,8 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                         await self._storage_debounce_task
                     except asyncio.CancelledError:
                         pass
+                    finally:
+                        self._storage_debounce_task = None  # Clean up reference
 
                 # Schedule new save
                 delay = self._storage_debounce_seconds - time_since_last_save
@@ -660,6 +785,10 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         except asyncio.CancelledError:
             # Save was cancelled due to new save request
             pass
+        finally:
+            # Clean up task reference
+            if self._storage_debounce_task and self._storage_debounce_task.done():
+                self._storage_debounce_task = None
 
     async def _flush_pending_storage_save(self) -> None:
         """Flush any pending debounced storage save."""
@@ -669,6 +798,8 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                 await self._storage_debounce_task
             except asyncio.CancelledError:
                 pass
+            finally:
+                self._storage_debounce_task = None  # Clean up reference
             # Perform immediate save
             async with self._storage_lock:
                 await self._perform_storage_save()
@@ -705,11 +836,35 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
     def _validate_sensor_state(self, state: Any, sensor_name: str) -> float:
         """Validate sensor state and return numeric value."""
         if not state or state.state in ("unknown", "unavailable"):
+            # Track when sensor became unavailable
+            now = dt_util.utcnow().timestamp()
+            if sensor_name not in self._sensor_unavailable_since:
+                self._sensor_unavailable_since[sensor_name] = now
             raise SensorUnavailableError(f"{sensor_name} unavailable")
+
+        # Sensor is available - check if it was previously unavailable
+        if sensor_name in self._sensor_unavailable_since:
+            # Sensor recovered - log the recovery
+            unavailable_duration = (
+                dt_util.utcnow().timestamp()
+                - self._sensor_unavailable_since[sensor_name]
+            )
+            asyncio.create_task(
+                self._log_sensor_recovery(sensor_name, unavailable_duration)
+            )
+            del self._sensor_unavailable_since[sensor_name]
+
         try:
             return float(state.state)
         except (ValueError, TypeError) as e:
             raise SensorInvalidError(f"{sensor_name} invalid value: {e}")
+
+    async def _log_sensor_recovery(self, sensor_name: str, duration: float) -> None:
+        """Log sensor recovery event."""
+        await self._log(
+            f"Sensor '{sensor_name}' recovered after being unavailable for {round(duration, 1)} seconds",
+            "info",
+        )
 
     def _validate_configuration(self) -> None:
         """Validate configuration on startup."""
@@ -738,6 +893,11 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         """Main loop executed every 5 seconds."""
         async with self._update_lock:
             cycle_start = self.metrics.record_cycle_start()
+
+            # Log configuration validation on first run
+            if not self._config_validation_logged:
+                await self._log_configuration_validation()
+                self._config_validation_logged = True
 
             try:
                 # Integration enable/disable logic
@@ -769,11 +929,6 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
 
                 self.metrics.record_sensor_values(grid_raw, solar, ac_power)
 
-                # Validate configuration on first run
-                if not hasattr(self, "_config_validated"):
-                    self._validate_configuration()
-                    self._config_validated = True
-
                 _LOGGER.debug(
                     "Cycle sensors: grid_raw=%s solar=%s ac_power=%s",
                     grid_raw,
@@ -781,11 +936,16 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                     ac_power,
                 )
 
-                # Enhanced logging with sensor values and calculations
-                await self._log(
-                    f"[SENSORS] grid={round(grid_raw)}W solar={round(solar)}W ac_power={round(ac_power)}W "
-                    f"ema30s={round(self.ema_30s)}W ema5m={round(self.ema_5m)}W"
-                )
+                # Enhanced logging with sensor values and calculations (every minute)
+                self._cycle_counter += 1
+                if (
+                    self._cycle_counter - self._last_sensor_log_cycle >= 6
+                ):  # Every ~60 seconds
+                    await self._log(
+                        f"[SENSORS] grid={round(grid_raw)}W solar={round(solar)}W ac_power={round(ac_power)}W "
+                        f"ema30s={round(self.ema_30s)}W ema5m={round(self.ema_5m)}W"
+                    )
+                    self._last_sensor_log_cycle = self._cycle_counter
 
                 # EMA updates
                 self._update_ema(grid_raw)
@@ -873,7 +1033,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                         self.required_export_source = "Solar Freeze"
                     else:
                         self.required_export_source = "Learned Power"
-                except Exception:
+                except (ValueError, TypeError, KeyError, AttributeError):
                     self.required_export_source = "Learned Power"
                 self.export_margin = (
                     None if required_export is None else export - required_export
@@ -977,15 +1137,79 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                 if next_zone and await self.decision_engine.should_add_zone(
                     next_zone, required_export if required_export is not None else 0.0
                 ):
+                    # Check if solar is abundant enough for multiple zone additions
+                    current_export = -self.ema_30s
+                    is_abundant = self.decision_engine.is_solar_abundant(
+                        current_export, required_export
+                    )
+
+                    if is_abundant:
+                        # Log solar abundance detection
+                        await self._log(
+                            f"[SOLAR_ABUNDANCE_DETECTED] current_export={round(current_export)}W "
+                            f"required_export={round(required_export or 0)}W "
+                            f"margin={round(current_export - (required_export or 0))}W"
+                        )
+                        # Get all available zones for potential multi-add
+                        all_zones = self.config.get(CONF_ZONES, [])
+                        available_zones = [
+                            z
+                            for z in all_zones
+                            if z not in active_zones
+                            and not self.zone_manager.is_locked(z)
+                        ]
+
+                        zones_to_add = (
+                            await self.decision_engine.should_add_multiple_zones(
+                                available_zones, current_export, active_zones
+                            )
+                        )
+
+                        if len(zones_to_add) > 1:
+                            # Add multiple zones when solar is abundant
+                            # Note: Skip learning for multi-zone additions to avoid conflicts
+                            added_zones = []
+                            for zone in zones_to_add:
+                                zone_name = zone.split(".")[-1]
+                                learned_power = self.get_learned_power(
+                                    zone_name, self.season_mode
+                                )
+                                reason = f"Adding zone {zone} ({zone_name}): SOLAR ABUNDANT - "
+                                reason += f"unified_conf={round(self.confidence, 2)}, "
+                                reason += f"export={round(current_export)}W, "
+                                reason += f"learned_power={round(learned_power)}W, "
+                                reason += f"remaining_after={round(current_export - learned_power)}W "
+                                reason += "(learning skipped for multi-zone addition)"
+
+                                await self._log(f"[MULTI_ADD_ZONE] {reason}")
+
+                                # Add zone without learning to avoid conflicts
+                                await self.action_executor.add_zone_without_learning(
+                                    zone, ac_power
+                                )
+                                added_zones.append(zone)
+                                current_export -= learned_power
+
+                                # Small delay between multiple additions to prevent conflicts
+                                await asyncio.sleep(1.0)
+
+                            self.note = f"Solar abundant: added {len(added_zones)} zones simultaneously"
+                            await self._log(
+                                f"[SOLAR_ABUNDANT_MULTI_ADD] added_zones={added_zones} "
+                                f"(learning skipped to prevent conflicts)"
+                            )
+                            return
+
+                    # Single zone addition (normal case)
                     zone_name = next_zone.split(".")[-1]
                     learned_power = self.get_learned_power(zone_name, self.season_mode)
-                    reason = f"Adding zone {next_zone} ({zone_name}): "
-                    reason += f"unified_conf={round(self.confidence, 2)} >= add_threshold={round(self.unified_add_threshold, 2)}, "
-                    reason += f"export={round(export)}W >= required={round(required_export or 0)}W, "
-                    reason += f"learned_power={round(learned_power)}W, "
-                    reason += f"current_grid={round(self.ema_30s)}W, active_zones={len(active_zones)}, season_mode={self.season_mode}"
-                    self.note = f"Adding zone {next_zone}: unified_conf={round(self.confidence, 2)} >= {round(self.unified_add_threshold, 2)}"
-                    await self._log(f"[ADD_ZONE] {reason}")
+                    reason = f"Activating zone '{zone_name}' - "
+                    reason += f"confidence score {round(self.confidence, 1)} meets activation threshold, "
+                    reason += f"excess solar power {round(export)}W available, "
+                    reason += f"zone requires {round(learned_power)}W, "
+                    reason += f"currently {len(active_zones)} zones active"
+                    self.note = f"Adding zone {next_zone}: confidence {round(self.confidence, 2)} >= {round(self.unified_add_threshold, 2)}"
+                    await self._log(reason, "info")
                     await self.action_executor.attempt_add_zone(
                         next_zone,
                         ac_power,
@@ -1058,7 +1282,13 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                 self.note = f"Sensor error: {e}"
                 _LOGGER.warning("Sensor error in update cycle: %s", e)
                 self.metrics.record_cycle_end(cycle_start, success=False)
-            except Exception as e:
+            except (
+                asyncio.CancelledError,
+                OSError,
+                ValueError,
+                TypeError,
+                AttributeError,
+            ) as e:
                 self.note = f"Unexpected error in update cycle: {e}"
                 _LOGGER.exception("Unexpected error in _async_update_data")
                 self.metrics.record_cycle_end(cycle_start, success=False)
@@ -1069,7 +1299,50 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
 
     def _update_ema(self, grid_raw: float) -> None:
         """Update EMA metrics for grid power."""
+        old_ema_30s = self.ema_30s
+        old_ema_5m = self.ema_5m
+
         self.ema_30s, self.ema_5m = self.ema_tracker.update(grid_raw)
+
+        # Validate EMA values
+        if not (
+            isinstance(self.ema_30s, (int, float))
+            and isinstance(self.ema_5m, (int, float))
+        ):
+            asyncio.create_task(
+                self._log_ema_validation_failure(
+                    "non_numeric", grid_raw, old_ema_30s, old_ema_5m
+                )
+            )
+            # Reset to safe values
+            self.ema_tracker.reset()
+            self.ema_30s, self.ema_5m = 0.0, 0.0
+        elif not (-50000 <= self.ema_30s <= 50000) or not (
+            -50000 <= self.ema_5m <= 50000
+        ):
+            asyncio.create_task(
+                self._log_ema_validation_failure(
+                    "out_of_range", grid_raw, old_ema_30s, old_ema_5m
+                )
+            )
+            # Reset to safe values
+            self.ema_tracker.reset()
+            self.ema_30s, self.ema_5m = 0.0, 0.0
+
+    async def _log_ema_validation_failure(
+        self,
+        failure_type: str,
+        input_value: float,
+        old_ema_30s: float,
+        old_ema_5m: float,
+    ) -> None:
+        """Log EMA validation failure."""
+        if failure_type == "non_numeric":
+            message = f"Power calculation error: received invalid data ({round(input_value, 2)}) - resetting calculations"
+        else:  # out_of_range
+            message = f"Power calculation out of range: value {round(input_value, 2)} exceeded safety limits - resetting calculations"
+
+        await self._log(message, "warning")
 
     def _update_temp_ema_10m(self, zone_id: str, current_temp: float) -> None:
         """Update 10-minute EMA for temperature stability tracking."""
@@ -1185,7 +1458,8 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             remove_name = zone_to_remove.split(".")[-1]
             add_name = zone_to_add.split(".")[-1]
             await self._log(
-                f"[ZONE_SWAP] removing satisfied {remove_name}, adding needy {add_name}"
+                f"Zone optimization: deactivating '{remove_name}' (comfort target reached), "
+                f"activating '{add_name}' (needs cooling/heating)"
             )
 
             # Remove the satisfied zone
@@ -1212,7 +1486,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             self.zone_last_swap_time[zone_to_remove] = now_ts
             self.last_action = "zone_swap"
 
-        except Exception as e:
+        except (ValueError, TypeError, AttributeError, KeyError) as e:
             _LOGGER.exception(f"Failed to perform zone swap: {e}")
 
     async def _perform_freeze_cleanup(self) -> None:
@@ -1220,7 +1494,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         # Flush any pending storage saves before cleanup
         try:
             await self._flush_pending_storage_save()
-        except Exception as exc:
+        except (asyncio.CancelledError, OSError) as exc:
             _LOGGER.debug(
                 "Error flushing pending storage save during freeze cleanup: %s", exc
             )
@@ -1229,14 +1503,14 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         try:
             if getattr(self, "panic_manager", None) is not None:
                 await self.panic_manager.cancel_panic()
-        except Exception as exc:
+        except (asyncio.CancelledError, AttributeError) as exc:
             _LOGGER.debug("Error while cancelling panic during freeze cleanup: %s", exc)
 
         # Reset controller learning state (safe)
         try:
             if getattr(self, "controller", None) is not None:
                 await self.controller._reset_learning_state_async()
-        except Exception:
+        except (asyncio.CancelledError, AttributeError):
             _LOGGER.debug(
                 "Controller reset learning method failed or controller not set"
             )

@@ -52,7 +52,8 @@ class ZoneManager:
                     )
                     await self.coordinator._log(
                         f"[MANUAL_OVERRIDE] zone={zone} state={state} "
-                        f"lock_until={int(self.coordinator.zone_manual_lock_until[zone])}"
+                        f"lock_until={int(self.coordinator.zone_manual_lock_until[zone])}",
+                        "warning",
                     )
 
             self.coordinator.zone_last_state[zone] = state
@@ -66,7 +67,22 @@ class ZoneManager:
     def is_locked(self, zone_id: str) -> bool:
         """Return True if a zone is locked due to manual override."""
         until = self.coordinator.zone_manual_lock_until.get(zone_id)
-        return bool(until and dt_util.utcnow().timestamp() < until)
+        if until:
+            now = dt_util.utcnow().timestamp()
+            if now >= until:
+                # Lock has expired - remove it and log
+                del self.coordinator.zone_manual_lock_until[zone_id]
+                asyncio.create_task(self._log_zone_lock_expired(zone_id))
+                return False
+            return True
+        return False
+
+    async def _log_zone_lock_expired(self, zone_id: str) -> None:
+        """Log zone lock expiration event."""
+        await self.coordinator._log(
+            f"Manual override lock expired for zone '{zone_id}' - zone can now be controlled automatically",
+            "info",
+        )
 
     def select_next_and_last_zone(
         self, active_zones: list[str]

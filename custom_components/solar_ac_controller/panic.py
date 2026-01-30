@@ -58,7 +58,7 @@ class PanicManager:
             except asyncio.CancelledError:
                 # Expected during cooperative cancellation
                 pass
-            except Exception as exc:
+            except (AttributeError, TypeError) as exc:
                 _LOGGER.debug("Error during panic task cancellation: %s", exc)
             finally:
                 self.coordinator._panic_task = None
@@ -119,7 +119,7 @@ class PanicManager:
                 try:
                     if getattr(self.coordinator, "controller", None) is not None:
                         await self.coordinator.controller._reset_learning_state_async()
-                except Exception:
+                except (AttributeError, asyncio.CancelledError):
                     _LOGGER.debug(
                         "Controller reset learning method failed or controller not set"
                     )
@@ -135,7 +135,7 @@ class PanicManager:
                 self.coordinator.last_action = "panic"
         except asyncio.CancelledError:
             _LOGGER.debug("Panic task cancelled")
-        except Exception as e:
+        except (ValueError, TypeError, AttributeError, KeyError) as e:
             _LOGGER.exception("Error in panic task: %s", e)
         finally:
             self.coordinator._panic_task = None

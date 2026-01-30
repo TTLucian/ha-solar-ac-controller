@@ -189,7 +189,7 @@ def _human_delta(ts: float | None) -> str | None:
             return f"{hours}h ago"
         days = hours // 24
         return f"{days}d ago"
-    except Exception:
+    except (ValueError, TypeError, AttributeError):
         return None
 
 
@@ -254,7 +254,7 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
             req_src = (
                 "manual_power" if next_zone and next_zone in zm else "learned_power"
             )
-        except Exception:
+        except (AttributeError, TypeError, KeyError):
             req_src = "learned_power"
 
     zones_config: List[str] = list(config.get("zones", []) or [])
@@ -305,7 +305,7 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
                 else:
                     mode = "default"
             zone_modes[z] = mode
-        except Exception as exc:
+        except (AttributeError, TypeError, KeyError, ValueError) as exc:
             zone_modes[z] = f"diagnostics_error: {exc}"
 
     panic_threshold = _safe_float(getattr(coordinator, "panic_threshold", None), None)
@@ -401,7 +401,7 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
             val = getattr(coordinator, attr)
             if isinstance(val, (str, int, float, bool)):
                 payload[attr] = val
-        except Exception:
+        except (AttributeError, TypeError):
             continue
 
     # Privacy/Security: Remove any attribute that looks like a token/secret
