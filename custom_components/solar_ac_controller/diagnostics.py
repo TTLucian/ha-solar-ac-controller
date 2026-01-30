@@ -38,7 +38,7 @@ async def async_get_config_entry_diagnostics(
             return (
                 dt_util.utc_from_timestamp(float(ts)).replace(microsecond=0).isoformat()
             )
-        except Exception:
+        except (ValueError, TypeError, OSError):
             return None
 
     diag_data["logic_state"] = {

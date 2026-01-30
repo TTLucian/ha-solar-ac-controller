@@ -47,7 +47,7 @@ class ZoneConfigParser:
                     if idx < len(zones):
                         try:
                             zone_manual_power[zones[idx]] = float(val)
-                        except Exception:
+                        except (ValueError, TypeError):
                             continue
             else:
                 # Legacy: zone_id:power
@@ -56,7 +56,7 @@ class ZoneConfigParser:
                         zone, val = part.split(":", 1)
                         try:
                             zone_manual_power[zone.strip()] = float(val)
-                        except Exception:
+                        except (ValueError, TypeError):
                             continue
         elif isinstance(raw_manual, (list, tuple)):
             # If all items are numbers, map by index
@@ -69,7 +69,7 @@ class ZoneConfigParser:
                     if idx < len(zones):
                         try:
                             zone_manual_power[zones[idx]] = float(val)
-                        except Exception:
+                        except (ValueError, TypeError):
                             continue
             else:
                 for item in list(raw_manual):
@@ -77,7 +77,7 @@ class ZoneConfigParser:
                         zone, val = item.split(":", 1)
                         try:
                             zone_manual_power[zone.strip()] = float(val)
-                        except Exception:
+                        except (ValueError, TypeError):
                             continue
 
         return zone_manual_power

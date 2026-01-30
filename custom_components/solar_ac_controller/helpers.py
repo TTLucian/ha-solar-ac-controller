@@ -160,7 +160,7 @@ def _safe_float(val: Any, default: float | None = None) -> float | None:
     """Safely convert a value to float, or return default if conversion fails."""
     try:
         return float(val)
-    except Exception:
+    except (ValueError, TypeError):
         return default
 
 
@@ -197,7 +197,7 @@ def _iso_ts(ts: float | None) -> str | None:
         dt = dt_util.utc_from_timestamp(float(ts))
         # Use seconds precision to avoid noisy fractions
         return dt.replace(microsecond=0).isoformat()
-    except Exception:
+    except (ValueError, TypeError, OSError):
         return None
 
 
@@ -211,7 +211,7 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
     version = getattr(coordinator, "version", None)
     try:
         version = str(version) if version is not None else None
-    except Exception:
+    except (ValueError, TypeError):
         version = None
 
     config = dict(getattr(coordinator, "config", {}) or {})
@@ -323,7 +323,7 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
     try:
         dur = getattr(coordinator, "last_action_duration", None)
         last_action_duration = round(float(dur), 2) if dur is not None else None
-    except Exception:
+    except (ValueError, TypeError):
         last_action_duration = None
 
     # Comfort temperature targets

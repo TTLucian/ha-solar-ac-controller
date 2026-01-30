@@ -22,6 +22,7 @@ from .const import (
     SolarACData,
 )
 from .coordinator import SolarACCoordinator
+from .exceptions import StorageError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -166,7 +167,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     try:
         stored_data = await store.async_load()
-    except Exception:  # pragma: no cover - defensive
+    except (OSError, StorageError):  # pragma: no cover - defensive
         _LOGGER.exception("Failed to load stored data; falling back to defaults")
         stored_data = None
 
@@ -204,7 +205,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # 4. Save ONCE
     try:
         await store.async_save(stored_data)
-    except Exception:
+    except (OSError, StorageError):
         _LOGGER.debug("Skipped save during storage load")
 
     # 3. Create Device (The "Master" record)
@@ -279,8 +280,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unload_ok = await hass.config_entries.async_unload_platforms(entry, ALL_PLATFORMS)
 
     if unload_ok:
-        # Remove the specific instance data
+        # Clean up coordinator tasks before removing
         domain_data: SolarACData = hass.data.get(DOMAIN, {})
+        coordinator = domain_data.get(entry.entry_id)
+        if coordinator:
+            await coordinator._async_cleanup_tasks()
+
+        # Remove the specific instance data
         domain_data.pop(entry.entry_id, None)
 
     # If this was the last instance, clean up the global services

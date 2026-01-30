@@ -86,6 +86,10 @@ class ActionExecutor:
             self.coordinator.zone_last_changed[zone] = now_ts
             self.coordinator.zone_last_changed_type[zone] = "on"
 
+        # Check for cancellation before delay
+        if self.coordinator.hass.is_stopping:
+            return
+
         await asyncio.sleep(self.coordinator.action_delay_seconds)
 
         await self.coordinator._log(
@@ -104,6 +108,10 @@ class ActionExecutor:
             self.coordinator.last_action_duration = now_ts - start
             self.coordinator.zone_last_changed[zone] = now_ts
             self.coordinator.zone_last_changed_type[zone] = "off"
+
+        # Check for cancellation before delay
+        if self.coordinator.hass.is_stopping:
+            return
 
         await asyncio.sleep(self.coordinator.action_delay_seconds)
 

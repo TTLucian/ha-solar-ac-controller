@@ -9,6 +9,8 @@ from typing import Any, Awaitable, Callable, Optional, cast
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
+from .exceptions import StorageError
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -167,7 +169,7 @@ class SolarACController:
 
             try:
                 delta = abs(float(ac_power_now) - float(ac_before))
-            except Exception:
+            except (ValueError, TypeError):
                 _LOGGER.debug(
                     "Failed to compute delta (ac_before=%s ac_now=%s)",
                     ac_before,
@@ -302,7 +304,7 @@ class SolarACController:
                 )
             else:
                 _LOGGER.info("Controller: reset learning for all zones and persisted")
-        except Exception as exc:
+        except (OSError, StorageError) as exc:
             _LOGGER.exception("Controller: failed to persist reset learning: %s", exc)
             log_fn = cast(
                 Callable[[str], Awaitable[None]] | None,
