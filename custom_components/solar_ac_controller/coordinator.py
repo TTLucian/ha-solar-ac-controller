@@ -30,6 +30,7 @@ from .const import (
     CONF_SOLAR_THRESHOLD_OFF,
     CONF_UNIFIED_ADD_THRESHOLD,
     CONF_UNIFIED_REMOVE_THRESHOLD,
+    CONF_UPDATE_INTERVAL,
     CONF_ZONES,
     DEFAULT_ACTION_DELAY_SECONDS,
     DEFAULT_ENABLE_TEMP_MODULATION,
@@ -45,6 +46,7 @@ from .const import (
     DEFAULT_SOLAR_THRESHOLD_OFF,
     DEFAULT_UNIFIED_ADD_THRESHOLD,
     DEFAULT_UNIFIED_REMOVE_THRESHOLD,
+    DEFAULT_UPDATE_INTERVAL,
     DOMAIN,
     EMA_5M_ALPHA,
     EMA_10M_ALPHA,
@@ -87,6 +89,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         self.integration_enabled = enabled
         await self._log(f"Integration {'enabled' if enabled else 'disabled'} by user.")
         self.stored_data["integration_enabled"] = enabled
+        self._storage_dirty = True  # Mark as dirty
 
         if not await self.storage_circuit_breaker.should_attempt_operation():
             _LOGGER.warning(
@@ -110,6 +113,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             f"Activity logging {'enabled' if enabled else 'disabled'} by user."
         )
         self.stored_data["activity_logging_enabled"] = enabled
+        self._storage_dirty = True  # Mark as dirty
 
         if not await self.storage_circuit_breaker.should_attempt_operation():
             _LOGGER.warning(
@@ -134,11 +138,16 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         version: str | None = None,
     ) -> None:
 
+        # Get update interval from config (default 10 seconds)
+        update_interval_seconds = self.config_manager.get_int(
+            CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL
+        )
+
         super().__init__(
             hass,
             logger=_LOGGER,
             name=DOMAIN,
-            update_interval=timedelta(seconds=5),
+            update_interval=timedelta(seconds=update_interval_seconds),
         )
 
         # Basic initialization
@@ -155,9 +164,16 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         # Storage debouncing
         self._storage_debounce_task: asyncio.Task | None = None
         self._last_storage_save: float = 0.0
-        self._storage_debounce_seconds = 2.0  # Minimum 2 seconds between saves
+        self._storage_debounce_seconds = (
+            5.0  # Minimum 5 seconds between saves (increased)
+        )
         self._storage_lock = asyncio.Lock()
         self._update_lock = asyncio.Lock()
+        self._storage_dirty = False  # Track if data has actually changed
+
+        # State lookup cache for performance
+        self._state_cache: Dict[str, Any] = {}
+        self._cache_timestamp = 0.0
 
         # Initialize runtime season_mode from stored data (with config fallback)
         self._season_mode = self.stored_data.get(
@@ -215,6 +231,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         """Set season mode and persist state."""
         self.season_mode = value
         self.stored_data["season_mode"] = value
+        self._storage_dirty = True  # Mark as dirty
 
         if not await self.storage_circuit_breaker.should_attempt_operation():
             _LOGGER.warning("Storage circuit breaker open, skipping season mode save")
@@ -559,28 +576,31 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
     # -------------------------------------------------------------------------
     async def _log(self, message: str) -> None:
         """Async logging hook used by coordinator and controller."""
-        try:
-            # Keep this simple and non-blocking; expand if persistent logs are desired
-            _LOGGER.info(
-                message,
-                extra={
-                    "domain": DOMAIN,
-                    "season_mode": getattr(self, "season_mode", None),
-                    "cycle_count": getattr(self.metrics, "cycle_count", 0),
-                    "integration_enabled": getattr(self, "integration_enabled", True),
-                    "activity_logging": getattr(
-                        self, "activity_logging_enabled", False
-                    ),
-                },
-            )
+        # Early return if logging is disabled at this level
+        if not _LOGGER.isEnabledFor(logging.INFO):
+            return
 
-            # Also fire event for activity logging if enabled
+        try:
+            # Prepare extra data once
+            extra_data = {
+                "domain": DOMAIN,
+                "season_mode": getattr(self, "season_mode", None),
+                "cycle_count": getattr(self.metrics, "cycle_count", 0),
+                "integration_enabled": getattr(self, "integration_enabled", True),
+                "activity_logging": getattr(self, "activity_logging_enabled", False),
+            }
+
+            # Log to standard logger
+            _LOGGER.info(message, extra=extra_data)
+
+            # Activity logging with reduced overhead
             if getattr(self, "activity_logging_enabled", False):
+                # Use fire_event_no_wait for non-blocking event firing
                 try:
                     diagnostics_entity_id = (
                         f"sensor.{self.config_entry.entry_id}_diagnostics"
                     )
-                    # Fire logbook entry event
+                    # Use async_fire with no wait to avoid blocking
                     self.hass.bus.async_fire(
                         "logbook_entry",
                         {
@@ -591,12 +611,18 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                         },
                     )
                 except Exception:
-                    _LOGGER.debug("Failed to fire activity log event")
+                    # Silent failure for activity logging
+                    pass
         except Exception:
-            _LOGGER.debug("Failed to write coordinator log message: %s", message)
+            # Silent failure for main logging to avoid recursive errors
+            pass
 
     async def _debounced_save(self) -> None:
         """Debounced storage save to prevent excessive I/O."""
+        # Early return if no changes to save
+        if not self._storage_dirty:
+            return
+
         async with self._storage_lock:
             now = dt_util.utcnow().timestamp()
             time_since_last_save = now - self._last_storage_save
@@ -657,9 +683,24 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         try:
             await self.store.async_save(self.stored_data)
             await self.storage_circuit_breaker.record_success()
+            self._storage_dirty = False  # Clear dirty flag on successful save
         except (OSError, StorageError) as exc:
             _LOGGER.exception("Error saving to storage: %s", exc)
             await self.storage_circuit_breaker.record_failure()
+
+    def _get_cached_state(self, entity_id: str) -> Any:
+        """Get entity state with caching for performance."""
+        now = dt_util.utcnow().timestamp()
+
+        # Invalidate cache every update cycle (every few seconds)
+        if now - self._cache_timestamp > 1.0:
+            self._state_cache.clear()
+            self._cache_timestamp = now
+
+        if entity_id not in self._state_cache:
+            self._state_cache[entity_id] = self.hass.states.get(entity_id)
+
+        return self._state_cache[entity_id]
 
     def _validate_sensor_state(self, state: Any, sensor_name: str) -> float:
         """Validate sensor state and return numeric value."""
@@ -712,15 +753,17 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
 
                 # 1. Read sensors (grid, solar, ac_power)
                 grid_raw = self._validate_sensor_state(
-                    self.hass.states.get(self.config_manager.get(CONF_GRID_SENSOR)),
+                    self._get_cached_state(self.config_manager.get(CONF_GRID_SENSOR)),
                     "Grid sensor",
                 )
                 solar = self._validate_sensor_state(
-                    self.hass.states.get(self.config_manager.get(CONF_SOLAR_SENSOR)),
+                    self._get_cached_state(self.config_manager.get(CONF_SOLAR_SENSOR)),
                     "Solar sensor",
                 )
                 ac_power = self._validate_sensor_state(
-                    self.hass.states.get(self.config_manager.get(CONF_AC_POWER_SENSOR)),
+                    self._get_cached_state(
+                        self.config_manager.get(CONF_AC_POWER_SENSOR)
+                    ),
                     "AC power sensor",
                 )
 
@@ -1006,6 +1049,9 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                     self._cleanup_stale_tracking_data()
                     self._last_cleanup_time = now_ts
 
+                # Update adaptive interval based on system state
+                self._update_adaptive_interval()
+
                 self.metrics.record_cycle_end(cycle_start, success=True)
             except (SensorUnavailableError, SensorInvalidError) as e:
                 # Sensor issues are expected during startup or temporary outages
@@ -1231,6 +1277,29 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             stale = set(tracking_dict.keys()) - current_zones
             for zone in stale:
                 del tracking_dict[zone]
+
+    def _update_adaptive_interval(self) -> None:
+        """Update update interval based on system state for adaptive performance."""
+        base_interval = self.config_manager.get_int(
+            CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL
+        )
+
+        # Use faster updates during active states
+        if self.panic_manager and self.panic_manager.is_panicking:
+            new_interval = min(base_interval, 5)  # Max 5 seconds during panic
+        elif self.controller and self.controller.is_learning:
+            new_interval = min(base_interval, 8)  # Max 8 seconds during learning
+        elif len(getattr(self, "active_zones", [])) > 0:
+            new_interval = min(base_interval, 10)  # Max 10 seconds with active zones
+        else:
+            new_interval = base_interval  # Use configured interval for stable state
+
+        # Only update if interval changed
+        if self.update_interval is not None:
+            current_interval = self.update_interval.total_seconds()
+            if new_interval != current_interval:
+                self.update_interval = timedelta(seconds=new_interval)
+                _LOGGER.debug(f"Adaptive update interval changed to {new_interval}s")
 
     async def _async_cleanup_tasks(self) -> None:
         """Clean up running tasks during shutdown."""

@@ -83,6 +83,11 @@ class SolarACController:
         """Check if learning is active, with proper locking."""
         return await self.session.is_active()
 
+    @property
+    def is_learning(self) -> bool:
+        """Synchronous check if learning is active."""
+        return self.session._active
+
     async def start_learning(
         self, zone_entity_id: str, ac_power_before: float | None
     ) -> None:

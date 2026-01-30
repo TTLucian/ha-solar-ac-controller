@@ -68,6 +68,8 @@ class _BaseSolarACSensor(SensorEntity):
         self.coordinator: Any = coordinator
         self._entry_id: str = entry_id
         self._unsub: Callable[[], None] | None = None
+        self._previous_state: Any = None
+        self._previous_attributes: dict[str, Any] = {}
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -77,12 +79,38 @@ class _BaseSolarACSensor(SensorEntity):
             name="Solar AC Controller",
         )
 
+    def _state_changed(self) -> bool:
+        """Check if the entity state or attributes have changed."""
+        current_state = self.state
+        current_attributes = self.extra_state_attributes or {}
+
+        # Compare state
+        if current_state != self._previous_state:
+            return True
+
+        # Compare key attributes (not all attributes for performance)
+        key_attrs = {"unit_of_measurement", "device_class", "icon"}
+        for attr in key_attrs:
+            if current_attributes.get(attr) != self._previous_attributes.get(attr):
+                return True
+
+        return False
+
+    async def _smart_write_ha_state(self) -> None:
+        """Write state to HA only if it has actually changed."""
+        if self._state_changed():
+            self._previous_state = self.state
+            self._previous_attributes = dict(self.extra_state_attributes or {})
+            self.async_write_ha_state()
+
     async def async_added_to_hass(self) -> None:
         """Register listener for coordinator updates."""
         try:
-            self._unsub = self.coordinator.async_add_listener(self.async_write_ha_state)
+            self._unsub = self.coordinator.async_add_listener(
+                self._smart_write_ha_state
+            )
         except Exception:
-            self.async_write_ha_state()
+            await self._smart_write_ha_state()
 
     async def async_will_remove_from_hass(self) -> None:
         """Remove coordinator listener on entity removal."""

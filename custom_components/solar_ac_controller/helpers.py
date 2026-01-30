@@ -14,6 +14,8 @@ def short_entity_name(entity_id: str) -> str:
 class EmaTracker:
     """Tracks EMA values for power metrics."""
 
+    __slots__ = ("alpha_30s", "alpha_5m", "ema_30s", "ema_5m")
+
     def __init__(self, alpha_30s: float, alpha_5m: float) -> None:
         self.alpha_30s = alpha_30s
         self.alpha_5m = alpha_5m
@@ -42,6 +44,8 @@ class EmaTracker:
 
 class MasterSwitchController:
     """Handles master AC switch auto-control logic."""
+
+    __slots__ = ("coordinator",)
 
     def __init__(self, coordinator: Any) -> None:
         self.coordinator = coordinator

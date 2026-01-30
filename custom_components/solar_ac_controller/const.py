@@ -37,6 +37,9 @@ CONF_MANUAL_LOCK_SECONDS = "manual_lock_seconds"
 CONF_SHORT_CYCLE_ON_SECONDS = "short_cycle_on_seconds"
 CONF_SHORT_CYCLE_OFF_SECONDS = "short_cycle_off_seconds"
 CONF_ACTION_DELAY_SECONDS = "action_delay_seconds"
+CONF_UPDATE_INTERVAL = "update_interval"
+CONF_HIGH_FREQUENCY_MODE = "high_frequency_mode"
+CONF_ACTIVITY_LOGGING = "activity_logging"
 
 # Unified confidence thresholds (points) - hysteresis system
 CONF_UNIFIED_ADD_THRESHOLD = "unified_add_threshold"
@@ -70,6 +73,9 @@ DEFAULT_MANUAL_LOCK_SECONDS = 1200  # seconds
 DEFAULT_SHORT_CYCLE_ON_SECONDS = 1200  # seconds
 DEFAULT_SHORT_CYCLE_OFF_SECONDS = 20  # seconds
 DEFAULT_ACTION_DELAY_SECONDS = 3  # seconds
+DEFAULT_UPDATE_INTERVAL = 10  # seconds
+DEFAULT_HIGH_FREQUENCY_MODE = False
+DEFAULT_ACTIVITY_LOGGING = False
 
 DEFAULT_UNIFIED_ADD_THRESHOLD = 10
 DEFAULT_UNIFIED_REMOVE_THRESHOLD = -10

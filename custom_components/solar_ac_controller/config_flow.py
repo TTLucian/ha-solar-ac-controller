@@ -27,6 +27,7 @@ from .const import (
     CONF_SOLAR_THRESHOLD_ON,
     CONF_UNIFIED_ADD_THRESHOLD,
     CONF_UNIFIED_REMOVE_THRESHOLD,
+    CONF_UPDATE_INTERVAL,
     CONF_ZONE_MANUAL_POWER,
     CONF_ZONE_TEMP_SENSORS,
     CONF_ZONES,
@@ -44,6 +45,7 @@ from .const import (
     DEFAULT_SOLAR_THRESHOLD_ON,
     DEFAULT_UNIFIED_ADD_THRESHOLD,
     DEFAULT_UNIFIED_REMOVE_THRESHOLD,
+    DEFAULT_UPDATE_INTERVAL,
     DOMAIN,
 )
 
@@ -246,6 +248,12 @@ def schema_timing(defaults):
                 CONF_PANIC_DELAY,
                 default=int(defaults.get(CONF_PANIC_DELAY, DEFAULT_PANIC_DELAY)),
             ): int,
+            vol.Optional(
+                CONF_UPDATE_INTERVAL,
+                default=int(
+                    defaults.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)
+                ),
+            ): vol.All(vol.Coerce(int), vol.Range(min=5, max=60)),
         }
     )
 
