@@ -141,6 +141,12 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         version: str | None = None,
     ) -> None:
 
+        # Basic initialization
+        self.hass = hass
+        self.config_entry = config_entry
+        self.config_manager = ConfigManager(config_entry)
+        self.config = self.config_manager.config
+
         # Get update interval from config (default 10 seconds)
         update_interval_seconds = self.config_manager.get_int(
             CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL
@@ -152,12 +158,6 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             name=DOMAIN,
             update_interval=timedelta(seconds=update_interval_seconds),
         )
-
-        # Basic initialization
-        self.hass = hass
-        self.config_entry = config_entry
-        self.config_manager = ConfigManager(config_entry)
-        self.config = self.config_manager.config
         self.store = store
         self.stored_data = stored or {}
         self.storage_circuit_breaker = StorageCircuitBreaker()
