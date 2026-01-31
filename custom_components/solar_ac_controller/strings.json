@@ -23,6 +23,8 @@
           "zone_temp_sensors": "Zone Temperature Sensors (optional)",
           "panic_threshold": "Panic Threshold (W)",
           "panic_delay": "Panic Delay (seconds)",
+          "update_interval": "Update Interval (seconds)",
+          "update_interval_friendly": "Update Frequency (seconds)",
           "manual_lock_seconds": "Manual Override Lock Duration (seconds)",
           "short_cycle_on_seconds": "Short Cycle ON Protection (seconds)",
           "short_cycle_off_seconds": "Short Cycle OFF Protection (seconds)",
@@ -43,10 +45,10 @@
           "very_cold_threshold": "Temperature at or below this is very cold. Used for banded learning in each season.",
           "chilly_threshold": "Temperature between this and very cold threshold is chilly. Used for banded learning in each season.",
           "comfortable_threshold": "Temperature between this and chilly threshold is comfortable. Above this is very hot. Used for banded learning in each season.",
-          "enable_temperature_modulation": "Requires zone temperature sensors. Blocks zone removal until comfort targets are reached (winter max/summer min).",
+          "enable_temperature_modulation": "Enable zone swapping based on comfort targets. When system is balanced, automatically swaps satisfied zones with higher-priority zones that need heating/cooling.",
           "max_temp_winter": "Heating comfort cutoff; zones stay on until reaching this temperature in heat mode.",
           "min_temp_summer": "Cooling comfort cutoff; zones stay on until reaching this temperature in cool mode.",
-          "zone_temp_sensors": "Mapping from each zone to its indoor temperature sensor. Used with temperature modulation to prevent premature zone removal.",
+          "zone_temp_sensors": "Mapping from each zone to its indoor temperature sensor. Required for zone swapping based on comfort targets.",
           "panic_threshold": "If grid import exceeds this for panic_delay seconds with multiple zones active, zones are shed sequentially.",
           "panic_delay": "Seconds of sustained high import before panic shedding begins.",
           "manual_lock_seconds": "If user manually toggles a zone via Home Assistant UI, it is locked from controller changes for this duration.",
@@ -55,6 +57,8 @@
           "action_delay_seconds": "Minimum delay between consecutive zone commands (including heat/cool mode changes) to avoid rapid sequencing.",
           "add_confidence": "Minimum confidence score needed to add a new zone. Higher = more conservative.",
           "remove_confidence": "Minimum negative confidence score needed to remove a zone. Higher = harder to remove."
+          ,
+          "update_interval": "How often the controller checks sensors and makes decisions. Lower values = faster response, higher values = less CPU usage. Recommended: 10 seconds."
         }
       },
       "timing": {
@@ -66,7 +70,10 @@
           "short_cycle_on_seconds": "Short Cycle ON Protection (seconds)",
           "short_cycle_off_seconds": "Short Cycle OFF Protection (seconds)",
           "panic_threshold": "Panic Threshold (W)",
-          "panic_delay": "Panic Delay (seconds)"
+          "panic_delay": "Panic Delay (seconds)",
+          "update_interval": "Update Interval (seconds)"
+          ,
+          "update_interval_friendly": "Update Frequency (seconds)"
         },
         "data_description": {
           "action_delay_seconds": "Minimum delay between consecutive zone commands (including heat/cool mode changes) to avoid rapid sequencing.",
@@ -75,6 +82,8 @@
           "short_cycle_off_seconds": "Minimum time a zone must stay OFF before controller can turn it ON (prevents rapid cycling).",
           "panic_threshold": "If grid import exceeds this for panic_delay seconds with multiple zones active, zones are shed sequentially.",
           "panic_delay": "Seconds of sustained high import before panic shedding begins."
+          ,
+          "update_interval": "How often the controller checks sensors and makes decisions. Lower values = faster response, higher values = less CPU usage. Recommended: 10 seconds."
         }
       },
       "comfort": {
@@ -88,7 +97,7 @@
         },
         "data_description": {
           "outside_temperature_sensor": "Optional outside temperature for banded learning (per temperature band).",
-          "zone_temp_sensors": "Mapping from each zone to its indoor temperature sensor. Used with temperature modulation to prevent premature zone removal.",
+          "zone_temp_sensors": "Mapping from each zone to its indoor temperature sensor. Required for zone swapping based on comfort targets.",
           "max_temp_winter": "Heating comfort cutoff; zones stay on until reaching this temperature in heat mode.",
           "min_temp_summer": "Cooling comfort cutoff; zones stay on until reaching this temperature in cool mode."
         }
@@ -120,6 +129,7 @@
           "zone_temp_sensors": "Zone Temperature Sensors (optional)",
           "panic_threshold": "Panic Threshold (W)",
           "panic_delay": "Panic Delay (seconds)",
+          "update_interval": "Update Interval (seconds)",
           "manual_lock_seconds": "Manual Override Lock Duration (seconds)",
           "short_cycle_on_seconds": "Short Cycle ON Protection (seconds)",
           "short_cycle_off_seconds": "Short Cycle OFF Protection (seconds)",
@@ -135,10 +145,10 @@
           "very_cold_threshold": "Temperature at or below this is very cold. Used for banded learning in each season.",
           "chilly_threshold": "Temperature between this and very cold threshold is chilly. Used for banded learning in each season.",
           "comfortable_threshold": "Temperature between this and chilly threshold is comfortable. Above this is very hot. Used for banded learning in each season.",
-          "enable_temperature_modulation": "Requires zone temperature sensors. Blocks zone removal until comfort targets are reached (winter max/summer min).",
+          "enable_temperature_modulation": "Enable zone swapping based on comfort targets. When system is balanced, automatically swaps satisfied zones with higher-priority zones that need heating/cooling.",
           "max_temp_winter": "Heating comfort cutoff; zones stay on until reaching this temperature in heat mode.",
           "min_temp_summer": "Cooling comfort cutoff; zones stay on until reaching this temperature in cool mode.",
-          "zone_temp_sensors": "Mapping from each zone to its indoor temperature sensor. Used with temperature modulation to prevent premature zone removal.",
+          "zone_temp_sensors": "Mapping from each zone to its indoor temperature sensor. Required for zone swapping based on comfort targets.",
           "panic_threshold": "If grid import exceeds this for panic_delay seconds with multiple zones active, zones are shed sequentially.",
           "panic_delay": "Seconds of sustained high import before panic shedding begins.",
           "manual_lock_seconds": "If user manually toggles a zone via Home Assistant UI, it is locked from controller changes for this duration.",
@@ -159,7 +169,10 @@
           "short_cycle_on_seconds": "Short Cycle ON Protection (seconds)",
           "short_cycle_off_seconds": "Short Cycle OFF Protection (seconds)",
           "panic_threshold": "Panic Threshold (W)",
-          "panic_delay": "Panic Delay (seconds)"
+          "panic_delay": "Panic Delay (seconds)",
+          "update_interval": "Update Interval (seconds)"
+          ,
+          "update_interval_friendly": "Update Frequency (seconds)"
         },
         "data_description": {
           "action_delay_seconds": "Minimum delay between consecutive zone ON/OFF actions to avoid rapid sequencing.",
@@ -184,6 +197,8 @@
           "zone_manual_power": "Optional fixed power per zone (comma-separated: 1000, 2000, 1500). Leave blank to use learned power. Useful for non-AC zones like electric radiators.",
           "max_temp_winter": "Heating comfort cutoff; zones stay on until reaching this temperature in heat mode.",
           "min_temp_summer": "Cooling comfort cutoff; zones stay on until reaching this temperature in cool mode."
+          ,
+          "update_interval": "How often the controller checks sensors and makes decisions. Lower values = faster response, higher values = less CPU usage. Recommended: 10 seconds."
         }
       }
     },

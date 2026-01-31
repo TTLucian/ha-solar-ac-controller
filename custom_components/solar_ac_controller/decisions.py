@@ -228,8 +228,13 @@ class DecisionEngine:
         """
         Check if we should swap a satisfied zone with a higher-priority needy zone.
 
+        Only active when comfort-based zone control is enabled.
         Returns the zone to add, or None if no swap needed.
         """
+        # Only swap when comfort-based control is enabled
+        if not self.coordinator.enable_temp_modulation:
+            return None
+
         # Only swap when confidence is in balanced range (won't add or remove zones)
         # This allows optimization without changing net zone count
         if not (
