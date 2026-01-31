@@ -58,7 +58,7 @@ Zones activate **in priority order** (based on config order) using real-time sol
 
 ### 🧠 Adaptive learning engine
 
-Each zone's power consumption is learned using a **per-mode (heat/cool) EMA model** with bootstrap initialization. The system tracks samples and continuously refines estimates as zones operate, improving accuracy over time. When an outside temperature sensor is provided, learning also tracks **banded power** (cold / mild cold / mild hot / hot) to better reflect seasonal efficiency.
+Each zone's power consumption is learned using a **per-mode (heat/cool) EMA model** with bootstrap initialization. The system tracks samples and continuously refines estimates as zones operate, improving accuracy over time.
 
 ### 🔒 Manual override detection
 
