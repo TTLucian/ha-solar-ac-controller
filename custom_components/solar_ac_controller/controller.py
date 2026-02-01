@@ -350,8 +350,19 @@ class SolarACController:
             peak_valid = await self.session.is_peak_valid()
             stabilization_valid = await self.session.is_stabilization_valid()
 
-            # Use peak power as primary if valid, otherwise try stabilized, otherwise fallback
-            if peak_valid and peak_power > 0:
+            # Calculate learned power: average of valid measurements, or use whichever is available
+            if (
+                peak_valid
+                and peak_power > 0
+                and stabilization_valid
+                and stabilized_power > 0
+            ):
+                # Both valid: use average for balanced estimate
+                learned_power = (peak_power + stabilized_power) / 2
+                _LOGGER.debug(
+                    f"Using average of peak ({peak_power}W) and stabilized ({stabilized_power}W) = {learned_power}W for {zone}"
+                )
+            elif peak_valid and peak_power > 0:
                 learned_power = peak_power
                 _LOGGER.debug(f"Using valid peak power: {learned_power}W for {zone}")
             elif stabilization_valid and stabilized_power > 0:
