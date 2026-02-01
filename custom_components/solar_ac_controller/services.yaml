@@ -1,10 +1,6 @@
-reset_learning:
-  name: Reset Learning
-  description: Reset all learned power values and sample count.
-
 force_relearn:
   name: Force Relearn
-  description: Reset learned power for one or all zones.
+  description: Reset learned power values and sample count for one or all zones.
   fields:
     zone:
       name: Zone

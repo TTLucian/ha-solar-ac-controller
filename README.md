@@ -261,18 +261,27 @@ When launched via Reconfigure, the form now pre-fills with your existing data+op
 
 ## 🧩 Services
 
-### `solar_ac_controller.reset_learning`
+### `solar_ac_controller.force_relearn`
 
-Cancels any active learning cycle and clears runtime learning state. This service does **not** reset stored learned power values — use the Options Flow to modify `initial_learned_power` or manually edit `.storage/solar_ac_controller` to reset stored data.
+Resets learned power values and sample count for specific zones or all zones. This allows you to force the system to relearn power consumption patterns.
 
-**Example:**
+**Parameters:**
+- `zone` (optional): Specific climate or switch zone entity ID to reset. If omitted, resets all zones.
 
+**Examples:**
+
+Reset all zones (full relearn):
 ```yaml
-service: solar_ac_controller.reset_learning
+service: solar_ac_controller.force_relearn
 data: {}
 ```
 
-> **Note:** Only the `reset_learning` service is currently implemented. Additional learning control services may be added in future releases.
+Reset specific zone:
+```yaml
+service: solar_ac_controller.force_relearn
+data:
+  zone: climate.living_room
+```
 
 ## 🧪 Recommended Tests
 
