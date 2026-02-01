@@ -104,14 +104,14 @@ class _BaseSolarACSensor(SensorEntity):
             self._previous_attributes = dict(self.extra_state_attributes or {})
             self.async_write_ha_state()
 
+    def _sync_write_ha_state(self) -> None:
+        """Synchronous wrapper to schedule async state update."""
+        asyncio.create_task(self._smart_write_ha_state())
+
     async def async_added_to_hass(self) -> None:
         """Register listener for coordinator updates."""
         try:
-            # Create a synchronous callback that schedules the async method
-            def _sync_callback():
-                asyncio.create_task(self._smart_write_ha_state())
-
-            self._unsub = self.coordinator.async_add_listener(_sync_callback)
+            self._unsub = self.coordinator.async_add_listener(self._sync_write_ha_state)
         except (AttributeError, TypeError):
             await self._smart_write_ha_state()
 
