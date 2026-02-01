@@ -703,38 +703,64 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                 "activity_logging": getattr(self, "activity_logging_enabled", False),
             }
 
-            # Always log to standard logger at INFO level (system logs unaffected by activity logging toggle)
-            _LOGGER.info(message, extra=extra_data)
+            # Map textual level to logger method for system logs
+            level_lower = (level or "info").lower()
+            logger_map = {
+                "debug": _LOGGER.debug,
+                "info": _LOGGER.info,
+                "warning": _LOGGER.warning,
+                "error": _LOGGER.error,
+            }
+            logger_method = logger_map.get(level_lower, _LOGGER.info)
 
-            # Activity logging (only when enabled) - use specified level for better diagnostics
+            # Log to system logger using requested level (includes extra context)
+            try:
+                logger_method(message, extra=extra_data)
+            except Exception:
+                # Fallback to info if specific logger call fails
+                _LOGGER.info(message, extra=extra_data)
+
+            # Activity logging (only when enabled) - emit to logbook but throttle repeated messages
             if getattr(self, "activity_logging_enabled", False):
                 try:
+                    # Lazy-init throttle settings
+                    if not hasattr(self, "_logbook_throttle_seconds"):
+                        self._logbook_throttle_seconds = 3.0
+                    if not hasattr(self, "_last_logbook_emit"):
+                        self._last_logbook_emit: dict[str, float] = {}
+
                     diagnostics_entity_id = (
                         f"sensor.{self.config_entry.entry_id}_diagnostics"
                     )
 
-                    # Map level to logbook level
+                    # Map level to logbook level string
                     level_map = {
                         "debug": "DEBUG",
                         "info": "INFO",
                         "warning": "WARNING",
                         "error": "ERROR",
                     }
-                    logbook_level = level_map.get(level.lower(), "INFO")
+                    logbook_level = level_map.get(level_lower, "INFO")
 
                     # Enhanced message with context for better diagnostics
                     enhanced_message = f"[{logbook_level}] {message}"
 
-                    self.hass.bus.async_fire(
-                        "logbook_entry",
-                        {
-                            "name": "Solar AC Controller",
-                            "message": enhanced_message,
-                            "domain": DOMAIN,
-                            "entity_id": diagnostics_entity_id,
-                            "level": logbook_level,
-                        },
-                    )
+                    # Throttle repeated identical messages to avoid logbook spam
+                    now_ts = dt_util.utcnow().timestamp()
+                    key = f"{logbook_level}:{message}"
+                    last = self._last_logbook_emit.get(key, 0.0)
+                    if now_ts - last >= float(self._logbook_throttle_seconds):
+                        self.hass.bus.async_fire(
+                            "logbook_entry",
+                            {
+                                "name": "Solar AC Controller",
+                                "message": enhanced_message,
+                                "domain": DOMAIN,
+                                "entity_id": diagnostics_entity_id,
+                                "level": logbook_level,
+                            },
+                        )
+                        self._last_logbook_emit[key] = now_ts
                 except (ValueError, TypeError, AttributeError):
                     # Silent failure for activity logging
                     pass
@@ -768,7 +794,8 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
 
                 # Schedule new save
                 delay = self._storage_debounce_seconds - time_since_last_save
-                self._storage_debounce_task = asyncio.create_task(
+                # Schedule delayed save on Home Assistant's loop
+                self._storage_debounce_task = self.hass.async_create_task(
                     self._delayed_save(delay)
                 )
                 return
@@ -851,7 +878,8 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                 dt_util.utcnow().timestamp()
                 - self._sensor_unavailable_since[sensor_name]
             )
-            asyncio.create_task(
+            # Use hass task creation to ensure HA loop compatibility
+            self.hass.async_create_task(
                 self._log_sensor_recovery(sensor_name, unavailable_duration)
             )
             del self._sensor_unavailable_since[sensor_name]
@@ -945,7 +973,8 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                 ):  # Every ~60 seconds
                     await self._log(
                         f"[SENSORS] grid={round(grid_raw)}W solar={round(solar)}W ac_power={round(ac_power)}W "
-                        f"ema30s={round(self.ema_30s)}W ema5m={round(self.ema_5m)}W"
+                        f"ema30s={round(self.ema_30s)}W ema5m={round(self.ema_5m)}W",
+                        "debug",
                     )
                     self._last_sensor_log_cycle = self._cycle_counter
 
@@ -1059,7 +1088,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                     zone_info += f" required_export={round(required_export)}W"
                 zone_info += f" export={round(export)}W import_power={round(import_power)}W season_mode={self.season_mode}"
 
-                await self._log(f"[ZONE_CALC] {zone_info}")
+                await self._log(f"[ZONE_CALC] {zone_info}", "debug")
 
                 self.last_add_conf = self.decision_engine.compute_add_conf(
                     export=export,
@@ -1092,7 +1121,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                     conf_info += f"next_candidate={next_zone.split('.')[-1]} "
                 if last_zone:
                     conf_info += f"last_candidate={last_zone.split('.')[-1]}"
-                await self._log(f"[CONFIDENCE] {conf_info}")
+                await self._log(f"[CONFIDENCE] {conf_info}", "debug")
 
                 now_ts = dt_util.utcnow().timestamp()
 
@@ -1104,10 +1133,12 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                     and learning_start_time
                     and now_ts - learning_start_time >= LEARNING_TIMEOUT_SECONDS
                 ):
-                    await self._log(f"[LEARNING_TIMEOUT] zone={learning_zone}")
+                    await self._log(f"[LEARNING_TIMEOUT] zone={learning_zone}", "info")
                     result = await self.controller.finish_learning()
                     if not result.success:
-                        await self._log(f"Learning failed: {result.error_message}")
+                        await self._log(
+                            f"Learning failed: {result.error_message}", "warning"
+                        )
                     return
 
                 # 9. Panic logic
@@ -1150,7 +1181,8 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                         await self._log(
                             f"[SOLAR_ABUNDANCE_DETECTED] current_export={round(current_export)}W "
                             f"required_export={round(required_export or 0)}W "
-                            f"margin={round(current_export - (required_export or 0))}W"
+                            f"margin={round(current_export - (required_export or 0))}W",
+                            "debug",
                         )
                         # Get all available zones for potential multi-add
                         all_zones = self.config.get(CONF_ZONES, [])
@@ -1311,7 +1343,8 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             isinstance(self.ema_30s, (int, float))
             and isinstance(self.ema_5m, (int, float))
         ):
-            asyncio.create_task(
+            # Log EMA validation failure asynchronously on HA loop
+            self.hass.async_create_task(
                 self._log_ema_validation_failure(
                     "non_numeric", grid_raw, old_ema_30s, old_ema_5m
                 )
@@ -1322,7 +1355,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         elif not (-50000 <= self.ema_30s <= 50000) or not (
             -50000 <= self.ema_5m <= 50000
         ):
-            asyncio.create_task(
+            self.hass.async_create_task(
                 self._log_ema_validation_failure(
                     "out_of_range", grid_raw, old_ema_30s, old_ema_5m
                 )

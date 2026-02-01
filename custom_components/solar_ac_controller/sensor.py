@@ -71,6 +71,8 @@ class _BaseSolarACSensor(SensorEntity):
         self._unsub: Callable[[], None] | None = None
         self._previous_state: Any = None
         self._previous_attributes: dict[str, Any] = {}
+        # Prevent overlapping async write tasks
+        self._write_lock: asyncio.Lock = asyncio.Lock()
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -99,14 +101,19 @@ class _BaseSolarACSensor(SensorEntity):
 
     async def _smart_write_ha_state(self) -> None:
         """Write state to HA only if it has actually changed."""
-        if self._state_changed():
-            self._previous_state = self.state
-            self._previous_attributes = dict(self.extra_state_attributes or {})
-            self.async_write_ha_state()
+        async with self._write_lock:
+            if self._state_changed():
+                self._previous_state = self.state
+                self._previous_attributes = dict(self.extra_state_attributes or {})
+                self.async_write_ha_state()
 
     def _sync_write_ha_state(self) -> None:
         """Synchronous wrapper to schedule async state update."""
-        asyncio.create_task(self._smart_write_ha_state())
+        # Prefer Home Assistant's task creation when available
+        if getattr(self, "hass", None):
+            self.hass.async_create_task(self._smart_write_ha_state())
+        else:
+            asyncio.create_task(self._smart_write_ha_state())
 
     async def async_added_to_hass(self) -> None:
         """Register listener for coordinator updates."""

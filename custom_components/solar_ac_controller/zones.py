@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import TYPE_CHECKING
 
@@ -73,7 +72,10 @@ class ZoneManager:
             if now >= until:
                 # Lock has expired - remove it and log
                 del self.coordinator.zone_manual_lock_until[zone_id]
-                asyncio.create_task(self._log_zone_lock_expired(zone_id))
+                # Schedule expiration log on HA loop
+                self.coordinator.hass.async_create_task(
+                    self._log_zone_lock_expired(zone_id)
+                )
                 return False
             return True
         return False

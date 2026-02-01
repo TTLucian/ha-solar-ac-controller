@@ -9,8 +9,6 @@ from typing import Any, Awaitable, Callable, List, Optional, Tuple, cast
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
-from .exceptions import StorageError
-
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -519,52 +517,6 @@ class SolarACController:
                         )
                 await self._reset_learning_state_async()
                 return LearningResult(False, error_message=str(exc))
-
-    async def reset_learning(self, zone: str | None = None) -> None:
-        """Reset learned power values for a specific zone or all zones."""
-        if zone:
-            # Reset learning for a specific zone
-            if zone in self.coordinator.learned_power:
-                del self.coordinator.learned_power[zone]
-                _LOGGER.info("Controller: reset learning for zone %s", zone)
-            else:
-                _LOGGER.warning("Controller: zone %s not found in learned_power", zone)
-        else:
-            # Reset learning for all zones
-            self.coordinator.learned_power = {}
-            _LOGGER.info("Controller: reset learning for all zones")
-        persist_fn = cast(
-            Callable[[], Awaitable[None]] | None,
-            getattr(self.coordinator, "async_persist_learned_values", None),
-        )
-        if not persist_fn:
-            _LOGGER.error(
-                "Coordinator missing persistence API; cannot persist reset learning"
-            )
-            return
-
-        try:
-            if persist_fn:
-                await persist_fn()
-            if zone:
-                _LOGGER.info(
-                    "Controller: reset learning for zone %s and persisted", zone
-                )
-            else:
-                _LOGGER.info("Controller: reset learning for all zones and persisted")
-        except (OSError, StorageError) as exc:
-            _LOGGER.exception("Controller: failed to persist reset learning: %s", exc)
-            log_fn = cast(
-                Callable[[str], Awaitable[None]] | None,
-                getattr(self.coordinator, "_log", None),
-            )
-            if log_fn:
-                try:
-                    await log_fn(f"[SERVICE_ERROR] reset_learning {exc}")
-                except (AttributeError, TypeError, ValueError):
-                    _LOGGER.exception(
-                        "Failed to write service error to coordinator log"
-                    )
 
     async def _save(self) -> None:
         persist_fn = cast(

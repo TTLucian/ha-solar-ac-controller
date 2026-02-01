@@ -79,8 +79,9 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     if _svc_flag not in domain_data:
 
         async def handle_force_relearn(call: ServiceCall):
-            # Reset learned power for a specific zone or all zones, with validation
-            zone = call.data.get("zone")
+            # Reset learned power and samples for a specific zone or all zones
+            zone_entity = call.data.get("zone")
+            zone = zone_entity.split(".")[-1] if zone_entity else None
 
             # Validate zone if provided
             if zone:
@@ -100,17 +101,37 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                         f"Zone '{zone}' not found. Available zones: {', '.join(sorted(zone_names))}"
                     )
 
-            # Proceed with reset
             for entry_dict in domain_data.values():
                 if not isinstance(entry_dict, dict):
                     continue
                 coordinator = entry_dict.get("coordinator")
-                controller = getattr(coordinator, "controller", None)
-                if controller:
-                    if zone:
-                        await controller.reset_learning(zone)
-                    else:
-                        await controller.reset_learning()
+                if not coordinator:
+                    continue
+                if zone:
+                    # Reset learned power and samples for the specified zone only
+                    if zone in coordinator.learned_power:
+                        del coordinator.learned_power[zone]
+                    if hasattr(coordinator, "samples"):
+                        coordinator.samples = 0
+                    persist_fn = getattr(
+                        coordinator, "async_persist_learned_values", None
+                    )
+                    if persist_fn:
+                        await persist_fn()
+                    _LOGGER.info(
+                        f"Force relearn: reset learned power and samples for zone {zone}"
+                    )
+                else:
+                    # Reset all learned power and samples
+                    coordinator.learned_power = {}
+                    if hasattr(coordinator, "samples"):
+                        coordinator.samples = 0
+                    persist_fn = getattr(
+                        coordinator, "async_persist_learned_values", None
+                    )
+                    if persist_fn:
+                        await persist_fn()
+                    _LOGGER.info("Force relearn: reset all learned power and samples")
 
         hass.services.async_register(DOMAIN, "force_relearn", handle_force_relearn)
         domain_data[_svc_flag] = True
