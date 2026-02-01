@@ -46,6 +46,7 @@ class LearningSession:
         self._contamination_timestamp: Optional[float] = None
         self._zones_added_during_learning: List[str] = []
         self._peak_detection_timestamp: Optional[float] = None
+        self._stabilization_timestamp: Optional[float] = None
 
     async def is_active(self) -> bool:
         async with self._lock:
@@ -133,9 +134,12 @@ class LearningSession:
                 return False
             if not self._learning_contaminated:
                 return True
-            # Stabilization is only valid if no contamination occurred during the stabilization period
-            # For simplicity, we consider it invalid if any contamination occurred
-            return False
+            # Stabilization is valid if it was detected before contamination
+            return (
+                self._stabilization_timestamp is not None
+                and self._contamination_timestamp is not None
+                and self._stabilization_timestamp < self._contamination_timestamp
+            )
 
     async def add_power_reading(self, power: float) -> None:
         """Add a power reading for smart phase detection."""
@@ -172,6 +176,9 @@ class LearningSession:
                 if max_variation / avg_power < 0.05:  # <5% variation
                     self._stabilized_power = avg_power
                     self._stabilized_detected = True
+                    # Record when stabilization was first detected
+                    if self._stabilization_timestamp is None:
+                        self._stabilization_timestamp = now
 
     async def get_peak_power(self) -> float:
         """Get the detected peak power during startup."""
