@@ -282,9 +282,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unload_ok:
         # Clean up coordinator tasks before removing
         domain_data: SolarACData = hass.data.get(DOMAIN, {})
-        coordinator = domain_data.get(entry.entry_id)
-        if coordinator:
-            await coordinator._async_cleanup_tasks()
+        entry_data = domain_data.get(entry.entry_id)
+        if entry_data and isinstance(entry_data, dict):
+            coordinator = entry_data.get("coordinator")
+            if coordinator:
+                await coordinator._async_cleanup_tasks()
 
         # Remove the specific instance data
         domain_data.pop(entry.entry_id, None)

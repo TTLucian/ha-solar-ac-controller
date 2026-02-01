@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Callable
 
 from homeassistant.components.sensor import (
@@ -106,9 +107,11 @@ class _BaseSolarACSensor(SensorEntity):
     async def async_added_to_hass(self) -> None:
         """Register listener for coordinator updates."""
         try:
-            self._unsub = self.coordinator.async_add_listener(
-                self._smart_write_ha_state
-            )
+            # Create a synchronous callback that schedules the async method
+            def _sync_callback():
+                asyncio.create_task(self._smart_write_ha_state())
+
+            self._unsub = self.coordinator.async_add_listener(_sync_callback)
         except (AttributeError, TypeError):
             await self._smart_write_ha_state()
 

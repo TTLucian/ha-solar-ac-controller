@@ -6,6 +6,7 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, OptionsFlow
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import selector
+from homeassistant.helpers.selector import NumberSelectorMode
 
 from .const import (
     CONF_AC_POWER_SENSOR,
@@ -253,7 +254,11 @@ def schema_timing(defaults):
                 default=int(
                     defaults.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)
                 ),
-            ): vol.All(vol.Coerce(int), vol.Range(min=5, max=60)),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=5, max=60, mode=NumberSelectorMode.BOX
+                )
+            ),
         }
     )
 
@@ -443,7 +448,7 @@ class SolarACConfigFlow(ConfigFlow, domain=DOMAIN):
             if user_input is not None:
                 self.hass.config_entries.async_update_entry(
                     entry,
-                    options={**entry.options, **user_input},
+                    data={**entry.data, **user_input},
                 )
                 return self.async_abort(reason="reconfigured")
         else:
@@ -538,7 +543,10 @@ class SolarACOptionsFlowHandler(OptionsFlow):
                 if parsed_power is not None:
                     cleaned_input[CONF_ZONE_MANUAL_POWER] = parsed_power
                 self.data = {**self.data, **cleaned_input}
-                return self.async_create_entry(title="", data=self.data)
+                result = self.async_create_entry(title="", data=self.data)
+                # Trigger reload since zone changes affect entity creation
+                await self.hass.config_entries.async_reload(self.entry.entry_id)
+                return result
         # Always show manual power as a string for UI
         zone_manual_default = clean_zone_manual_power(
             self.data.get(CONF_ZONES, []), defaults.get(CONF_ZONE_MANUAL_POWER, "")

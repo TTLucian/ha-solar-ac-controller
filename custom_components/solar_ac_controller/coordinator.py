@@ -192,6 +192,9 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             "activity_logging_enabled", False
         )
 
+        # Initialize learned data from storage
+        self._init_learned_data(stored)
+
         # Initialize core components
         self._init_core_components()
 
