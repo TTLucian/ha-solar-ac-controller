@@ -1101,7 +1101,11 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                 )
 
                 # Unified confidence
-                self.confidence = self.last_add_conf - self.last_remove_conf
+                # Treat remove confidence as a positive "removal pressure" value.
+                # Negative values from compute_remove_conf (e.g., due to short-cycle
+                # penalties) should not *increase* add confidence, so clamp to zero.
+                remove_pressure = max(0.0, self.last_remove_conf)
+                self.confidence = self.last_add_conf - remove_pressure
 
                 # Enhanced logging for confidence calculations
                 conf_info = f"unified_conf={round(self.confidence, 2)} "

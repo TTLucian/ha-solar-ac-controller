@@ -100,9 +100,14 @@ class DecisionEngine:
             else 0.0
         )
 
-        return (
+        computed = (
             base + DECISION_CONFIDENCE_OFFSET + heavy_import_bonus + short_cycle_penalty
         )
+
+        # Ensure remove confidence represents non-negative "removal pressure".
+        # Penalties can make the computed value negative (meaning "do not remove"),
+        # but a negative remove_conf should not *increase* add confidence elsewhere.
+        return max(0.0, computed)
 
     async def should_add_zone(
         self, next_zone: str, required_export: float | None
