@@ -1170,69 +1170,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                 if next_zone and await self.decision_engine.should_add_zone(
                     next_zone, required_export if required_export is not None else 0.0
                 ):
-                    # Check if solar is abundant enough for multiple zone additions
-                    current_export = -self.ema_30s
-                    is_abundant = self.decision_engine.is_solar_abundant(
-                        current_export, required_export
-                    )
-
-                    if is_abundant:
-                        # Log solar abundance detection
-                        await self._log(
-                            f"[SOLAR_ABUNDANCE_DETECTED] current_export={round(current_export)}W "
-                            f"required_export={round(required_export or 0)}W "
-                            f"margin={round(current_export - (required_export or 0))}W",
-                            "debug",
-                        )
-                        # Get all available zones for potential multi-add
-                        all_zones = self.config.get(CONF_ZONES, [])
-                        available_zones = [
-                            z
-                            for z in all_zones
-                            if z not in active_zones
-                            and not self.zone_manager.is_locked(z)
-                        ]
-
-                        zones_to_add = (
-                            await self.decision_engine.should_add_multiple_zones(
-                                available_zones, current_export, active_zones
-                            )
-                        )
-
-                        if len(zones_to_add) > 1:
-                            # Add multiple zones when solar is abundant
-                            # Note: Skip learning for multi-zone additions to avoid conflicts
-                            added_zones = []
-                            for zone in zones_to_add:
-                                zone_name = zone.split(".")[-1]
-                                learned_power = self.get_learned_power(
-                                    zone_name, self.season_mode
-                                )
-                                reason = f"Adding zone {zone} ({zone_name}): SOLAR ABUNDANT - "
-                                reason += f"unified_conf={round(self.confidence, 2)}, "
-                                reason += f"export={round(current_export)}W, "
-                                reason += f"learned_power={round(learned_power)}W, "
-                                reason += f"remaining_after={round(current_export - learned_power)}W "
-                                reason += "(learning skipped for multi-zone addition)"
-
-                                await self._log(f"[MULTI_ADD_ZONE] {reason}")
-
-                                # Add zone without learning to avoid conflicts
-                                await self.action_executor.add_zone_without_learning(
-                                    zone, ac_power
-                                )
-                                added_zones.append(zone)
-                                current_export -= learned_power
-
-                                # Small delay between multiple additions to prevent conflicts
-                                await asyncio.sleep(1.0)
-
-                            self.note = f"Solar abundant: added {len(added_zones)} zones simultaneously"
-                            await self._log(
-                                f"[SOLAR_ABUNDANT_MULTI_ADD] added_zones={added_zones} "
-                                f"(learning skipped to prevent conflicts)"
-                            )
-                            return
+                    # Single zone addition (normal case)
 
                     # Single zone addition (normal case)
                     zone_name = next_zone.split(".")[-1]
