@@ -160,32 +160,7 @@ class ActionExecutor:
         domain = entity_id.split(".")[0]
         service = "turn_on" if turn_on else "turn_off"
 
-        # For climate entities being turned on: set HVAC mode first based on season
-        if (
-            turn_on
-            and domain == "climate"
-            and self.coordinator.season_mode in ("heat", "cool")
-        ):
-            try:
-                await self.coordinator.hass.services.async_call(
-                    "climate",
-                    "set_hvac_mode",
-                    {"entity_id": entity_id, "hvac_mode": self.coordinator.season_mode},
-                    blocking=True,
-                )
-                _LOGGER.debug(
-                    "Set HVAC mode to '%s' for %s before turning on",
-                    self.coordinator.season_mode,
-                    entity_id,
-                )
-            except (ValueError, TypeError, AttributeError, KeyError) as e:
-                _LOGGER.warning(
-                    "Failed to set HVAC mode '%s' for %s: %s — will proceed with turn_on",
-                    self.coordinator.season_mode,
-                    entity_id,
-                    e,
-                )
-
+        # Primary: attempt domain.turn_on/turn_off first
         try:
             await self.coordinator.hass.services.async_call(
                 domain,
@@ -193,6 +168,47 @@ class ActionExecutor:
                 {"entity_id": entity_id},
                 blocking=True,
             )
+
+            # If we turned on a climate entity, verify hvac_mode and set it only if needed
+            if (
+                turn_on
+                and domain == "climate"
+                and self.coordinator.season_mode in ("heat", "cool")
+            ):
+                try:
+                    st = self.coordinator.hass.states.get(entity_id)
+                    current_mode = None
+                    if st and isinstance(st.attributes, dict):
+                        current_mode = st.attributes.get("hvac_mode")
+
+                    if current_mode != self.coordinator.season_mode:
+                        try:
+                            await self.coordinator.hass.services.async_call(
+                                "climate",
+                                "set_hvac_mode",
+                                {
+                                    "entity_id": entity_id,
+                                    "hvac_mode": self.coordinator.season_mode,
+                                },
+                                blocking=True,
+                            )
+                            _LOGGER.debug(
+                                "Set HVAC mode to '%s' for %s after turning on",
+                                self.coordinator.season_mode,
+                                entity_id,
+                            )
+                        except (ValueError, TypeError, AttributeError, KeyError) as e:
+                            _LOGGER.warning(
+                                "Failed to set HVAC mode '%s' for %s after turn_on: %s",
+                                self.coordinator.season_mode,
+                                entity_id,
+                                e,
+                            )
+                except (
+                    Exception
+                ) as e:  # defensive - don't break main flow for unexpected state issues
+                    _LOGGER.debug("Could not verify hvac_mode for %s: %s", entity_id, e)
+
             return
         except (ValueError, TypeError, AttributeError, KeyError) as e:
             _LOGGER.debug(
@@ -203,6 +219,7 @@ class ActionExecutor:
                 e,
             )
 
+        # Fallback: attempt climate.<turn_on|turn_off>
         try:
             await self.coordinator.hass.services.async_call(
                 "climate",
