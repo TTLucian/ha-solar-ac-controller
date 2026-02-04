@@ -729,9 +729,25 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                     if not hasattr(self, "_last_logbook_emit"):
                         self._last_logbook_emit: dict[str, float] = {}
 
-                    diagnostics_entity_id = (
-                        f"sensor.{self.config_entry.entry_id}_diagnostics"
-                    )
+                    # Resolve the actual diagnostics entity id via the entity registry
+                    # to ensure logbook entries are associated with the correct entity.
+                    diagnostics_entity_id = None
+                    try:
+                        from homeassistant.helpers import entity_registry as er
+
+                        registry = er.async_get(self.hass)
+                        # Unique id expected to match '<entry_id>_diagnostics'
+                        unique_id = f"{self.config_entry.entry_id}_diagnostics"
+                        reg_entry = registry.async_get_entity_id(
+                            "sensor", DOMAIN, unique_id
+                        )
+                        if reg_entry:
+                            diagnostics_entity_id = reg_entry
+                    except Exception:
+                        # Fall back to constructed id if registry lookup fails
+                        diagnostics_entity_id = (
+                            f"sensor.{self.config_entry.entry_id}_diagnostics"
+                        )
 
                     # Map level to logbook level string
                     level_map = {
@@ -750,16 +766,15 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                     key = f"{logbook_level}:{message}"
                     last = self._last_logbook_emit.get(key, 0.0)
                     if now_ts - last >= float(self._logbook_throttle_seconds):
-                        self.hass.bus.async_fire(
-                            "logbook_entry",
-                            {
-                                "name": "Solar AC Controller",
-                                "message": enhanced_message,
-                                "domain": DOMAIN,
-                                "entity_id": diagnostics_entity_id,
-                                "level": logbook_level,
-                            },
-                        )
+                        payload = {
+                            "name": "Solar AC Controller",
+                            "message": enhanced_message,
+                            "domain": DOMAIN,
+                            "level": logbook_level,
+                        }
+                        if diagnostics_entity_id:
+                            payload["entity_id"] = diagnostics_entity_id
+                        self.hass.bus.async_fire("logbook_entry", payload)
                         self._last_logbook_emit[key] = now_ts
                 except (ValueError, TypeError, AttributeError):
                     # Silent failure for activity logging
@@ -1234,14 +1249,47 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                 now_ts = dt_util.utcnow().timestamp()
                 last_balanced_log = getattr(self, "_last_balanced_log_time", 0)
                 if now_ts - last_balanced_log >= 600:  # 10 minutes
-                    await self._log(
-                        f"[SYSTEM_BALANCED] ema30s={round(self.ema_30s)}W ema5m={round(self.ema_5m)}W "
-                        f"grid={round(self.ema_30s)}W solar={round(self.ema_30s + self.ema_5m)}W "
-                        f"active_zones={on_count} unified_conf={round(self.confidence, 2)} "
-                        f"(add={round(self.last_add_conf, 2)}, remove={round(self.last_remove_conf, 2)}) "
+                    # Build active zone details with learned power for better diagnostics
+                    try:
+                        zone_details = []
+                        for z in active_zones:
+                            short = z.split(".")[-1]
+                            try:
+                                p = round(
+                                    self.get_learned_power(short, self.season_mode)
+                                )
+                            except Exception:
+                                p = None
+                            if p is None:
+                                zone_details.append(f"{z}")
+                            else:
+                                zone_details.append(f"{z}({p}W)")
+                        zones_str = ",".join(zone_details) if zone_details else "none"
+                    except Exception:
+                        zones_str = ",".join(active_zones) if active_zones else "none"
+
+                    msg = (
+                        f"[SYSTEM_BALANCED] grid={round(self.ema_30s)}W "
+                        f"solar={round(self.ema_30s + self.ema_5m)}W "
+                        f"ema30s={round(self.ema_30s)}W ema5m={round(self.ema_5m)}W "
+                        f"active_zones={on_count} zones=[{zones_str}] "
+                        f"unified_conf={round(self.confidence,2)} "
+                        f"(add={round(self.last_add_conf,2)},remove={round(self.last_remove_conf,2)}) "
                         f"samples={self.samples} season_mode={self.season_mode}"
                     )
+
+                    await self._log(msg)
                     self._last_balanced_log_time = now_ts
+
+                    # Notify listeners so diagnostic sensor state updates immediately
+                    try:
+                        self.async_update_listeners()
+                    except Exception:
+                        # Do not let listener notification errors affect main loop
+                        _LOGGER.debug(
+                            "Failed to async_update_listeners after balanced state",
+                            exc_info=True,
+                        )
 
                 # Periodic cleanup of stale tracking data (every hour)
                 now_ts = dt_util.utcnow().timestamp()
