@@ -14,6 +14,7 @@ from .const import (
     CONF_ACTION_DELAY_SECONDS,
     CONF_ENABLE_DIAGNOSTICS_SENSOR,
     CONF_ENABLE_TEMP_MODULATION,
+    CONF_GRID_IMPORT_TOLERANCE,
     CONF_GRID_SENSOR,
     CONF_INITIAL_LEARNED_POWER,
     CONF_MANUAL_LOCK_SECONDS,
@@ -34,6 +35,7 @@ from .const import (
     CONF_ZONES,
     DEFAULT_ACTION_DELAY_SECONDS,
     DEFAULT_ENABLE_TEMP_MODULATION,
+    DEFAULT_GRID_IMPORT_TOLERANCE,
     DEFAULT_INITIAL_LEARNED_POWER,
     DEFAULT_MANUAL_LOCK_SECONDS,
     DEFAULT_MAX_TEMP_WINTER,
@@ -164,6 +166,14 @@ def schema_user(defaults):
                 CONF_SOLAR_THRESHOLD_OFF,
                 default=int(
                     defaults.get(CONF_SOLAR_THRESHOLD_OFF, DEFAULT_SOLAR_THRESHOLD_OFF)
+                ),
+            ): int,
+            vol.Optional(
+                CONF_GRID_IMPORT_TOLERANCE,
+                default=int(
+                    defaults.get(
+                        CONF_GRID_IMPORT_TOLERANCE, DEFAULT_GRID_IMPORT_TOLERANCE
+                    )
                 ),
             ): int,
             vol.Optional(

@@ -19,7 +19,6 @@ from .const import (
     DECISION_SAMPLE_BONUS_MULTIPLIER,
     DECISION_SHORT_CYCLE_PENALTY_ADD,
     DECISION_SHORT_CYCLE_PENALTY_REMOVE,
-    GRID_IMPORT_TOLERANCE_W,
 )
 
 if TYPE_CHECKING:
@@ -113,18 +112,33 @@ class DecisionEngine:
         self, next_zone: str, required_export: float | None
     ) -> bool:
         """Return True if add zone conditions are met."""
+        # Block if learning is active
         if await self.coordinator.controller.is_learning_active():
+            await self.coordinator._log(
+                f"[ADD_BLOCKED] learning active: next_zone={next_zone}", "debug"
+            )
             return False
 
+        # Require sustained export (5m EMA) below threshold
         if self.coordinator.ema_5m > -200:
+            await self.coordinator._log(
+                f"[ADD_BLOCKED] ema_5m too high: ema_5m={round(self.coordinator.ema_5m,2)} > -200",
+                "debug",
+            )
             return False
 
         # Check if we have sufficient export capacity (with grid import tolerance)
         if required_export is not None:
             current_export = -self.coordinator.ema_30s  # Convert to positive export
             # Allow zone addition if export is sufficient or grid import is within tolerance
-            min_required_export = required_export - GRID_IMPORT_TOLERANCE_W
+            min_required_export = (
+                required_export - self.coordinator.grid_import_tolerance
+            )
             if current_export < min_required_export:
+                await self.coordinator._log(
+                    f"[ADD_BLOCKED] insufficient_export: current_export={round(current_export)}W < min_required_export={round(min_required_export)}W (required={round(required_export)}W, tolerance={round(self.coordinator.grid_import_tolerance)}W)",
+                    "debug",
+                )
                 return False
 
         return self.coordinator.confidence >= self.coordinator.unified_add_threshold

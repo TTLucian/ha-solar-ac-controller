@@ -223,6 +223,7 @@ Add the integration via:
 - **Min temperature summer** (default: 21C) — Comfort target for zones in cool mode
 - **Zone temperature sensors** (optional) — Per-zone indoor temperature sensor entities for comfort-aware removal blocking
 - **Enable diagnostics sensor** (default: disabled) — Optional JSON diagnostics sensor
+- **Grid import tolerance** (default: 350W) — How much grid import the controller will tolerate when adding a zone. A positive value here allows the controller to briefly draw from the grid (e.g., 300–400W) while the compressor settles.
 
 ---
 
@@ -250,12 +251,19 @@ When launched via Reconfigure, the form now pre-fills with your existing data+op
 - **`unified_add_threshold`** — Add zones when unified confidence >= this value (default: 20 points)
 - **`unified_remove_threshold`** — Remove zones when unified confidence <= this value (default: 10 points)
 - **`initial_learned_power`** — Bootstrap estimate before learning completes (default: 1000W)
+- **`grid_import_tolerance`** — Allow up to this many watts of grid import when adding a zone (default: 350W). Increase to tolerate transient import during large zone activations; decrease to be stricter about only adding when fully exporting.
 
 ### Diagnostics
 
 - **`enable_diagnostics_sensor`** — Toggle optional diagnostics sensor (default: disabled)
 
 **Changes apply immediately** after saving — no integration reload required.
+
+---
+
+## 🔁 Migration note
+
+Version 0.10.17 introduced the `grid_import_tolerance` runtime option. Existing installations will default to the previous behavior (350W). No manual migration steps are required — the option is available in the integration Options flow if you want to tune it.
 
 ---
 

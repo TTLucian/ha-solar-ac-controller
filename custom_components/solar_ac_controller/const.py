@@ -40,6 +40,9 @@ CONF_ACTION_DELAY_SECONDS = "action_delay_seconds"
 CONF_UPDATE_INTERVAL = "update_interval"
 CONF_ACTIVITY_LOGGING = "activity_logging"
 
+# Grid import tolerance (W) - how much grid import is allowed when adding a zone
+CONF_GRID_IMPORT_TOLERANCE = "grid_import_tolerance"
+
 # Unified confidence thresholds (points) - hysteresis system
 CONF_UNIFIED_ADD_THRESHOLD = "unified_add_threshold"
 CONF_UNIFIED_REMOVE_THRESHOLD = "unified_remove_threshold"
@@ -77,6 +80,9 @@ DEFAULT_ACTIVITY_LOGGING = False
 
 DEFAULT_UNIFIED_ADD_THRESHOLD = 10
 DEFAULT_UNIFIED_REMOVE_THRESHOLD = -10
+
+# Default tolerance for allowing grid import when adding zones (Watts)
+DEFAULT_GRID_IMPORT_TOLERANCE = 350.0
 
 # Learning configuration
 LEARNING_TIMEOUT_SECONDS = 360

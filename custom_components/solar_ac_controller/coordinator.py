@@ -17,6 +17,7 @@ from .const import (
     CONF_AC_SWITCH,
     CONF_ACTION_DELAY_SECONDS,
     CONF_ENABLE_TEMP_MODULATION,
+    CONF_GRID_IMPORT_TOLERANCE,
     CONF_GRID_SENSOR,
     CONF_INITIAL_LEARNED_POWER,
     CONF_MANUAL_LOCK_SECONDS,
@@ -35,6 +36,7 @@ from .const import (
     CONF_ZONES,
     DEFAULT_ACTION_DELAY_SECONDS,
     DEFAULT_ENABLE_TEMP_MODULATION,
+    DEFAULT_GRID_IMPORT_TOLERANCE,
     DEFAULT_INITIAL_LEARNED_POWER,
     DEFAULT_MANUAL_LOCK_SECONDS,
     DEFAULT_MAX_TEMP_WINTER,
@@ -447,6 +449,11 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         )
         self.unified_remove_threshold = self.config_manager.get_float(
             CONF_UNIFIED_REMOVE_THRESHOLD, DEFAULT_UNIFIED_REMOVE_THRESHOLD
+        )
+
+        # Grid import tolerance used when allowing adds (positive import allowed)
+        self.grid_import_tolerance = self.config_manager.get_float(
+            CONF_GRID_IMPORT_TOLERANCE, DEFAULT_GRID_IMPORT_TOLERANCE
         )
 
         # Initial learned power
