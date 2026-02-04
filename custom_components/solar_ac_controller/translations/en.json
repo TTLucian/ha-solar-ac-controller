@@ -26,8 +26,6 @@
           "short_cycle_on_seconds": "Short Cycle ON Protection (seconds)",
           "short_cycle_off_seconds": "Short Cycle OFF Protection (seconds)",
           "action_delay_seconds": "Action Delay (seconds)",
-          "add_confidence": "Add Confidence Threshold",
-          "remove_confidence": "Remove Confidence Threshold",
           "enable_diagnostics_sensor": "Diagnostics Sensor (full state)"
         },
         "data_description": {
@@ -50,8 +48,6 @@
           "short_cycle_on_seconds": "Minimum time a zone must stay ON before controller can turn it OFF (prevents rapid cycling).",
           "short_cycle_off_seconds": "Minimum time a zone must stay OFF before controller can turn it ON (prevents rapid cycling).",
           "action_delay_seconds": "Minimum delay between consecutive zone commands (including heat/cool mode changes) to avoid rapid sequencing.",
-          "add_confidence": "Minimum confidence score needed to add a new zone. Higher = more conservative.",
-          "remove_confidence": "Minimum negative confidence score needed to remove a zone. Higher = harder to remove.",
           "update_interval": "How often the controller checks sensors and makes decisions. Lower values = faster response, higher values = less CPU usage. Recommended: 10 seconds."
         }
       },
@@ -81,14 +77,12 @@
         "title": "Comfort-Based Zone Control",
         "description": "Map zones to indoor temperature sensors and set comfort targets used to gate zone removals.",
         "data": {
-          "outside_temperature_sensor": "Outside Temperature Sensor (optional)",
           "zone_temp_sensors": "Zone Temperature Sensors (optional)",
           "zone_manual_power": "Zone Manual Power Override (Watts, comma-separated)",
           "max_temp_winter": "Winter Comfort Target (°C)",
           "min_temp_summer": "Summer Comfort Target (°C)"
         },
         "data_description": {
-          "outside_temperature_sensor": "Optional outside temperature sensor for enhanced learning.",
           "zone_temp_sensors": "Mapping from each zone to its indoor temperature sensor. Required for zone swapping based on comfort targets.",
           "zone_manual_power": "Optional fixed power per zone (comma-separated: 1000, 2000, 1500). Leave blank to use learned power. Useful for non-AC zones like electric radiators.",
           "max_temp_winter": "Heating comfort target; zones reaching this temperature can be turned off to prioritize zones that need more heating.",
@@ -106,7 +100,7 @@
           "ac_power_sensor": "AC Power Sensor",
           "grid_sensor": "Grid Import/Export Sensor",
           "solar_sensor": "Solar Production Sensor",
-          "outside_temperature_sensor": "Outside Temperature Sensor (optional)",
+      
           "ac_switch": "Master AC Switch (optional)",
           "zones": "AC Zones (ordered)",
           "initial_learned_power": "Initial Learned Power (W)",
@@ -124,8 +118,6 @@
           "short_cycle_on_seconds": "Short Cycle ON Protection (seconds)",
           "short_cycle_off_seconds": "Short Cycle OFF Protection (seconds)",
           "action_delay_seconds": "Action Delay (seconds)",
-          "add_confidence": "Add Confidence Threshold",
-          "remove_confidence": "Remove Confidence Threshold",
           "enable_diagnostics_sensor": "Diagnostics Sensor (full state)",
           "update_interval": "Update Interval (seconds)"
         },
@@ -137,6 +129,10 @@
           "max_temp_winter": "Heating comfort target; zones reaching this temperature can be turned off to prioritize zones that need more heating.",
           "min_temp_summer": "Cooling comfort target; zones reaching this temperature can be turned off to prioritize zones that need more cooling.",
           "zone_temp_sensors": "Mapping from each zone to its indoor temperature sensor. Used with temperature modulation to prevent premature zone removal.",
+          "activity_logging": "Enable detailed activity logbook entries for controller actions.",
+          "enable_diagnostics": "Creates a sensor exposing full state for troubleshooting.",
+          "unified_add_threshold": "Score threshold at which the controller will add a zone. Higher = more conservative.",
+          "unified_remove_threshold": "Score threshold at which the controller will remove a zone. Lower = more conservative.",
           "zone_manual_power": "Optional fixed power per zone (comma-separated: 1000, 2000, 1500). Leave blank to use learned power. Useful for non-AC zones like electric radiators.",
           "panic_threshold": "If grid import exceeds this for panic_delay seconds with multiple zones active, zones are shed sequentially.",
           "panic_delay": "Seconds of sustained high import before panic shedding begins.",
@@ -144,8 +140,6 @@
           "short_cycle_on_seconds": "Minimum time a zone must stay ON before controller can turn it OFF (prevents rapid cycling).",
           "short_cycle_off_seconds": "Minimum time a zone must stay OFF before controller can turn it ON (prevents rapid cycling).",
           "action_delay_seconds": "Minimum delay between consecutive zone ON/OFF actions to avoid rapid sequencing.",
-          "add_confidence": "Minimum confidence score needed to add a new zone. Higher = more conservative.",
-          "remove_confidence": "Minimum negative confidence score needed to remove a zone. Higher = harder to remove.",
           "enable_diagnostics_sensor": "Creates a sensor exposing full state for troubleshooting.",
           "update_interval": "How often the controller checks sensors and makes decisions. Lower values = faster response, higher values = less CPU usage. Recommended: 10 seconds."
         }
