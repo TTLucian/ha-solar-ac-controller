@@ -5,20 +5,36 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from homeassistant.util import dt as dt_util
+
 from .const import (
     CONF_ZONES,
+    DECISION_AC_STABILITY_BONUS,
+    DECISION_AC_STABILITY_THRESHOLD_W,
     DECISION_ADD_CONFIDENCE_BASE_MAX,
+    DECISION_COMP_PENALTY_MAG,
     DECISION_CONFIDENCE_OFFSET,
+    DECISION_EMA_BONUS_MULTIPLIER,
     DECISION_EXPORT_MARGIN_DIVISOR,
+    DECISION_FINAL_MAX,
+    DECISION_FINAL_MIN,
     DECISION_HEAVY_IMPORT_BONUS,
     DECISION_HEAVY_IMPORT_THRESHOLD,
     DECISION_IMPORT_BASE_OFFSET,
     DECISION_IMPORT_DIVISOR,
+    DECISION_LEARN_PENALTY_MAG,
+    DECISION_RAW_MAX,
+    DECISION_RAW_MIN,
     DECISION_REMOVE_BASE_MAX,
     DECISION_SAMPLE_BONUS_MAX,
     DECISION_SAMPLE_BONUS_MULTIPLIER,
     DECISION_SHORT_CYCLE_PENALTY_ADD,
     DECISION_SHORT_CYCLE_PENALTY_REMOVE,
+    DECISION_STABILITY_DENOM_MIN,
+    DECISION_SWAP_BUFFER_W,
+    DECISION_VARIABILITY_DIVISOR,
+    DECISION_ZONE_NEEDS_HEATING_DIFF,
+    DECISION_ZONE_TEMP_MARGIN,
 )
 
 if TYPE_CHECKING:
@@ -51,23 +67,128 @@ class DecisionEngine:
         except (TypeError, ValueError):
             return 0.0
 
+        now = dt_util.utcnow().timestamp()
+
+        # Basic margin (positive when export > required)
         export_margin = export_val - required_export_val
 
+        # Aggressiveness scales: higher -> more aggressive (larger bonuses, smaller penalties/divisors)
+        a = getattr(self.coordinator, "aggressiveness", 0.5)
+        penalty_scale = max(0.25, 1.5 - 1.0 * float(a))
+        bonus_scale = max(0.5, 0.5 + 1.5 * float(a))
+        divisor_scale = max(0.5, 1.5 - 1.0 * float(a))
+
+        # Auto-normalize margin divisor based on short-term variability (EMA spread)
+        ema_fast = getattr(self.coordinator, "ema_30s", 0.0)
+        ema_slow = getattr(self.coordinator, "ema_5m", 0.0)
+        variability = abs(ema_fast - ema_slow)
+        variability_factor = 1.0 + min(4.0, variability / DECISION_VARIABILITY_DIVISOR)
+        scaled_divisor = (
+            DECISION_EXPORT_MARGIN_DIVISOR * divisor_scale * variability_factor
+        )
+
         base = min(
-            DECISION_ADD_CONFIDENCE_BASE_MAX,
-            max(0.0, export_margin / DECISION_EXPORT_MARGIN_DIVISOR),
+            DECISION_ADD_CONFIDENCE_BASE_MAX * bonus_scale,
+            max(0.0, export_margin / (scaled_divisor or 1.0)),
         )
-        sample_bonus = min(
-            DECISION_SAMPLE_BONUS_MAX,
-            self.coordinator.samples * DECISION_SAMPLE_BONUS_MULTIPLIER,
+
+        # Sample/history bonus only awarded when recent export margin is positive
+        sample_bonus = 0.0
+        if export_margin > 0 and getattr(self.coordinator, "samples", 0) > 0:
+            raw_bonus = self.coordinator.samples * DECISION_SAMPLE_BONUS_MULTIPLIER
+            sample_bonus = min(DECISION_SAMPLE_BONUS_MAX, raw_bonus) * bonus_scale
+
+        # EMA stability bonus: reward when fast EMA close to slow EMA (stable power)
+        stab_denom = max(DECISION_STABILITY_DENOM_MIN, abs(ema_slow))
+        stability_score = max(
+            0.0, 1.0 - (abs(ema_fast - ema_slow) / (stab_denom + 1e-6))
         )
+        ema_bonus = stability_score * DECISION_EMA_BONUS_MULTIPLIER * bonus_scale
+
+        # Short-cycle penalty (large negative value when recently toggled)
         short_cycle_penalty = (
-            DECISION_SHORT_CYCLE_PENALTY_ADD
+            DECISION_SHORT_CYCLE_PENALTY_ADD * penalty_scale
             if self._is_short_cycling_for_add(last_zone)
             else 0.0
         )
 
-        return base + DECISION_CONFIDENCE_OFFSET + sample_bonus + short_cycle_penalty
+        # Compressor recovery penalty (decays linearly until recover_until)
+        comp_penalty = 0.0
+        try:
+            recover_until = float(
+                getattr(self.coordinator, "compressor_recover_until", 0) or 0
+            )
+            ramp = float(getattr(self.coordinator, "compressor_ramp_seconds", 0) or 0)
+            if ramp > 0 and recover_until > now:
+                frac = max(0.0, min(1.0, (recover_until - now) / ramp))
+                comp_penalty = -DECISION_COMP_PENALTY_MAG * frac * penalty_scale
+        except Exception:
+            comp_penalty = 0.0
+
+        # Learning active: strongly suppress adds while learning is active
+        learn_penalty = 0.0
+        try:
+            if getattr(self.coordinator, "learning_active_cached", False):
+                learn_penalty = -DECISION_LEARN_PENALTY_MAG
+        except Exception:
+            learn_penalty = 0.0
+
+        # AC-power stability early-allow: grant a modest bonus when EMA shows stable, substantial export
+        ac_stability_bonus = 0.0
+        try:
+            variability = abs(ema_fast - ema_slow)
+            if (
+                variability <= DECISION_AC_STABILITY_THRESHOLD_W
+                and abs(ema_slow) > DECISION_AC_STABILITY_THRESHOLD_W
+            ):
+                ac_stability_bonus = DECISION_AC_STABILITY_BONUS * bonus_scale
+        except Exception:
+            ac_stability_bonus = 0.0
+
+        raw = (
+            DECISION_CONFIDENCE_OFFSET * bonus_scale
+            + base
+            + sample_bonus
+            + ema_bonus
+            + ac_stability_bonus
+            + short_cycle_penalty
+            + comp_penalty
+            + learn_penalty
+        )
+
+        # Debug: log component breakdown to help tuning
+        try:
+            _LOGGER.debug(
+                "[ADD_CONF] zone=%s base=%s sample=%s ema=%s sc_pen=%s comp_pen=%s learn_pen=%s raw=%s",
+                last_zone,
+                round(base, 2),
+                round(sample_bonus, 2),
+                round(ema_bonus, 2),
+                round(short_cycle_penalty, 2),
+                round(comp_penalty, 2),
+                round(learn_penalty, 2),
+                round(raw, 2),
+            )
+        except Exception:
+            pass
+
+        # Clamp to sensible range
+        raw = max(DECISION_RAW_MIN, min(DECISION_RAW_MAX, raw))
+        # Store breakdown for diagnostics
+        try:
+            self.coordinator.last_add_breakdown = {
+                "base": round(base, 2),
+                "sample_bonus": round(sample_bonus, 2),
+                "ema_bonus": round(ema_bonus, 2),
+                "ac_stability_bonus": round(ac_stability_bonus, 2),
+                "short_cycle_penalty": round(short_cycle_penalty, 2),
+                "comp_penalty": round(comp_penalty, 2),
+                "learn_penalty": round(learn_penalty, 2),
+                "raw": round(raw, 2),
+            }
+        except Exception:
+            pass
+        return max(DECISION_FINAL_MIN, min(DECISION_FINAL_MAX, raw))
 
     def compute_remove_conf(
         self,
@@ -78,70 +199,71 @@ class DecisionEngine:
 
         PANIC FAST-TRACK: If import_power >= panic_threshold, immediately return 100.0.
         """
+        # Panic fast-track
         if import_power >= self.coordinator.panic_threshold:
             return 100.0
 
+        a = getattr(self.coordinator, "aggressiveness", 0.5)
+        penalty_scale = max(0.25, 1.5 - 1.0 * float(a))
+        bonus_scale = max(0.5, 0.5 + 1.5 * float(a))
+
         base = min(
-            DECISION_REMOVE_BASE_MAX,
+            DECISION_REMOVE_BASE_MAX * bonus_scale,
             max(
                 0.0,
-                (import_power - DECISION_IMPORT_BASE_OFFSET) / DECISION_IMPORT_DIVISOR,
+                (import_power - DECISION_IMPORT_BASE_OFFSET)
+                / (DECISION_IMPORT_DIVISOR or 1.0),
             ),
         )
         heavy_import_bonus = (
-            DECISION_HEAVY_IMPORT_BONUS
+            DECISION_HEAVY_IMPORT_BONUS * bonus_scale
             if import_power > DECISION_HEAVY_IMPORT_THRESHOLD
             else 0.0
         )
         short_cycle_penalty = (
-            DECISION_SHORT_CYCLE_PENALTY_REMOVE
+            DECISION_SHORT_CYCLE_PENALTY_REMOVE * penalty_scale
             if self._is_short_cycling_for_remove(last_zone)
             else 0.0
         )
 
-        computed = (
-            base + DECISION_CONFIDENCE_OFFSET + heavy_import_bonus + short_cycle_penalty
+        raw = (
+            base
+            + DECISION_CONFIDENCE_OFFSET * bonus_scale
+            + heavy_import_bonus
+            + short_cycle_penalty
         )
-
-        # Ensure remove confidence represents non-negative "removal pressure".
-        # Penalties can make the computed value negative (meaning "do not remove"),
-        # but a negative remove_conf should not *increase* add confidence elsewhere.
-        return max(0.0, computed)
+        try:
+            self.coordinator.last_remove_breakdown = {
+                "base": round(base, 2),
+                "heavy_import_bonus": round(heavy_import_bonus, 2),
+                "short_cycle_penalty": round(short_cycle_penalty, 2),
+                "raw": round(raw, 2),
+            }
+        except Exception:
+            pass
+        try:
+            _LOGGER.debug(
+                "[REM_CONF] zone=%s import=%s base=%s heavy=%s sc_pen=%s raw=%s",
+                last_zone,
+                round(import_power, 2),
+                round(base, 2),
+                round(heavy_import_bonus, 2),
+                round(short_cycle_penalty, 2),
+                round(raw, 2),
+            )
+        except Exception:
+            pass
+        return max(0.0, min(100.0, raw))
 
     async def should_add_zone(
         self, next_zone: str, required_export: float | None
     ) -> bool:
-        """Return True if add zone conditions are met."""
-        # Block if learning is active
-        if await self.coordinator.controller.is_learning_active():
-            await self.coordinator._log(
-                f"[ADD_BLOCKED] learning active: next_zone={next_zone}", "debug"
-            )
-            return False
-
-        # Require sustained export (5m EMA) below threshold
-        if self.coordinator.ema_5m > -200:
-            await self.coordinator._log(
-                f"[ADD_BLOCKED] ema_5m too high: ema_5m={round(self.coordinator.ema_5m,2)} > -200",
-                "debug",
-            )
-            return False
-
-        # Check if we have sufficient export capacity (with grid import tolerance)
-        if required_export is not None:
-            current_export = -self.coordinator.ema_30s  # Convert to positive export
-            # Allow zone addition if export is sufficient or grid import is within tolerance
-            min_required_export = (
-                required_export - self.coordinator.grid_import_tolerance
-            )
-            if current_export < min_required_export:
-                await self.coordinator._log(
-                    f"[ADD_BLOCKED] insufficient_export: current_export={round(current_export)}W < min_required_export={round(min_required_export)}W (required={round(required_export)}W, tolerance={round(self.coordinator.grid_import_tolerance)}W)",
-                    "debug",
-                )
-                return False
-
-        return self.coordinator.confidence >= self.coordinator.unified_add_threshold
+        """Return True if add zone conditions are met using unified confidence only."""
+        # Decision is driven by unified confidence computed in coordinator loop.
+        # This method simply returns whether the unified confidence meets the add threshold.
+        return getattr(self.coordinator, "confidence", 0.0) >= getattr(
+            self.coordinator, "unified_add_threshold", 0.0
+        )
 
     # Multi-zone addition/abundance logic removed — single-zone additions only.
 
@@ -252,7 +374,7 @@ class DecisionEngine:
             if self.coordinator.season_mode == "heat"
             else self.coordinator.min_temp_summer
         )
-        margin = 0.5  # 0.5°C stability margin
+        margin = DECISION_ZONE_TEMP_MARGIN
 
         return (
             (ema_temp >= target - margin)
@@ -266,7 +388,10 @@ class DecisionEngine:
         if current_temp is None:
             return False
 
-        return current_temp < self.coordinator.max_temp_winter - 1  # 1°C below target
+        return (
+            current_temp
+            < self.coordinator.max_temp_winter - DECISION_ZONE_NEEDS_HEATING_DIFF
+        )
 
     def _power_compatible_for_swap(self, zone: str) -> bool:
         """Check if zone's power requirements are compatible for swapping."""
@@ -286,4 +411,4 @@ class DecisionEngine:
         ]
         max_active_power = max(active_powers) if active_powers else 0
 
-        return zone_power <= max_active_power + 200  # 200W buffer
+        return zone_power <= max_active_power + DECISION_SWAP_BUFFER_W

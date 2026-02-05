@@ -12,6 +12,8 @@ from .const import (
     CONF_AC_POWER_SENSOR,
     CONF_AC_SWITCH,
     CONF_ACTION_DELAY_SECONDS,
+    CONF_AGGRESSIVENESS,
+    CONF_COMPRESSOR_RAMP_SECONDS,
     CONF_ENABLE_DIAGNOSTICS_SENSOR,
     CONF_ENABLE_TEMP_MODULATION,
     CONF_GRID_IMPORT_TOLERANCE,
@@ -34,6 +36,8 @@ from .const import (
     CONF_ZONE_TEMP_SENSORS,
     CONF_ZONES,
     DEFAULT_ACTION_DELAY_SECONDS,
+    DEFAULT_AGGRESSIVENESS,
+    DEFAULT_COMPRESSOR_RAMP_SECONDS,
     DEFAULT_ENABLE_TEMP_MODULATION,
     DEFAULT_GRID_IMPORT_TOLERANCE,
     DEFAULT_INITIAL_LEARNED_POWER,
@@ -177,6 +181,16 @@ def schema_user(defaults):
                 ),
             ): int,
             vol.Optional(
+                CONF_AGGRESSIVENESS,
+                default=float(
+                    defaults.get(CONF_AGGRESSIVENESS, DEFAULT_AGGRESSIVENESS)
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0.0, max=1.0, mode=NumberSelectorMode.BOX
+                )
+            ),
+            vol.Optional(
                 CONF_UNIFIED_ADD_THRESHOLD,
                 default=int(
                     defaults.get(
@@ -269,6 +283,15 @@ def schema_timing(defaults):
                     min=5, max=60, mode=NumberSelectorMode.BOX
                 )
             ),
+            vol.Optional(
+                CONF_COMPRESSOR_RAMP_SECONDS,
+                default=int(
+                    defaults.get(
+                        CONF_COMPRESSOR_RAMP_SECONDS,
+                        DEFAULT_COMPRESSOR_RAMP_SECONDS,
+                    )
+                ),
+            ): int,
         }
     )
 

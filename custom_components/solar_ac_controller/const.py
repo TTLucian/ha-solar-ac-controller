@@ -43,6 +43,15 @@ CONF_ACTIVITY_LOGGING = "activity_logging"
 # Grid import tolerance (W) - how much grid import is allowed when adding a zone
 CONF_GRID_IMPORT_TOLERANCE = "grid_import_tolerance"
 
+# Compressor / hardware tuning
+CONF_COMPRESSOR_RAMP_SECONDS = "compressor_ramp_seconds"
+DEFAULT_COMPRESSOR_RAMP_SECONDS = (
+    600  # seconds (10 minutes) - multisplit conservative default
+)
+
+# High-level tuning: single aggressiveness slider (0.0 conservative -> 1.0 aggressive)
+CONF_AGGRESSIVENESS = "aggressiveness"
+DEFAULT_AGGRESSIVENESS = 0.5
 # Unified confidence thresholds (points) - hysteresis system
 CONF_UNIFIED_ADD_THRESHOLD = "unified_add_threshold"
 CONF_UNIFIED_REMOVE_THRESHOLD = "unified_remove_threshold"
@@ -66,7 +75,7 @@ DEFAULT_INITIAL_LEARNED_POWER = 1000.0
 
 # Sensible defaults for thresholds and timing (used by coordinator if config missing)
 DEFAULT_SOLAR_THRESHOLD_ON = 1200.0
-DEFAULT_SOLAR_THRESHOLD_OFF = 800.0
+DEFAULT_SOLAR_THRESHOLD_OFF = 500.0
 
 DEFAULT_PANIC_THRESHOLD = 2000.0
 DEFAULT_PANIC_DELAY = 60  # seconds
@@ -91,8 +100,6 @@ LEARNING_MAX_POWER_W = 3000.0
 LEARNING_RELATIVE_TOLERANCE = 0.5
 LEARNING_EMA_ALPHA = 0.3
 
-# Grid import tolerance for zone additions (allows some grid import when adding zones)
-GRID_IMPORT_TOLERANCE_W = 350.0  # Allow up to 350W grid import when adding zones
 
 # Zone swap configuration
 ZONE_SWAP_MIN_INTERVAL_SECONDS = 300
@@ -113,7 +120,7 @@ PANIC_COOLDOWN_SECONDS = 120
 DEFAULT_MAX_TEMP_WINTER = 21.0
 DEFAULT_MIN_TEMP_SUMMER = 21.0
 
-DEFAULT_SEASON_MODE = "heat"  # Default to cool mode
+DEFAULT_SEASON_MODE = "heat"  # Default to heat mode
 DEFAULT_ENABLE_TEMP_MODULATION = True
 
 # Storage
@@ -138,6 +145,29 @@ DECISION_HEAVY_IMPORT_BONUS = 20.0
 DECISION_SHORT_CYCLE_PENALTY_REMOVE = -40.0
 
 DECISION_CONFIDENCE_OFFSET = 5.0
+
+# Additional decision tuning constants
+DECISION_EMA_BONUS_MULTIPLIER = 8.0
+DECISION_COMP_PENALTY_MAG = 40.0
+DECISION_LEARN_PENALTY_MAG = 100.0
+DECISION_AC_STABILITY_THRESHOLD_W = 50.0
+DECISION_AC_STABILITY_BONUS = 15.0
+DECISION_STABILITY_DENOM_MIN = 100.0
+DECISION_SWAP_BUFFER_W = 200.0
+# Variability normalization divisor used when scaling export margin divisor
+DECISION_VARIABILITY_DIVISOR = 250.0
+
+# Raw clamping ranges for internal confidence math
+DECISION_RAW_MIN = -100.0
+DECISION_RAW_MAX = 200.0
+
+# Final clamping ranges exposed to other systems (0-100 points)
+DECISION_FINAL_MIN = 0.0
+DECISION_FINAL_MAX = 100.0
+
+# Zone temperature stability margins (C)
+DECISION_ZONE_TEMP_MARGIN = 0.5
+DECISION_ZONE_NEEDS_HEATING_DIFF = 1.0
 
 # Type definitions for better type safety
 SolarACData = dict[str, Any]  # Can contain both entry data and service flags

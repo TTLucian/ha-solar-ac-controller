@@ -16,6 +16,8 @@ from .const import (
     CONF_AC_POWER_SENSOR,
     CONF_AC_SWITCH,
     CONF_ACTION_DELAY_SECONDS,
+    CONF_AGGRESSIVENESS,
+    CONF_COMPRESSOR_RAMP_SECONDS,
     CONF_ENABLE_TEMP_MODULATION,
     CONF_GRID_IMPORT_TOLERANCE,
     CONF_GRID_SENSOR,
@@ -35,6 +37,8 @@ from .const import (
     CONF_UPDATE_INTERVAL,
     CONF_ZONES,
     DEFAULT_ACTION_DELAY_SECONDS,
+    DEFAULT_AGGRESSIVENESS,
+    DEFAULT_COMPRESSOR_RAMP_SECONDS,
     DEFAULT_ENABLE_TEMP_MODULATION,
     DEFAULT_GRID_IMPORT_TOLERANCE,
     DEFAULT_INITIAL_LEARNED_POWER,
@@ -299,6 +303,15 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         self.learning_zone = None
         self.ema_30s = 0.0
         self.ema_5m = 0.0
+        # Compressor recovery timestamp (unix ts) - prevents rapid re-add until compressor ramps
+        self.compressor_recover_until = 0.0
+
+        # Cached learning active flag for synchronous/lock-free reads
+        self.learning_active_cached = False
+
+        # Per-decision diagnostic breakdowns (populated by DecisionEngine)
+        self.last_add_breakdown: dict = {}
+        self.last_remove_breakdown: dict = {}
 
         # Temperature stability tracking for zone swapping
         self.temp_ema_10m = {}  # zone -> 10min EMA temperature
@@ -454,6 +467,15 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         # Grid import tolerance used when allowing adds (positive import allowed)
         self.grid_import_tolerance = self.config_manager.get_float(
             CONF_GRID_IMPORT_TOLERANCE, DEFAULT_GRID_IMPORT_TOLERANCE
+        )
+
+        # Compressor recovery and aggressiveness tuning
+        self.compressor_ramp_seconds = self.config_manager.get_int(
+            CONF_COMPRESSOR_RAMP_SECONDS, DEFAULT_COMPRESSOR_RAMP_SECONDS
+        )
+        # Aggressiveness: 0.0 conservative -> 1.0 aggressive
+        self.aggressiveness = float(
+            self.config_manager.get_float(CONF_AGGRESSIVENESS, DEFAULT_AGGRESSIVENESS)
         )
 
         # Initial learned power
@@ -1154,6 +1176,11 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                 # 8. Learning timeout
                 learning_zone = await self.controller.session.get_zone()
                 learning_start_time = await self.controller.session.get_start_time()
+                # Update cached learning flag for synchronous checks in DecisionEngine
+                try:
+                    self.learning_active_cached = bool(learning_zone)
+                except Exception:
+                    self.learning_active_cached = False
                 if (
                     learning_zone
                     and learning_start_time

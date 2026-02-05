@@ -75,7 +75,7 @@ class SolarACLearningBinarySensor(_BaseSolarACBinary):
 
     @property
     def is_on(self) -> bool:
-        return bool(getattr(self.coordinator, "learning_active", False))
+        return bool(getattr(self.coordinator, "learning_active_cached", False))
 
 
 class SolarACPanicBinarySensor(_BaseSolarACBinary):

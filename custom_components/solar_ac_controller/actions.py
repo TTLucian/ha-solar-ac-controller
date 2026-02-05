@@ -144,6 +144,20 @@ class ActionExecutor:
             self.coordinator.zone_last_changed[zone] = now_ts
             self.coordinator.zone_last_changed_type[zone] = "off"
 
+        # Set compressor recovery window to avoid rapid re-adds until hardware ramps
+        try:
+            now_ts = dt_util.utcnow().timestamp()
+            ramp = getattr(self.coordinator, "compressor_ramp_seconds", 0) or 0
+            if ramp and hasattr(self.coordinator, "compressor_recover_until"):
+                self.coordinator.compressor_recover_until = now_ts + float(ramp)
+                await self.coordinator._log(
+                    f"[COMPRESSOR] set recovery until {int(self.coordinator.compressor_recover_until)} (ramp={int(ramp)}s)",
+                    "debug",
+                )
+        except Exception:
+            # Defensive: do not break zone removal on logging failures
+            pass
+
         # Check for cancellation before delay
         if self.coordinator.hass.is_stopping:
             return

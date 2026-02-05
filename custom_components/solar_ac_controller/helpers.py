@@ -227,7 +227,7 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
         learned_power = {k: learned_power[k] for k in list(learned_power)[:20]}
         learned_power["_truncated"] = f"{len(learned_power)}+ entries, truncated"
 
-    learning_active = bool(getattr(coordinator, "learning_active", False))
+    learning_active = bool(getattr(coordinator, "learning_active_cached", False))
     learning_zone = getattr(coordinator, "learning_zone", None)
     learning_start_time_ts = getattr(coordinator, "learning_start_time", None)
     learning_started = _human_delta(learning_start_time_ts)

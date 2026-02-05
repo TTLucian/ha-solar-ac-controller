@@ -42,6 +42,14 @@ async def async_setup_entry(
         SolarACSamplesSensor(coordinator, entry_id),
     ]
 
+    # Add per-decision breakdown diagnostic sensors when diagnostics enabled
+    if entry.options.get(
+        CONF_ENABLE_DIAGNOSTICS_SENSOR,
+        entry.data.get(CONF_ENABLE_DIAGNOSTICS_SENSOR, False),
+    ):
+        entities.append(SolarACAddBreakdownSensor(coordinator, entry_id))
+        entities.append(SolarACRemoveBreakdownSensor(coordinator, entry_id))
+
     for zone in coordinator.config.get(CONF_ZONES, []):
         zone_name = zone.split(".")[-1]
         entities.append(SolarACLearnedPowerSensor(coordinator, entry_id, zone_name))
@@ -319,6 +327,40 @@ class SolarACLearnedPowerSensor(_NumericSolarACSensor):
     @property
     def native_value(self) -> float:
         return self.coordinator.get_learned_power(self.zone_name)
+
+
+class SolarACAddBreakdownSensor(_BaseSolarACSensor):
+    _attr_name = "Add Confidence Breakdown"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    @property
+    def unique_id(self) -> str:
+        return f"{self._entry_id}_add_conf_breakdown"
+
+    @property
+    def state(self) -> str:
+        return "ok"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, object]:
+        return getattr(self.coordinator, "last_add_breakdown", {}) or {}
+
+
+class SolarACRemoveBreakdownSensor(_BaseSolarACSensor):
+    _attr_name = "Remove Confidence Breakdown"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    @property
+    def unique_id(self) -> str:
+        return f"{self._entry_id}_remove_conf_breakdown"
+
+    @property
+    def state(self) -> str:
+        return "ok"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, object]:
+        return getattr(self.coordinator, "last_remove_breakdown", {}) or {}
 
 
 class SolarACDiagnosticEntity(_BaseSolarACSensor):
