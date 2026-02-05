@@ -187,7 +187,7 @@ def schema_user(defaults):
                 ),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
-                    min=0.0, max=1.0, mode=NumberSelectorMode.BOX
+                    min=0.0, max=1.0, mode=NumberSelectorMode.SLIDER, step=0.01
                 )
             ),
             vol.Optional(

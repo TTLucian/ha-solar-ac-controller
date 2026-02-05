@@ -72,10 +72,23 @@ class ZoneManager:
             if now >= until:
                 # Lock has expired - remove it and log
                 del self.coordinator.zone_manual_lock_until[zone_id]
-                # Schedule expiration log on HA loop
-                self.coordinator.hass.async_create_task(
-                    self._log_zone_lock_expired(zone_id)
-                )
+                # Schedule expiration log on HA loop using coordinator helper
+                try:
+                    if hasattr(self.coordinator, "create_task"):
+                        self.coordinator.create_task(
+                            self._log_zone_lock_expired(zone_id)
+                        )
+                    else:
+                        self.coordinator.hass.async_create_task(
+                            self._log_zone_lock_expired(zone_id)
+                        )
+                except Exception:
+                    try:
+                        self.coordinator.hass.async_create_task(
+                            self._log_zone_lock_expired(zone_id)
+                        )
+                    except Exception:
+                        pass
                 return False
             return True
         return False

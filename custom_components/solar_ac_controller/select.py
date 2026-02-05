@@ -3,6 +3,7 @@ Select entity for manual season mode (heat/cool) for Solar AC Controller.
 """
 
 from homeassistant.components.select import SelectEntity
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN, SolarACData
@@ -17,6 +18,8 @@ async def async_setup_entry(hass, entry, async_add_entities):
 
 
 class SeasonModeSelect(CoordinatorEntity, SelectEntity):
+    _attr_entity_category = EntityCategory.CONFIG
+
     @property
     def device_info(self):
         return {

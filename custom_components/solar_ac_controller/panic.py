@@ -75,9 +75,27 @@ class PanicManager:
             if not self.coordinator._panic_task or self.coordinator._panic_task.done():
                 # Reset any previous cancellation request when starting a new panic
                 self._cancel_requested = False
-                self.coordinator._panic_task = self.coordinator.hass.async_create_task(
-                    self._panic_task_runner(active_zones)
-                )
+                try:
+                    # Prefer coordinator helper to create safe task
+                    if hasattr(self.coordinator, "create_task"):
+                        self.coordinator._panic_task = self.coordinator.create_task(
+                            self._panic_task_runner(active_zones)
+                        )
+                    else:
+                        self.coordinator._panic_task = (
+                            self.coordinator.hass.async_create_task(
+                                self._panic_task_runner(active_zones)
+                            )
+                        )
+                except Exception:
+                    try:
+                        self.coordinator._panic_task = (
+                            self.coordinator.hass.async_create_task(
+                                self._panic_task_runner(active_zones)
+                            )
+                        )
+                    except Exception:
+                        self.coordinator._panic_task = None
 
     async def _panic_shed(self, active_zones: list[str]) -> None:
         """Shed all but the first active zone during panic."""

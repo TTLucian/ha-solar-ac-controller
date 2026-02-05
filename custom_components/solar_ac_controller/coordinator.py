@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import logging
 from datetime import timedelta
-from typing import Any, Dict, Optional
+from typing import Any, Coroutine, Dict, Optional
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
@@ -97,8 +98,15 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         await self._log(
             f"Integration {'enabled' if enabled else 'disabled'} by user.", "info"
         )
-        self.stored_data["integration_enabled"] = enabled
-        self._storage_dirty = True  # Mark as dirty
+        # Mutate stored_data under storage lock to avoid races when available
+        _lock = getattr(self, "_storage_lock", None)
+        if _lock is not None:
+            async with _lock:
+                self.stored_data["integration_enabled"] = enabled
+                self._storage_dirty = True  # Mark as dirty
+        else:
+            self.stored_data["integration_enabled"] = enabled
+            self._storage_dirty = True
 
         if not await self.storage_circuit_breaker.should_attempt_operation():
             _LOGGER.warning(
@@ -121,8 +129,15 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         await self._log(
             f"Activity logging {'enabled' if enabled else 'disabled'} by user.", "info"
         )
-        self.stored_data["activity_logging_enabled"] = enabled
-        self._storage_dirty = True  # Mark as dirty
+        # Mutate stored_data under storage lock to avoid races when available
+        _lock = getattr(self, "_storage_lock", None)
+        if _lock is not None:
+            async with _lock:
+                self.stored_data["activity_logging_enabled"] = enabled
+                self._storage_dirty = True  # Mark as dirty
+        else:
+            self.stored_data["activity_logging_enabled"] = enabled
+            self._storage_dirty = True
 
         if not await self.storage_circuit_breaker.should_attempt_operation():
             _LOGGER.warning(
@@ -248,8 +263,15 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
     async def async_set_season_mode(self, value: str) -> None:
         """Set season mode and persist state."""
         self.season_mode = value
-        self.stored_data["season_mode"] = value
-        self._storage_dirty = True  # Mark as dirty
+        # Mutate stored_data under storage lock to avoid races when available
+        _lock = getattr(self, "_storage_lock", None)
+        if _lock is not None:
+            async with _lock:
+                self.stored_data["season_mode"] = value
+                self._storage_dirty = True  # Mark as dirty
+        else:
+            self.stored_data["season_mode"] = value
+            self._storage_dirty = True
 
         if not await self.storage_circuit_breaker.should_attempt_operation():
             _LOGGER.warning("Storage circuit breaker open, skipping season mode save")
@@ -259,6 +281,29 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             await self._debounced_save()
         except (asyncio.CancelledError, OSError, ValueError) as exc:
             _LOGGER.exception("Error scheduling season mode save: %s", exc)
+        self.async_update_listeners()
+
+    async def async_set_aggressiveness(self, value: float) -> None:
+        """Set aggressiveness and persist to config entry options."""
+        try:
+            self.aggressiveness = float(value)
+        except (TypeError, ValueError):
+            return
+
+        # Persist into config entry options so OptionsFlow and UI reflect change
+        try:
+            new_options = {
+                **getattr(self.config_entry, "options", {}),
+                CONF_AGGRESSIVENESS: float(self.aggressiveness),
+            }
+            # Use hass.config_entries to update options asynchronously
+            self.hass.config_entries.async_update_entry(
+                self.config_entry, options=new_options
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            _LOGGER.exception("Failed to persist aggressiveness option: %s", exc)
+
+        # Notify listeners so entity states refresh
         self.async_update_listeners()
 
     def _init_runtime_state(self) -> None:
@@ -696,9 +741,13 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             return
 
         try:
-            # Update stored_data in place instead of replacing it
-            self.stored_data["learned_power"] = self._rounded_power(self.learned_power)
-            self.stored_data["samples"] = int(self.samples)
+            # Update stored_data under lock so readers/savers don't race
+            async with self._storage_lock:
+                self.stored_data["learned_power"] = self._rounded_power(
+                    self.learned_power
+                )
+                self.stored_data["samples"] = int(self.samples)
+                self._storage_dirty = True
             await self._debounced_save()
         except (asyncio.CancelledError, OSError, ValueError) as exc:
             _LOGGER.exception("Error scheduling learned values save: %s", exc)
@@ -838,10 +887,15 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
 
                 # Schedule new save
                 delay = self._storage_debounce_seconds - time_since_last_save
-                # Schedule delayed save on Home Assistant's loop
-                self._storage_debounce_task = self.hass.async_create_task(
-                    self._delayed_save(delay)
-                )
+                # Schedule delayed save on Home Assistant's loop (use safe wrapper)
+                try:
+                    self._storage_debounce_task = self.create_task(
+                        self._delayed_save(delay)
+                    )
+                except Exception:
+                    self._storage_debounce_task = self.hass.async_create_task(
+                        self._delayed_save(delay)
+                    )
                 return
 
             # Save immediately if enough time has passed
@@ -885,7 +939,11 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             return
 
         try:
-            await self.store.async_save(self.stored_data)
+            # Copy stored_data to avoid races where other coroutines mutate
+            # the in-memory dict while the I/O operation is in progress.
+            # Use deepcopy to be safe for nested structures.
+            data_to_save = copy.deepcopy(self.stored_data)
+            await self.store.async_save(data_to_save)
             await self.storage_circuit_breaker.record_success()
             self._storage_dirty = False  # Clear dirty flag on successful save
         except (OSError, StorageError) as exc:
@@ -922,10 +980,19 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                 dt_util.utcnow().timestamp()
                 - self._sensor_unavailable_since[sensor_name]
             )
-            # Use hass task creation to ensure HA loop compatibility
-            self.hass.async_create_task(
-                self._log_sensor_recovery(sensor_name, unavailable_duration)
-            )
+            # Use safe task creation helper to ensure exceptions are logged
+            try:
+                self.create_task(
+                    self._log_sensor_recovery(sensor_name, unavailable_duration)
+                )
+            except Exception:
+                # Fallback to direct task creation if helper isn't available
+                try:
+                    self.hass.async_create_task(
+                        self._log_sensor_recovery(sensor_name, unavailable_duration)
+                    )
+                except Exception:
+                    pass
             del self._sensor_unavailable_since[sensor_name]
 
         try:
@@ -939,6 +1006,30 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             f"Sensor '{sensor_name}' recovered after being unavailable for {round(duration, 1)} seconds",
             "info",
         )
+
+    def create_task(self, coro: Coroutine[Any, Any, Any]) -> asyncio.Task[Any]:
+        """Create a background task and ensure exceptions are logged.
+
+        Use this instead of calling `hass.async_create_task` directly to
+        attach a done-callback which logs unhandled exceptions.
+        """
+        task = self.hass.async_create_task(coro)
+
+        def _done_callback(t: asyncio.Task) -> None:
+            try:
+                exc = t.exception()
+                if exc:
+                    _LOGGER.exception("Background task exception: %s", exc)
+            except asyncio.CancelledError:
+                # Cancellation is not an error to report
+                pass
+
+        try:
+            task.add_done_callback(_done_callback)
+        except Exception:
+            # Defensive: ignore if task can't accept callbacks
+            pass
+        return task
 
     def _validate_configuration(self) -> None:
         """Validate configuration on startup."""
@@ -1368,22 +1459,42 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             and isinstance(self.ema_5m, (int, float))
         ):
             # Log EMA validation failure asynchronously on HA loop
-            self.hass.async_create_task(
-                self._log_ema_validation_failure(
-                    "non_numeric", grid_raw, old_ema_30s, old_ema_5m
+            try:
+                self.create_task(
+                    self._log_ema_validation_failure(
+                        "non_numeric", grid_raw, old_ema_30s, old_ema_5m
+                    )
                 )
-            )
+            except Exception:
+                try:
+                    self.hass.async_create_task(
+                        self._log_ema_validation_failure(
+                            "non_numeric", grid_raw, old_ema_30s, old_ema_5m
+                        )
+                    )
+                except Exception:
+                    pass
             # Reset to safe values
             self.ema_tracker.reset()
             self.ema_30s, self.ema_5m = 0.0, 0.0
         elif not (-50000 <= self.ema_30s <= 50000) or not (
             -50000 <= self.ema_5m <= 50000
         ):
-            self.hass.async_create_task(
-                self._log_ema_validation_failure(
-                    "out_of_range", grid_raw, old_ema_30s, old_ema_5m
+            try:
+                self.create_task(
+                    self._log_ema_validation_failure(
+                        "out_of_range", grid_raw, old_ema_30s, old_ema_5m
+                    )
                 )
-            )
+            except Exception:
+                try:
+                    self.hass.async_create_task(
+                        self._log_ema_validation_failure(
+                            "out_of_range", grid_raw, old_ema_30s, old_ema_5m
+                        )
+                    )
+                except Exception:
+                    pass
             # Reset to safe values
             self.ema_tracker.reset()
             self.ema_30s, self.ema_5m = 0.0, 0.0
