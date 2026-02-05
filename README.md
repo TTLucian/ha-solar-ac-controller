@@ -5,6 +5,7 @@
   <img src="https://img.shields.io/github/license/TTLucian/ha-solar-ac-controller?style=for-the-badge" />
   <img src="https://img.shields.io/badge/HACS-Custom-orange.svg?style=for-the-badge" />
   <img src="https://img.shields.io/github/actions/workflow/status/TTLucian/ha-solar-ac-controller/ci.yml?style=for-the-badge" />
+  <a href="https://buymeacoffee.com/ttlucian"><img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-Donate-yellow?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black" alt="Buy Me a Coffee" /></a>
 </p>
 
 A smart and adaptive Home Assistant integration that manages multi-zone (milti-split) AC systems based on real-time solar production, grid import/export, and learned compressor behavior.
@@ -22,6 +23,9 @@ This integration automatically:
 - **Provides runtime reconfiguration** via Options Flow without restart
 
 Designed as a Home Assistant **service integration** for high-performance, solar-aware HVAC automation.
+
+---
+ [!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/TTLucian)
 
 ---
 
