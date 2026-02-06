@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
@@ -78,7 +79,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     domain_data: SolarACData = hass.data.setdefault(DOMAIN, {})
     if _svc_flag not in domain_data:
 
-        async def handle_force_relearn(call: ServiceCall):
+        async def handle_force_relearn(call: ServiceCall) -> None:
             # Reset learned power and samples for a specific zone or all zones
             zone_entity = call.data.get("zone")
             zone = zone_entity.split(".")[-1] if zone_entity else None
@@ -190,7 +191,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         stored_data = migrated
 
     # 2. Rounding cleanup
-    def _round_map(val):
+    def _round_map(val: Any) -> Any:
         if isinstance(val, dict):
             return {k: _round_map(v) for k, v in val.items()}
         return int(round(float(val)))

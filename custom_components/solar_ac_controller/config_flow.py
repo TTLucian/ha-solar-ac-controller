@@ -89,7 +89,9 @@ def parse_numeric_list(val: Any) -> list[float | None] | None:
 
 
 # --- SHARED BASE FLOW FOR VALIDATION & CLEANING ---
-def validate_solar_hysteresis(user_input, data, errors):
+def validate_solar_hysteresis(
+    user_input: dict[str, Any], data: dict[str, Any], errors: dict[str, str]
+) -> dict[str, str]:
     on_val = user_input.get(
         CONF_SOLAR_THRESHOLD_ON,
         data.get(CONF_SOLAR_THRESHOLD_ON, DEFAULT_SOLAR_THRESHOLD_ON),
@@ -103,7 +105,9 @@ def validate_solar_hysteresis(user_input, data, errors):
     return errors
 
 
-def validate_panic_threshold(user_input, data, errors):
+def validate_panic_threshold(
+    user_input: dict[str, Any], data: dict[str, Any], errors: dict[str, str]
+) -> dict[str, str]:
     panic_th = user_input.get(
         CONF_PANIC_THRESHOLD, data.get(CONF_PANIC_THRESHOLD, DEFAULT_PANIC_THRESHOLD)
     )
@@ -113,7 +117,7 @@ def validate_panic_threshold(user_input, data, errors):
     return errors
 
 
-def clean_zone_temp_sensors(zones, zone_temp_sensors):
+def clean_zone_temp_sensors(zones: list[str], zone_temp_sensors: Any) -> list[str]:
     if not isinstance(zone_temp_sensors, list):
         if zone_temp_sensors is None or zone_temp_sensors == "":
             zone_temp_sensors = []
@@ -128,7 +132,7 @@ def clean_zone_temp_sensors(zones, zone_temp_sensors):
     return zone_temp_sensors
 
 
-def clean_zone_manual_power(zones, zone_manual_power):
+def clean_zone_manual_power(zones: list[str], zone_manual_power: Any) -> str:
     if isinstance(zone_manual_power, (list, tuple)):
         # Convert None values to empty strings for display
         return ", ".join("" if v is None else str(v) for v in zone_manual_power)
@@ -138,7 +142,7 @@ def clean_zone_manual_power(zones, zone_manual_power):
         return str(zone_manual_power)
 
 
-def schema_user(defaults):
+def schema_user(defaults: dict[str, Any]) -> Any:
     return vol.Schema(
         {
             vol.Required(
@@ -230,7 +234,7 @@ def schema_user(defaults):
     )
 
 
-def schema_timing(defaults):
+def schema_timing(defaults: dict[str, Any]) -> Any:
     return vol.Schema(
         {
             vol.Optional(
@@ -296,7 +300,7 @@ def schema_timing(defaults):
     )
 
 
-def schema_comfort(defaults, zone_manual_default):
+def schema_comfort(defaults: dict[str, Any], zone_manual_default: str) -> Any:
     return vol.Schema(
         {
             vol.Optional(

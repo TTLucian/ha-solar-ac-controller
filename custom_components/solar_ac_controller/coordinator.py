@@ -247,7 +247,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         )
 
     @season_mode.setter
-    def season_mode(self, value: str):
+    def season_mode(self, value: str) -> None:
         # Store runtime value (persistence handled separately)
         self._season_mode = value
 

@@ -31,7 +31,7 @@ async def async_get_config_entry_diagnostics(
     # These represent the "State of Mind" of your AI
     import homeassistant.util.dt as dt_util
 
-    def iso_ts(ts):
+    def iso_ts(ts: Any) -> str | None:
         if not ts:
             return None
         try:
