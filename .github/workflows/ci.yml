@@ -71,6 +71,7 @@ jobs:
         uses: hacs/action@main
         with:
           category: integration
+          ignore: brands
 
   release-drafter:
     if: github.ref == 'refs/heads/main'
