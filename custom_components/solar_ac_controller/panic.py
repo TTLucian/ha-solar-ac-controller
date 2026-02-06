@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from homeassistant.util import dt as dt_util
 
@@ -46,7 +46,9 @@ class PanicManager:
         now_ts = dt_util.utcnow().timestamp()
         if self.coordinator.last_panic_ts is None:
             return False
-        return (now_ts - self.coordinator.last_panic_ts) < PANIC_COOLDOWN_SECONDS
+        return cast(
+            bool, (now_ts - self.coordinator.last_panic_ts) < PANIC_COOLDOWN_SECONDS
+        )
 
     async def cancel_panic(self) -> None:
         """Request panic cancellation and cancel any running panic task."""

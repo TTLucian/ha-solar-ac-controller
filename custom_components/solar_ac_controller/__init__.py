@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
@@ -315,4 +315,4 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Optional: remove the service flag too
         hass.data[DOMAIN].pop("__svc_force_relearn_registered", None)
 
-    return unload_ok
+    return cast(bool, unload_ok)

@@ -45,6 +45,7 @@ class LearningSession:
         self._zones_added_during_learning: List[str] = []
         self._peak_detection_timestamp: Optional[float] = None
         self._stabilization_timestamp: Optional[float] = None
+        self._time_to_peak: Optional[float] = None
 
     async def is_active(self) -> bool:
         async with self._lock:
@@ -69,6 +70,7 @@ class LearningSession:
             self._contamination_timestamp = None
             self._zones_added_during_learning = []
             self._peak_detection_timestamp = None
+            self._time_to_peak = None
 
     async def get_zone(self) -> Optional[str]:
         async with self._lock:
@@ -152,9 +154,6 @@ class LearningSession:
             if power > self._peak_power:
                 self._peak_power = power
                 self._peak_detected = True
-                # Record when peak was first detected
-                if self._peak_detection_timestamp is None:
-                    self._peak_detection_timestamp = now
 
             # Detect peak (power started declining)
             elif self._peak_detected and len(self._power_readings) >= 3:
@@ -163,7 +162,11 @@ class LearningSession:
                     recent[0][1] > recent[1][1] > recent[2][1]  # Declining trend
                     and recent[1][1] < self._peak_power * 0.9
                 ):  # Below 90% of peak
-                    self._peak_detected = True  # Lock in peak detection
+                    # Lock in peak detection
+                    if self._peak_detection_timestamp is None:
+                        self._peak_detection_timestamp = now
+                    if self._time_to_peak is None and self._start_time is not None:
+                        self._time_to_peak = now - self._start_time
 
             # Detect stabilization (low variation in recent readings)
             if len(self._power_readings) >= 24:  # 2 minutes at 5s intervals
@@ -193,9 +196,10 @@ class LearningSession:
         async with self._lock:
             return self._peak_detected and self._stabilized_detected
 
-    async def get_samples(self) -> int:
+    async def get_time_to_peak(self) -> Optional[float]:
+        """Get the time to peak in seconds."""
         async with self._lock:
-            return self._samples
+            return self._time_to_peak
 
 
 class SolarACController:
@@ -356,6 +360,7 @@ class SolarACController:
             stabilization_valid = await self.session.is_stabilization_valid()
 
             # Calculate learned power: average of valid measurements, or use whichever is available
+            learned_power: float | None = None
             if (
                 peak_valid
                 and peak_power > 0
@@ -407,6 +412,16 @@ class SolarACController:
                     False, error_message="No baseline power available"
                 )
 
+            # Calculate deltas for peak and stabilized power
+            peak_delta = (
+                (peak_power - ac_before) if peak_valid and peak_power > 0 else None
+            )
+            stabilized_delta = (
+                (stabilized_power - ac_before)
+                if stabilization_valid and stabilized_power > 0
+                else None
+            )
+
             # Calculate delta (learned power - baseline)
             try:
                 delta = abs(float(learned_power) - float(ac_before))
@@ -455,7 +470,25 @@ class SolarACController:
                     elif zone_state_obj.state == "cool":
                         mode = "cool"
 
+            # Classify the learning session based on baseline power
+            category = None
+            if ac_before < 50.0:
+                category = "lead"  # Compressor was OFF
+            elif ac_before > 150.0:
+                category = "extension"  # Compressor was already ON
+
+            if category is None:
+                _LOGGER.debug(
+                    "Skipping learning save: ac_before=%sW not in classification range",
+                    ac_before,
+                )
+                await self._reset_learning_state_async()
+                return LearningResult(
+                    False, error_message=f"Baseline power {ac_before}W not classifiable"
+                )
+
             # Save the learned power
+            time_to_peak = await self.session.get_time_to_peak()
             set_lp = getattr(self.coordinator, "set_learned_power", None)
             persist_fn = cast(
                 Callable[[], Awaitable[None]] | None,
@@ -471,18 +504,33 @@ class SolarACController:
                 )
 
             try:
-                set_lp(zone_name, float(delta), mode=mode)
+                set_lp(
+                    zone_name,
+                    float(delta),
+                    mode=mode,
+                    category=category,
+                    time_to_peak=time_to_peak,
+                    peak_delta=peak_delta,
+                    stabilized_delta=stabilized_delta,
+                )
                 self.coordinator.samples = (
                     int(getattr(self.coordinator, "samples", 0) or 0) + 1
                 )
                 await persist_fn()
                 _LOGGER.info(
-                    "Finished learning: zone=%s mode=%s delta=%s samples=%s (peak power: %sW)",
+                    "Finished learning: zone=%s mode=%s category=%s delta=%s samples=%s (peak_delta: %sW, stabilized_delta: %sW, time_to_peak: %ss)",
                     zone,
                     mode or "default",
+                    category,
                     round(delta, 2),
                     self.coordinator.samples,
-                    round(peak_power, 2) if peak_power > 0 else "N/A",
+                    round(peak_delta, 2) if peak_delta is not None else "N/A",
+                    (
+                        round(stabilized_delta, 2)
+                        if stabilized_delta is not None
+                        else "N/A"
+                    ),
+                    round(time_to_peak, 2) if time_to_peak is not None else "N/A",
                 )
 
                 # Enhanced logging for learning completion
@@ -493,10 +541,12 @@ class SolarACController:
                 if log_fn:
                     try:
                         await log_fn(
-                            f"[LEARNING_COMPLETE] zone={zone} mode={mode or 'default'} "
+                            f"[LEARNING_COMPLETE] zone={zone} mode={mode or 'default'} category={category} "
                             f"ac_before={round(ac_before, 2)}W learned_power={round(learned_power, 2)}W "
                             f"delta={round(delta, 2)}W samples={self.coordinator.samples} "
-                            f"peak_power={round(peak_power, 2) if peak_power > 0 else 'N/A'}W"
+                            f"peak_delta={round(peak_delta, 2) if peak_delta is not None else 'N/A'}W "
+                            f"stabilized_delta={round(stabilized_delta, 2) if stabilized_delta is not None else 'N/A'}W "
+                            f"time_to_peak={round(time_to_peak, 2) if time_to_peak is not None else 'N/A'}s"
                         )
                     except (AttributeError, TypeError, ValueError) as exc2:
                         _LOGGER.exception(

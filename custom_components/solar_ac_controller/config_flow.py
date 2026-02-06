@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, OptionsFlow
@@ -128,7 +128,7 @@ def clean_zone_temp_sensors(zones: list[str], zone_temp_sensors: Any) -> list[st
         )
     if len(zone_temp_sensors) > len(zones):
         zone_temp_sensors = zone_temp_sensors[: len(zones)]
-    return zone_temp_sensors
+    return cast(list[str], zone_temp_sensors)
 
 
 def clean_zone_manual_power(zones: list[str], zone_manual_power: Any) -> str:
@@ -367,7 +367,7 @@ async def _validate_zone_temp_sensors(
 class SolarACConfigFlow(ConfigFlow):
     VERSION = 2
 
-    async def async_step_user(self, user_input: dict[str, Any] | None = None):
+    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> Any:
         errors: dict[str, str] = {}
         if not hasattr(self, "_reconfigure_defaults"):
             self._reconfigure_defaults: dict[str, Any] = {}
@@ -397,7 +397,7 @@ class SolarACConfigFlow(ConfigFlow):
             errors=errors,
         )
 
-    async def async_step_timing(self, user_input: dict[str, Any] | None = None):
+    async def async_step_timing(self, user_input: dict[str, Any] | None = None) -> Any:
         errors: dict[str, str] = {}
         if not hasattr(self, "_reconfigure_defaults"):
             self._reconfigure_defaults = {}
@@ -421,7 +421,7 @@ class SolarACConfigFlow(ConfigFlow):
             errors=errors,
         )
 
-    async def async_step_comfort(self, user_input: dict[str, Any] | None = None):
+    async def async_step_comfort(self, user_input: dict[str, Any] | None = None) -> Any:
         errors: dict[str, str] = {}
         if not hasattr(self, "_reconfigure_defaults"):
             self._reconfigure_defaults = {}
@@ -471,10 +471,12 @@ class SolarACConfigFlow(ConfigFlow):
             errors=errors,
         )
 
-    async def async_step_import(self, user_input: dict[str, Any]):
+    async def async_step_import(self, user_input: dict[str, Any]) -> Any:
         return await self.async_step_user(user_input)
 
-    async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None):
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> Any:
         """Handle reconfigure flow by seeding defaults from existing entry and updating, not duplicating."""
         entry_id = self.context.get("entry_id")
         entry = self.hass.config_entries.async_get_entry(entry_id) if entry_id else None
@@ -493,8 +495,8 @@ class SolarACConfigFlow(ConfigFlow):
         return await self.async_step_user(user_input)
 
     @staticmethod
-    @callback
-    def async_get_options_flow(config_entry: ConfigEntry):
+    @callback  # type: ignore[untyped-decorator]
+    def async_get_options_flow(config_entry: ConfigEntry) -> Any:
         return SolarACOptionsFlowHandler(config_entry)
 
 
@@ -510,7 +512,7 @@ class SolarACOptionsFlowHandler(OptionsFlow):
     def _current(self) -> dict[str, Any]:
         return {**self.entry.data, **self.entry.options, **self.data}
 
-    async def async_step_init(self, user_input: dict[str, Any] | None = None):
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> Any:
         errors: dict[str, str] = {}
         defaults = self._current
         if user_input is not None:
@@ -529,7 +531,7 @@ class SolarACOptionsFlowHandler(OptionsFlow):
             errors=errors,
         )
 
-    async def async_step_timing(self, user_input: dict[str, Any] | None = None):
+    async def async_step_timing(self, user_input: dict[str, Any] | None = None) -> Any:
         errors: dict[str, str] = {}
         defaults = {**self._current, **self.data}
         if user_input is not None:
@@ -547,7 +549,7 @@ class SolarACOptionsFlowHandler(OptionsFlow):
             errors=errors,
         )
 
-    async def async_step_comfort(self, user_input: dict[str, Any] | None = None):
+    async def async_step_comfort(self, user_input: dict[str, Any] | None = None) -> Any:
         errors: dict[str, str] = {}
         defaults = {**self._current, **self.data}
         _parse_manual_power = parse_numeric_list

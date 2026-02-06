@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from homeassistant.util import dt as dt_util
 
@@ -188,7 +188,7 @@ class DecisionEngine:
             }
         except Exception:
             pass
-        return max(DECISION_FINAL_MIN, min(DECISION_FINAL_MAX, raw))
+        return cast(float, max(DECISION_FINAL_MIN, min(DECISION_FINAL_MAX, raw)))
 
     def compute_remove_conf(
         self,
@@ -314,7 +314,7 @@ class DecisionEngine:
         else:
             threshold = self.coordinator.short_cycle_off_seconds
 
-        return (now - last) < threshold
+        return cast(bool, (now - last) < threshold)
 
     def _is_short_cycling_for_remove(self, zone: str | None) -> bool:
         """Check if zone is short-cycling (for remove penalty)."""
@@ -359,7 +359,7 @@ class DecisionEngine:
             key=lambda z: self.coordinator.zone_priorities.get(z.split(".")[-1], 999),
         ):
             if self._zone_needs_heating(zone) and self._power_compatible_for_swap(zone):
-                return zone
+                return cast(str, zone)
 
         return None
 

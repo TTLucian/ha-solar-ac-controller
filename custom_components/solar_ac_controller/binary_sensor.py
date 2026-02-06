@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
@@ -105,7 +105,7 @@ class SolarACPanicCooldownBinarySensor(_BaseSolarACBinary):
     @property
     def is_on(self) -> bool:
         # Note: This will only update when the coordinator updates.
-        return self.coordinator.panic_manager.is_in_cooldown
+        return cast(bool, self.coordinator.panic_manager.is_in_cooldown)
 
 
 class SolarACShortCycleBinarySensor(_BaseSolarACBinary):
@@ -198,4 +198,4 @@ class SolarACMasterBinarySensor(_BaseSolarACBinary):
             return False
         if state.state in ("unavailable", "unknown"):
             return False
-        return state.state == "on"
+        return cast(bool, state.state == "on")

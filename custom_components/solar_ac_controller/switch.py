@@ -14,7 +14,7 @@ INTEGRATION_ENABLE_SWITCH = "integration_enable"
 ACTIVITY_LOGGING_SWITCH = "activity_logging"
 
 
-async def async_setup_entry(hass, entry, async_add_entities) -> None:
+async def async_setup_entry(hass: Any, entry: Any, async_add_entities: Any) -> None:
     domain_data: SolarACData = hass.data[DOMAIN]
     coordinator = domain_data[entry.entry_id]["coordinator"]
     async_add_entities(
@@ -38,7 +38,7 @@ class IntegrationEnableSwitch(CoordinatorEntity, SwitchEntity):
     _attr_name = "Integration Enable"
     _attr_icon = "mdi:power"
 
-    def __init__(self, coordinator, entry) -> None:
+    def __init__(self, coordinator: Any, entry: Any) -> None:
         super().__init__(coordinator)
         self.coordinator = coordinator
         self.entry = entry
@@ -76,7 +76,7 @@ class ActivityLoggingSwitch(CoordinatorEntity, SwitchEntity):
     _attr_name = "Activity Logging"
     _attr_icon = "mdi:text-box-outline"
 
-    def __init__(self, coordinator, entry) -> None:
+    def __init__(self, coordinator: Any, entry: Any) -> None:
         super().__init__(coordinator)
         self.coordinator = coordinator
         self.entry = entry

@@ -2,18 +2,26 @@
 Select entity for manual season mode (heat/cool) for Solar AC Controller.
 """
 
-from typing import Any
+from typing import TYPE_CHECKING, cast
 
 from homeassistant.components.select import SelectEntity
-from homeassistant.helpers.entity import EntityCategory
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import DeviceInfo, EntityCategory
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN, SolarACData
 
+if TYPE_CHECKING:
+    from .coordinator import SolarACCoordinator
+
 SEASON_OPTIONS = ["heat", "cool"]
 
 
-async def async_setup_entry(hass, entry, async_add_entities) -> None:
+async def async_setup_entry(
+    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+) -> None:
     domain_data: SolarACData = hass.data[DOMAIN]
     coordinator = domain_data[entry.entry_id]["coordinator"]
     async_add_entities([SeasonModeSelect(coordinator, entry)])
@@ -21,21 +29,20 @@ async def async_setup_entry(hass, entry, async_add_entities) -> None:
 
 class SeasonModeSelect(CoordinatorEntity, SelectEntity):
     _attr_entity_category = EntityCategory.CONFIG
+    _attr_should_poll: bool = False
+    _attr_has_entity_name: bool = True
+    _attr_name: str = "Season Mode"
+    _attr_icon: str = "mdi:weather-partly-snowy-rainy"
+    _attr_options: list[str] = SEASON_OPTIONS
 
     @property
-    def device_info(self) -> dict[str, Any]:
-        return {
-            "identifiers": {(DOMAIN, self.entry.entry_id)},
-            "name": "Solar AC Controller",
-        }
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(
+            identifiers={(DOMAIN, self.entry.entry_id)},
+            name="Solar AC Controller",
+        )
 
-    _attr_should_poll = False
-    _attr_has_entity_name = True
-    _attr_name = "Season Mode"
-    _attr_icon = "mdi:weather-partly-snowy-rainy"
-    _attr_options = SEASON_OPTIONS
-
-    def __init__(self, coordinator, entry) -> None:
+    def __init__(self, coordinator: "SolarACCoordinator", entry: ConfigEntry) -> None:
         super().__init__(coordinator)
         self.coordinator = coordinator
         self.entry = entry
@@ -43,7 +50,7 @@ class SeasonModeSelect(CoordinatorEntity, SelectEntity):
 
     @property
     def current_option(self) -> str | None:
-        return getattr(self.coordinator, "season_mode", "cool")
+        return cast(str, getattr(self.coordinator, "season_mode", "cool"))
 
     async def async_select_option(self, option: str) -> None:
         if option not in SEASON_OPTIONS:

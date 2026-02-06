@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from homeassistant.util import dt as dt_util
 
@@ -216,4 +216,4 @@ class ZoneManager:
         else:
             threshold = self.coordinator.short_cycle_off_seconds
 
-        return (now - last) < threshold
+        return cast(bool, (now - last) < threshold)

@@ -2,7 +2,7 @@
 """Circuit breaker pattern for storage operations."""
 
 import asyncio
-from typing import Optional
+from typing import Any, Optional
 
 from homeassistant.util import dt as dt_util
 
@@ -11,7 +11,7 @@ class StorageCircuitBreaker:
     """Circuit breaker for storage operations to prevent cascading failures."""
 
     def __init__(
-        self, max_failures: int = 3, reset_timeout: int = 300, coordinator=None
+        self, max_failures: int = 3, reset_timeout: int = 300, coordinator: Any = None
     ) -> None:
         """Initialize circuit breaker."""
         self.max_failures = max_failures

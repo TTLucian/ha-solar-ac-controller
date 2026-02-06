@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -338,7 +338,7 @@ class SolarACLearnedPowerSensor(_NumericSolarACSensor):
 
     @property
     def native_value(self) -> float:
-        return self.coordinator.get_learned_power(self.zone_name)
+        return cast(float, self.coordinator.get_learned_power(self.zone_name))
 
 
 class SolarACAddBreakdownSensor(_BaseSolarACSensor):
