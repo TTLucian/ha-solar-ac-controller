@@ -395,6 +395,10 @@ class SolarACController:
                     False, error_message="Unable to determine learned power"
                 )
 
+            assert (
+                learned_power is not None
+            )  # At this point, learned_power is guaranteed to be a float
+
             ac_before = getattr(self.coordinator, "ac_power_before", None)
             if ac_before is None:
                 _LOGGER.debug("No baseline power available for learning")

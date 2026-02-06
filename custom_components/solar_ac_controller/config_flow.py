@@ -53,7 +53,6 @@ from .const import (
     DEFAULT_UNIFIED_ADD_THRESHOLD,
     DEFAULT_UNIFIED_REMOVE_THRESHOLD,
     DEFAULT_UPDATE_INTERVAL,
-    DOMAIN,
 )
 
 # --- HELPERS: Must be defined before use ---
@@ -74,7 +73,7 @@ def parse_numeric_list(val: Any) -> list[float | None] | None:
     try:
         # Split and filter out empty strings, but preserve position with None
         parts = [x.strip() for x in str(val).replace(",", " ").split()]
-        result = []
+        result: list[float | None] = []
         for part in parts:
             if part == "":
                 result.append(None)
@@ -365,15 +364,15 @@ async def _validate_zone_temp_sensors(
     return None
 
 
-class SolarACConfigFlow(ConfigFlow, domain=DOMAIN):
+class SolarACConfigFlow(ConfigFlow):
     VERSION = 2
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None):
         errors: dict[str, str] = {}
         if not hasattr(self, "_reconfigure_defaults"):
-            self._reconfigure_defaults = {}
+            self._reconfigure_defaults: dict[str, Any] = {}
         if not hasattr(self, "data"):
-            self.data = {}
+            self.data: dict[str, Any] = {}
         defaults = {**self._reconfigure_defaults, **self.data}
         if user_input is not None:
             zones = user_input.get(CONF_ZONES, [])

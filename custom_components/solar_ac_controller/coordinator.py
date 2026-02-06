@@ -315,18 +315,18 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         # Performance optimization counters
         self._cycle_counter = 0
         self._last_sensor_log_cycle = 0
-        self.zone_last_changed = {}
-        self.zone_last_changed_type = {}
-        self.zone_last_state = {}
-        self.zone_manual_lock_until = {}
+        self.zone_last_changed: dict[str, float] = {}
+        self.zone_last_changed_type: dict[str, str] = {}
+        self.zone_last_state: dict[str, str] = {}
+        self.zone_manual_lock_until: dict[str, float] = {}
 
         # Master AC control state
-        self.master_last_state = None
-        self.master_last_action_time = None
-        self.master_manual_lock_state = None
-        self.required_export = None
-        self.export_margin = None
-        self.master_off_since = None
+        self.master_last_state: str | None = None
+        self.master_last_action_time: float | None = None
+        self.master_manual_lock_state: str | None = None
+        self.required_export: float | None = None
+        self.export_margin: float | None = None
+        self.master_off_since: float | None = None
 
         # Controller and confidence tracking
         from .controller import SolarACController
@@ -335,17 +335,17 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         self.last_add_conf = 0.0
         self.last_remove_conf = 0.0
         self.confidence = 0.0
-        self.last_action_start_ts = None
-        self.last_action_duration = None
+        self.last_action_start_ts: float | None = None
+        self.last_action_duration: float | None = None
         self._panic_task: Optional[asyncio.Task[None]] = None
-        self.last_panic_ts = None
+        self.last_panic_ts: float | None = None
 
         # Learning state
-        self.last_action = None
+        self.last_action: str | None = None
         self.was_in_freeze = False  # Track previous freeze state for logging
-        self.learning_start_time = None
-        self.ac_power_before = None
-        self.learning_zone = None
+        self.learning_start_time: float | None = None
+        self.ac_power_before: float | None = None
+        self.learning_zone: str | None = None
         self.ema_30s = 0.0
         self.ema_5m = 0.0
         # Compressor recovery timestamp (unix ts) - prevents rapid re-add until compressor ramps
@@ -359,8 +359,8 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         self.last_remove_breakdown: dict = {}
 
         # Temperature stability tracking for zone swapping
-        self.temp_ema_10m = {}  # zone -> 10min EMA temperature
-        self.zone_last_swap_time = {}  # zone -> last swap timestamp
+        self.temp_ema_10m: dict[str, float] = {}  # zone -> 10min EMA temperature
+        self.zone_last_swap_time: dict[str, float] = {}  # zone -> last swap timestamp
 
         # Defensive initialization
         self.required_export_source = "Initializing"
