@@ -2,6 +2,8 @@
 Switch entities for the Solar AC Controller integration.
 """
 
+from typing import Any
+
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -12,7 +14,7 @@ INTEGRATION_ENABLE_SWITCH = "integration_enable"
 ACTIVITY_LOGGING_SWITCH = "activity_logging"
 
 
-async def async_setup_entry(hass, entry, async_add_entities):
+async def async_setup_entry(hass, entry, async_add_entities) -> None:
     domain_data: SolarACData = hass.data[DOMAIN]
     coordinator = domain_data[entry.entry_id]["coordinator"]
     async_add_entities(
@@ -25,7 +27,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
 
 class IntegrationEnableSwitch(CoordinatorEntity, SwitchEntity):
     @property
-    def device_info(self):
+    def device_info(self) -> dict[str, Any]:
         return {
             "identifiers": {(DOMAIN, self.entry.entry_id)},
             "name": "Solar AC Controller",
@@ -36,23 +38,23 @@ class IntegrationEnableSwitch(CoordinatorEntity, SwitchEntity):
     _attr_name = "Integration Enable"
     _attr_icon = "mdi:power"
 
-    def __init__(self, coordinator, entry):
+    def __init__(self, coordinator, entry) -> None:
         super().__init__(coordinator)
         self.coordinator = coordinator
         self.entry = entry
         self._attr_unique_id = f"{entry.entry_id}_integration_enable"
 
     @property
-    def is_on(self):
+    def is_on(self) -> bool:
         return getattr(self.coordinator, "integration_enabled", True)
 
-    async def async_turn_on(self, **kwargs):
+    async def async_turn_on(self, **kwargs: Any) -> None:
         await self.coordinator.async_set_integration_enabled(True)
 
-    async def async_turn_off(self, **kwargs):
+    async def async_turn_off(self, **kwargs: Any) -> None:
         await self.coordinator.async_set_integration_enabled(False)
 
-    async def async_added_to_hass(self):
+    async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
         self.async_on_remove(
             self.coordinator.async_add_listener(self.async_write_ha_state)
@@ -63,7 +65,7 @@ class ActivityLoggingSwitch(CoordinatorEntity, SwitchEntity):
     _attr_entity_category = EntityCategory.CONFIG
 
     @property
-    def device_info(self):
+    def device_info(self) -> dict[str, Any]:
         return {
             "identifiers": {(DOMAIN, self.entry.entry_id)},
             "name": "Solar AC Controller",
@@ -74,23 +76,23 @@ class ActivityLoggingSwitch(CoordinatorEntity, SwitchEntity):
     _attr_name = "Activity Logging"
     _attr_icon = "mdi:text-box-outline"
 
-    def __init__(self, coordinator, entry):
+    def __init__(self, coordinator, entry) -> None:
         super().__init__(coordinator)
         self.coordinator = coordinator
         self.entry = entry
         self._attr_unique_id = f"{entry.entry_id}_activity_logging"
 
     @property
-    def is_on(self):
+    def is_on(self) -> bool:
         return getattr(self.coordinator, "activity_logging_enabled", False)
 
-    async def async_turn_on(self, **kwargs):
+    async def async_turn_on(self, **kwargs: Any) -> None:
         await self.coordinator.async_set_activity_logging_enabled(True)
 
-    async def async_turn_off(self, **kwargs):
+    async def async_turn_off(self, **kwargs: Any) -> None:
         await self.coordinator.async_set_activity_logging_enabled(False)
 
-    async def async_added_to_hass(self):
+    async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
         self.async_on_remove(
             self.coordinator.async_add_listener(self.async_write_ha_state)

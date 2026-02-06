@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from homeassistant.components.number import NumberEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -10,8 +12,8 @@ from .const import DEFAULT_AGGRESSIVENESS, DOMAIN
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities
-):
+    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: Any
+) -> None:
     domain_data = hass.data[DOMAIN]
     coordinator = domain_data[entry.entry_id]["coordinator"]
     async_add_entities([AggressivenessNumber(coordinator, entry)])
@@ -23,7 +25,7 @@ class AggressivenessNumber(CoordinatorEntity, NumberEntity):
     _attr_should_poll = False
     _attr_icon = "mdi:tune"
 
-    def __init__(self, coordinator, entry: ConfigEntry) -> None:
+    def __init__(self, coordinator: Any, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
         self.coordinator = coordinator
         self.entry = entry
