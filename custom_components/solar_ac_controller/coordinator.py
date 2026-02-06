@@ -1859,7 +1859,9 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
 
         # Compute required export and confidences
         next_zone, last_zone = self.zone_manager.select_next_and_last_zone(active_zones)
-        required_export = self._compute_required_export(next_zone, mode=self.season_mode)
+        required_export = self._compute_required_export(
+            next_zone, mode=self.season_mode
+        )
         export = -self.ema_30s
         import_power = self.ema_5m
 
@@ -1867,7 +1869,9 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         self.next_zone = next_zone
         self.last_zone = last_zone
         self.required_export = required_export
-        self.export_margin = (None if required_export is None else export - required_export)
+        self.export_margin = (
+            None if required_export is None else export - required_export
+        )
 
         # Compute confidences
         self.last_add_conf = self.decision_engine.compute_add_conf(
@@ -1888,7 +1892,9 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         if next_zone and self.confidence >= self.unified_add_threshold:
             # Check short cycling
             if self.zone_manager.is_short_cycling(next_zone):
-                await self._log(f"[SHORT_CYCLE] Skipping add of {next_zone} due to short cycle protection")
+                await self._log(
+                    f"[SHORT_CYCLE] Skipping add of {next_zone} due to short cycle protection"
+                )
             else:
                 zone_name = next_zone.split(".")[-1]
                 reason = f"Activating zone '{zone_name}' - confidence score {round(self.confidence, 1)} meets activation threshold"

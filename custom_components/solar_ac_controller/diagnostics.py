@@ -52,7 +52,9 @@ async def async_get_config_entry_diagnostics(
         "last_action": getattr(coordinator, "last_action", None),
         "note": getattr(coordinator, "note", None),
         "required_export_source": getattr(coordinator, "required_export_source", None),
-        "next_decision_allowed_at": iso_ts(getattr(coordinator, "next_decision_allowed_at", None)),
+        "next_decision_allowed_at": iso_ts(
+            getattr(coordinator, "next_decision_allowed_at", None)
+        ),
         "last_action_started_at": iso_ts(
             getattr(coordinator, "last_action_start_ts", None)
         ),
