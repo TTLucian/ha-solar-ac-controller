@@ -24,6 +24,7 @@ class DummyCoordinator(SolarACCoordinator):
         self.unified_add_threshold = 10
         self.unified_remove_threshold = -10
         self.confidence = 0.0
+        self.initial_learned_power = 1000.0
 
     def get_learned_power(self, zone, season):
         return 1000.0

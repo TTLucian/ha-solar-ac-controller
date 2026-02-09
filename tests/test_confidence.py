@@ -13,6 +13,12 @@ class FakeCoordinator:
         self.short_cycle_on_seconds = 1200
         self.short_cycle_off_seconds = 20
         self.samples = 0
+        self.aggressiveness = 0.5
+        self.season_mode = "heat"
+        self.initial_learned_power = 1000.0
+
+    def get_learned_power(self, zone_short, season):
+        return 1500.0  # fake value
 
 
 def test_remove_confidence_is_non_negative_when_penalized():
@@ -22,7 +28,9 @@ def test_remove_confidence_is_non_negative_when_penalized():
     # Negative import power (exporting) should produce base==0, offset applies,
     # but short-cycle penalty may drive the raw value negative. After change,
     # compute_remove_conf must return >= 0.
-    remove_conf = engine.compute_remove_conf(import_power=-495.26, last_zone="climate.guest")
+    remove_conf = engine.compute_remove_conf(
+        import_power=-495.26, last_zone="climate.guest"
+    )
     assert remove_conf >= 0
     assert remove_conf == 0
 

@@ -33,8 +33,7 @@ from .const import (
     CONF_SHORT_CYCLE_ON_SECONDS,
     CONF_SOLAR_SENSOR,
     CONF_SOLAR_THRESHOLD_OFF,
-    CONF_UNIFIED_ADD_THRESHOLD,
-    CONF_UNIFIED_REMOVE_THRESHOLD,
+    CONF_SOLAR_THRESHOLD_ON,
     CONF_UPDATE_INTERVAL,
     CONF_ZONES,
     DEFAULT_ACTION_DELAY_SECONDS,
@@ -52,8 +51,7 @@ from .const import (
     DEFAULT_SHORT_CYCLE_OFF_SECONDS,
     DEFAULT_SHORT_CYCLE_ON_SECONDS,
     DEFAULT_SOLAR_THRESHOLD_OFF,
-    DEFAULT_UNIFIED_ADD_THRESHOLD,
-    DEFAULT_UNIFIED_REMOVE_THRESHOLD,
+    DEFAULT_SOLAR_THRESHOLD_ON,
     DEFAULT_UPDATE_INTERVAL,
     DOMAIN,
     EMA_5M_ALPHA,
@@ -262,6 +260,43 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             else False
         )
 
+    @property
+    def unified_add_threshold(self) -> float:
+        """
+        Compute dynamic Add Threshold based on Aggressiveness (a).
+        Formula: 80 - (60 * a)
+        Conservative (0.0): 80 | Default (0.5): 50 | Aggressive (1.0): 20
+        """
+        if hasattr(self, "_unified_add_threshold"):
+            return self._unified_add_threshold
+        a = self.aggressiveness
+        return 80.0 - (60.0 * a)
+
+    @unified_add_threshold.setter
+    def unified_add_threshold(self, value: float) -> None:
+        """Allow setting for testing purposes."""
+        self._unified_add_threshold = value
+
+    @property
+    def unified_remove_threshold(self) -> float:
+        """
+        Compute dynamic Remove Threshold based on Aggressiveness (a).
+        Formula: -70 + (50 * a)
+        Conservative (0.0): -70 | Default (0.5): -45 | Aggressive (1.0): -20
+        """
+        if hasattr(self, "_unified_remove_threshold"):
+            return self._unified_remove_threshold
+        a = self.aggressiveness
+        # Ensure a minimum deadband of 50 points to prevent chatter in noisy systems
+        add = self.unified_add_threshold
+        raw_remove = -70.0 + (50.0 * a)
+        return min(raw_remove, add - 50.0)
+
+    @unified_remove_threshold.setter
+    def unified_remove_threshold(self, value: float) -> None:
+        """Allow setting for testing purposes."""
+        self._unified_remove_threshold = value
+
     async def async_set_season_mode(self, value: str) -> None:
         """Set season mode and persist state."""
         self.season_mode = value
@@ -329,6 +364,11 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         self.required_export: float | None = None
         self.export_margin: float | None = None
         self.master_off_since: float | None = None
+        # Track commanded state to handle switch entity lag
+        self.master_commanded_state: str | None = None
+        self.master_last_command_time: float = 0.0
+        # Prevent repeated EMA resets for the same off period
+        self.master_ema_reset_done: bool = False
 
         # Controller and confidence tracking
         from .controller import SolarACController
@@ -353,6 +393,9 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         # Compressor recovery timestamp (unix ts) - prevents rapid re-add until compressor ramps
         self.compressor_recover_until = 0.0
         self.next_decision_allowed_at = 0.0  # For UI visibility of ramp lock expiry
+
+        # Integration active state for solar-based freezing
+        self.integration_active = False
 
         # Cached learning active flag for synchronous/lock-free reads
         self.learning_active_cached = False
@@ -504,12 +547,6 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         )
         self.action_delay_seconds = self.config_manager.get_int(
             CONF_ACTION_DELAY_SECONDS, DEFAULT_ACTION_DELAY_SECONDS
-        )
-        self.unified_add_threshold = self.config_manager.get_float(
-            CONF_UNIFIED_ADD_THRESHOLD, DEFAULT_UNIFIED_ADD_THRESHOLD
-        )
-        self.unified_remove_threshold = self.config_manager.get_float(
-            CONF_UNIFIED_REMOVE_THRESHOLD, DEFAULT_UNIFIED_REMOVE_THRESHOLD
         )
 
         # Grid import tolerance used when allowing adds (positive import allowed)
@@ -1192,6 +1229,52 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                     self._get_cached_state(self.config_manager.get(CONF_SOLAR_SENSOR)),
                     "Solar sensor",
                 )
+
+                # Solar-based integration freeze/unfreeze logic
+                on_threshold = self.config_manager.get_float(
+                    CONF_SOLAR_THRESHOLD_ON, DEFAULT_SOLAR_THRESHOLD_ON
+                )
+                off_threshold = self.config_manager.get_float(
+                    CONF_SOLAR_THRESHOLD_OFF, DEFAULT_SOLAR_THRESHOLD_OFF
+                )
+
+                if not self.integration_active:
+                    if solar >= on_threshold:
+                        # Unfreeze: solar has reached on_threshold
+                        self.integration_active = True
+                        self.update_interval = timedelta(
+                            seconds=self.config_manager.get_int(
+                                CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL
+                            )
+                        )
+                        await self._log(
+                            f"[INTEGRATION_UNFROZEN] solar={round(solar)}W >= on_threshold={on_threshold}W, starting calculations"
+                        )
+                    else:
+                        # Still frozen: check less frequently
+                        self.update_interval = timedelta(
+                            seconds=300
+                        )  # Check every 5 minutes
+                        self.last_action = "integration_frozen"
+                        self.note = f"Integration frozen: solar {round(solar)}W < on_threshold {on_threshold}W"
+                        self.metrics.record_cycle_end(cycle_start, success=True)
+                        return
+                else:
+                    if solar < off_threshold:
+                        # Freeze: solar has dropped below off_threshold
+                        await self._log(
+                            f"[INTEGRATION_FREEZING] solar={round(solar)}W < off_threshold={off_threshold}W, turning off zones and master"
+                        )
+                        await self._perform_freeze_cleanup()
+                        self.integration_active = False
+                        self.update_interval = timedelta(
+                            seconds=300
+                        )  # Check every 5 minutes
+                        self.last_action = "integration_frozen"
+                        self.note = f"Integration frozen: solar {round(solar)}W < off_threshold {off_threshold}W"
+                        self.metrics.record_cycle_end(cycle_start, success=True)
+                        return
+
                 ac_power = self._validate_sensor_state(
                     self._get_cached_state(
                         self.config_manager.get(CONF_AC_POWER_SENSOR)
@@ -1226,35 +1309,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                 # 2. Master switch auto-control (based ONLY on solar production)
                 await self.master_controller.handle_master_switch(solar, cycle_start)
 
-                # 3. Freeze zone management when solar is too low (regardless of master switch state)
-                # This must happen BEFORE any temperature/season reading to ensure complete freeze
-                try:
-                    off_threshold = self.config_manager.get_float(
-                        CONF_SOLAR_THRESHOLD_OFF, DEFAULT_SOLAR_THRESHOLD_OFF
-                    )
-                except (TypeError, ValueError):
-                    off_threshold = DEFAULT_SOLAR_THRESHOLD_OFF
-
-                if solar <= off_threshold:
-                    # Ensure any running tasks are cancelled and learning reset
-                    await self._perform_freeze_cleanup()
-                    self.last_action = "solar_too_low"
-                    self.note = f"Solar {round(solar)}W <= threshold_off {off_threshold}W: freezing zone management."
-
-                    # Only log freeze entry, not every cycle
-                    if not self.was_in_freeze:
-                        await self._log(
-                            f"[FREEZE] solar={round(solar)}W <= threshold_off={off_threshold}W, "
-                            f"freezing zone management"
-                        )
-                        self.was_in_freeze = True
-                    return
-
-                # Reset freeze flag when exiting freeze mode
-                if self.was_in_freeze:
-                    self.was_in_freeze = False
-
-                # 4. Update zone temperatures for comfort target checking
+                # 3. Update zone temperatures for comfort target checking
                 self._read_zone_temps()
 
                 # 5. EMA updates
@@ -1801,11 +1856,15 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         if self.master_off_since is None:
             self.master_off_since = now_ts
 
-        # Reset EMA after long OFF
-        if now_ts - self.master_off_since >= EMA_RESET_AFTER_OFF_SECONDS:
+        # Reset EMA after long OFF (only once per off period)
+        if (
+            now_ts - self.master_off_since >= EMA_RESET_AFTER_OFF_SECONDS
+            and not self.master_ema_reset_done
+        ):
             if self.ema_30s != 0.0 or self.ema_5m != 0.0:
                 await self._log("[EMA_RESET_AFTER_MASTER_OFF] resetting EMA")
             self.ema_tracker.reset()
+            self.master_ema_reset_done = True
 
     def _cleanup_stale_tracking_data(self) -> None:
         """Remove tracking data for zones no longer in configuration."""
@@ -1928,6 +1987,10 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
 
     def _update_adaptive_interval(self) -> None:
         """Update update interval based on system state for adaptive performance."""
+        # Don't adjust interval if integration is frozen (handled by solar logic)
+        if not self.integration_active:
+            return
+
         base_interval = self.config_manager.get_int(
             CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL
         )

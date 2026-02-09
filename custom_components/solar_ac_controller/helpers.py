@@ -76,7 +76,20 @@ class MasterSwitchController:
 
         switch_state = switch_state_obj.state
 
-        # Detect manual changes (state changed without recent coordinator action)
+        # Track commanded state to avoid repeated commands when switch state lags
+        commanded_state = getattr(self.coordinator, "master_commanded_state", None)
+
+        # If we recently commanded the switch, use that state instead of reported state
+        # to avoid oscillation when switch entity state updates are delayed
+        now = dt_util.utcnow().timestamp()
+        last_command_time = getattr(self.coordinator, "master_last_command_time", 0)
+        if commanded_state and (now - last_command_time) < 30:  # 30 second grace period
+            effective_state = commanded_state
+        else:
+            effective_state = switch_state
+            # Clear commanded state if grace period expired
+            if commanded_state:
+                self.coordinator.master_commanded_state = None
         if (
             self.coordinator.master_last_state is not None
             and switch_state != self.coordinator.master_last_state
@@ -114,15 +127,15 @@ class MasterSwitchController:
                 self.coordinator.master_manual_lock_state = None
             else:
                 # Still locked, skip auto-control
-                self.coordinator.master_last_state = switch_state
+                self.coordinator.master_last_state = effective_state
                 return
 
-        # Update last known state
-        self.coordinator.master_last_state = switch_state
+        # Update last known state (use effective state for auto-control logic)
+        self.coordinator.master_last_state = effective_state
 
         # Normal auto-control (only when not locked)
         # Turn ON when solar is above or equal to ON threshold
-        if solar >= on_threshold and switch_state == "off":
+        if solar >= on_threshold and effective_state == "off":
             await self.coordinator._log(
                 f"[MASTER_ON] solar={round(solar)}W >= threshold_on={on_threshold}W, "
                 f"turning AC master switch ON"
@@ -135,12 +148,17 @@ class MasterSwitchController:
             )
             self.coordinator.last_action = "master_on"
             self.coordinator.master_last_action_time = dt_util.utcnow().timestamp()
+            # Track commanded state to avoid repeated commands
+            self.coordinator.master_commanded_state = "on"
+            self.coordinator.master_last_command_time = dt_util.utcnow().timestamp()
             # reset master_off_since when turned on
             self.coordinator.master_off_since = None
+            # Reset EMA reset flag when turning on
+            self.coordinator.master_ema_reset_done = False
             return
 
         # Turn OFF when solar is below or equal to OFF threshold
-        if solar <= off_threshold and switch_state == "on":
+        if solar <= off_threshold and effective_state == "on":
             await self.coordinator._log(
                 f"[MASTER_OFF_TRIGGER] solar={round(solar)}W <= threshold_off={off_threshold}W, "
                 f"turning AC master switch OFF"
@@ -153,6 +171,9 @@ class MasterSwitchController:
             )
             self.coordinator.last_action = "master_off"
             self.coordinator.master_last_action_time = dt_util.utcnow().timestamp()
+            # Track commanded state to avoid repeated commands
+            self.coordinator.master_commanded_state = "off"
+            self.coordinator.master_last_command_time = dt_util.utcnow().timestamp()
             # mark master_off_since for EMA reset logic
             self.coordinator.master_off_since = dt_util.utcnow().timestamp()
             # Record cycle end since we're returning early

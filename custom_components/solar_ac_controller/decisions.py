@@ -15,13 +15,11 @@ from .const import (
     DECISION_COMP_PENALTY_MAG,
     DECISION_CONFIDENCE_OFFSET,
     DECISION_EMA_BONUS_MULTIPLIER,
-    DECISION_EXPORT_MARGIN_DIVISOR,
     DECISION_FINAL_MAX,
     DECISION_FINAL_MIN,
     DECISION_HEAVY_IMPORT_BONUS,
     DECISION_HEAVY_IMPORT_THRESHOLD,
     DECISION_IMPORT_BASE_OFFSET,
-    DECISION_IMPORT_DIVISOR,
     DECISION_LEARN_PENALTY_MAG,
     DECISION_RAW_MAX,
     DECISION_RAW_MIN,
@@ -50,6 +48,30 @@ class DecisionEngine:
         """Initialize decision engine."""
         self.coordinator = coordinator
 
+    def _get_dynamic_weight(self, zone_power: float) -> tuple[float, float]:
+        """
+        Calculate dynamic divisors based on the 'mass' of the zone.
+        a = 0.0 (Conservative) -> High Add Divisor (Heavy), Low Remove Divisor (Reactive)
+        a = 1.0 (Aggressive)   -> Low Add Divisor (Light), High Remove Divisor (Tolerant)
+        """
+        a = self.coordinator.aggressiveness
+
+        # Anchor to the learned power, minimum initial_learned_power to avoid jittery math on small loads
+        anchor = max(zone_power, self.coordinator.initial_learned_power)
+
+        # Export Divisor (The 'Add' weight)
+        # At a=0.5, 1500W zone -> divisor is 37.5.
+        # To hit +50 confidence, you need 1875W of excess solar.
+        export_div = (anchor * (1.5 - a)) / 40.0
+
+        # Import Divisor (The 'Remove' weight)
+        # At a=0.5, 1500W zone -> divisor is 37.5.
+        # To hit -50 confidence (threshold), you need 1875W of import.
+        # Note: Panic mode still handles the 'Grid Limit' safety at 6kW.
+        import_div = (anchor * (1.0 + a)) / 60.0
+
+        return max(export_div, 10.0), max(import_div, 10.0)
+
     def compute_add_conf(
         self,
         export: float,
@@ -73,19 +95,19 @@ class DecisionEngine:
         export_margin = export_val - required_export_val
 
         # Aggressiveness scales: higher -> more aggressive (larger bonuses, smaller penalties/divisors)
-        a = getattr(self.coordinator, "aggressiveness", 0.5)
+        a = self.coordinator.aggressiveness
         penalty_scale = max(0.25, 1.5 - 1.0 * float(a))
         bonus_scale = max(0.5, 0.5 + 1.5 * float(a))
-        divisor_scale = max(0.5, 1.5 - 1.0 * float(a))
+
+        # Get dynamic divisors based on zone power
+        export_div, _ = self._get_dynamic_weight(required_export_val)
 
         # Auto-normalize margin divisor based on short-term variability (EMA spread)
         ema_fast = getattr(self.coordinator, "ema_30s", 0.0)
         ema_slow = getattr(self.coordinator, "ema_5m", 0.0)
         variability = abs(ema_fast - ema_slow)
         variability_factor = 1.0 + min(4.0, variability / DECISION_VARIABILITY_DIVISOR)
-        scaled_divisor = (
-            DECISION_EXPORT_MARGIN_DIVISOR * divisor_scale * variability_factor
-        )
+        scaled_divisor = export_div * variability_factor
 
         base = min(
             DECISION_ADD_CONFIDENCE_BASE_MAX * bonus_scale,
@@ -177,6 +199,7 @@ class DecisionEngine:
         # Store breakdown for diagnostics
         try:
             self.coordinator.last_add_breakdown = {
+                "export_divisor": round(scaled_divisor, 2),
                 "base": round(base, 2),
                 "sample_bonus": round(sample_bonus, 2),
                 "ema_bonus": round(ema_bonus, 2),
@@ -203,16 +226,28 @@ class DecisionEngine:
         if import_power >= self.coordinator.panic_threshold:
             return 100.0
 
-        a = getattr(self.coordinator, "aggressiveness", 0.5)
+        a = self.coordinator.aggressiveness
         penalty_scale = max(0.25, 1.5 - 1.0 * float(a))
         bonus_scale = max(0.5, 0.5 + 1.5 * float(a))
+
+        # Get zone power for dynamic weighting
+        zone_power = 1500.0  # default
+        if last_zone:
+            zone_short = last_zone.split(".")[-1]
+            zone_power = (
+                self.coordinator.get_learned_power(
+                    zone_short, self.coordinator.season_mode
+                )
+                or 1500.0
+            )
+
+        _, import_div = self._get_dynamic_weight(zone_power)
 
         base = min(
             DECISION_REMOVE_BASE_MAX * bonus_scale,
             max(
                 0.0,
-                (import_power - DECISION_IMPORT_BASE_OFFSET)
-                / (DECISION_IMPORT_DIVISOR or 1.0),
+                (import_power - DECISION_IMPORT_BASE_OFFSET) / (import_div or 1.0),
             ),
         )
         heavy_import_bonus = (
@@ -234,6 +269,7 @@ class DecisionEngine:
         )
         try:
             self.coordinator.last_remove_breakdown = {
+                "import_divisor": round(import_div, 2),
                 "base": round(base, 2),
                 "heavy_import_bonus": round(heavy_import_bonus, 2),
                 "short_cycle_penalty": round(short_cycle_penalty, 2),

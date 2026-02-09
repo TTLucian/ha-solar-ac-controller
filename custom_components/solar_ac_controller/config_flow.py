@@ -29,8 +29,6 @@ from .const import (
     CONF_SOLAR_SENSOR,
     CONF_SOLAR_THRESHOLD_OFF,
     CONF_SOLAR_THRESHOLD_ON,
-    CONF_UNIFIED_ADD_THRESHOLD,
-    CONF_UNIFIED_REMOVE_THRESHOLD,
     CONF_UPDATE_INTERVAL,
     CONF_ZONE_MANUAL_POWER,
     CONF_ZONE_TEMP_SENSORS,
@@ -50,8 +48,6 @@ from .const import (
     DEFAULT_SHORT_CYCLE_ON_SECONDS,
     DEFAULT_SOLAR_THRESHOLD_OFF,
     DEFAULT_SOLAR_THRESHOLD_ON,
-    DEFAULT_UNIFIED_ADD_THRESHOLD,
-    DEFAULT_UNIFIED_REMOVE_THRESHOLD,
     DEFAULT_UPDATE_INTERVAL,
 )
 
@@ -193,22 +189,6 @@ def schema_user(defaults: dict[str, Any]) -> Any:
                     min=0.0, max=1.0, mode=NumberSelectorMode.SLIDER, step=0.01
                 )
             ),
-            vol.Optional(
-                CONF_UNIFIED_ADD_THRESHOLD,
-                default=int(
-                    defaults.get(
-                        CONF_UNIFIED_ADD_THRESHOLD, DEFAULT_UNIFIED_ADD_THRESHOLD
-                    )
-                ),
-            ): int,
-            vol.Optional(
-                CONF_UNIFIED_REMOVE_THRESHOLD,
-                default=int(
-                    defaults.get(
-                        CONF_UNIFIED_REMOVE_THRESHOLD, DEFAULT_UNIFIED_REMOVE_THRESHOLD
-                    )
-                ),
-            ): int,
             vol.Optional(
                 CONF_INITIAL_LEARNED_POWER,
                 default=int(
