@@ -1,6 +1,6 @@
 name: CI
 
-on:
+# CI workflow for Solar AC Controller
   push:
     branches:
       - main
