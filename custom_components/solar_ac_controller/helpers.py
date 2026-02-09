@@ -11,21 +11,26 @@ def short_entity_name(entity_id: str) -> str:
     return entity_id.split(".")[-1]
 
 
+def calculate_ema(current_ema: float, value: float, alpha: float) -> float:
+    """Calculate Exponential Moving Average for a single value."""
+    return alpha * value + (1 - alpha) * current_ema
+
+
 class EmaTracker:
     """Tracks EMA values for power metrics."""
 
-    __slots__ = ("alpha_30s", "alpha_5m", "ema_30s", "ema_5m")
+    __slots__ = ("ema_30s", "ema_5m")
 
-    def __init__(self, alpha_30s: float, alpha_5m: float) -> None:
-        self.alpha_30s = alpha_30s
-        self.alpha_5m = alpha_5m
+    def __init__(self) -> None:
         self.ema_30s = 0.0
         self.ema_5m = 0.0
 
-    def update(self, value: float) -> tuple[float, float]:
+    def update(
+        self, value: float, alpha_30s: float, alpha_5m: float
+    ) -> tuple[float, float]:
         """Update EMA values with new measurement."""
-        self.ema_30s = self.alpha_30s * value + (1 - self.alpha_30s) * self.ema_30s
-        self.ema_5m = self.alpha_5m * value + (1 - self.alpha_5m) * self.ema_5m
+        self.ema_30s = calculate_ema(self.ema_30s, value, alpha_30s)
+        self.ema_5m = calculate_ema(self.ema_5m, value, alpha_5m)
         return self.ema_30s, self.ema_5m
 
     def reset(self) -> None:
@@ -248,6 +253,37 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
         learned_power = {k: learned_power[k] for k in list(learned_power)[:20]}
         learned_power["_truncated"] = f"{len(learned_power)}+ entries, truncated"
 
+    # Limit zone dict sizes to prevent memory bloat in state history
+    zone_last_changed = dict(getattr(coordinator, "zone_last_changed", {}) or {})
+    if len(zone_last_changed) > 50:
+        zone_last_changed = {k: v for k, v in list(zone_last_changed.items())[:50]}
+        zone_last_changed["_truncated"] = (
+            f"{len(zone_last_changed)}+ entries, truncated"
+        )
+
+    zone_last_state = dict(getattr(coordinator, "zone_last_state", {}) or {})
+    if len(zone_last_state) > 50:
+        zone_last_state = {k: v for k, v in list(zone_last_state.items())[:50]}
+        zone_last_state["_truncated"] = f"{len(zone_last_state)}+ entries, truncated"
+
+    zone_manual_lock_until = dict(
+        getattr(coordinator, "zone_manual_lock_until", {}) or {}
+    )
+    if len(zone_manual_lock_until) > 50:
+        zone_manual_lock_until = {
+            k: v for k, v in list(zone_manual_lock_until.items())[:50]
+        }
+        zone_manual_lock_until["_truncated"] = (
+            f"{len(zone_manual_lock_until)}+ entries, truncated"
+        )
+
+    zone_current_temps = dict(getattr(coordinator, "zone_current_temps", {}) or {})
+    if len(zone_current_temps) > 50:
+        zone_current_temps = {k: v for k, v in list(zone_current_temps.items())[:50]}
+        zone_current_temps["_truncated"] = (
+            f"{len(zone_current_temps)}+ entries, truncated"
+        )
+
     learning_active = bool(getattr(coordinator, "learning_active_cached", False))
     learning_zone = getattr(coordinator, "learning_zone", None)
     learning_start_time_ts = getattr(coordinator, "learning_start_time", None)
@@ -281,11 +317,10 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
     zones_config: List[str] = list(config.get("zones", []) or [])
     active_zones: List[str] = []
     zone_modes: Dict[str, str] = {}
-    zone_last_changed = dict(getattr(coordinator, "zone_last_changed", {}) or {})
-    zone_last_state = dict(getattr(coordinator, "zone_last_state", {}) or {})
-    zone_manual_lock_until = dict(
-        getattr(coordinator, "zone_manual_lock_until", {}) or {}
-    )
+    # Use limited dicts to prevent memory bloat
+    zone_last_changed = zone_last_changed
+    zone_last_state = zone_last_state
+    zone_manual_lock_until = zone_manual_lock_until
 
     # Master switch manual lock state
     master_last_state = getattr(coordinator, "master_last_state", None)
@@ -354,14 +389,15 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
     # Comfort temperature targets
     max_temp_winter = _safe_float(getattr(coordinator, "max_temp_winter", None), None)
     min_temp_summer = _safe_float(getattr(coordinator, "min_temp_summer", None), None)
-    zone_current_temps = dict(getattr(coordinator, "zone_current_temps", {}) or {})
+    # Use limited dict to prevent memory bloat
+    zone_current_temps = zone_current_temps
     # Sanitize zone temps to remove None values and round for readability
     zone_temps_rounded = {
         k: round(v, 1) if v is not None else None for k, v in zone_current_temps.items()
     }
     # Check if last_zone is at target (for diagnostics)
     last_zone_at_target = bool(
-        getattr(coordinator, "_all_active_zones_at_target", lambda x: True)(last_zone)
+        coordinator.zone_manager.is_zone_at_target(last_zone) if last_zone else True
     )
 
     # Add raw timestamps for automation/debugging

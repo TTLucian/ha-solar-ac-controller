@@ -5,7 +5,7 @@ import asyncio
 import copy
 import logging
 from datetime import timedelta
-from typing import Any, Coroutine, Dict, Optional, cast
+from typing import Any, Coroutine, Dict, Optional, Union, cast
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
@@ -76,7 +76,7 @@ from .zone_config_parser import ZoneConfigParser
 from .zones import ZoneManager
 
 # Type aliases for better readability
-LearnedPowerData = Dict[str, Dict[str, float]]
+LearnedPowerData = Dict[str, Dict[str, Union[float, Dict[str, float]]]]
 ZoneMapping = Dict[str, str]
 ZoneStates = Dict[str, Any]
 ZoneLocks = Dict[str, Optional[float]]
@@ -511,7 +511,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         self.panic_manager = PanicManager(self)
         self.decision_engine = DecisionEngine(self)
         self.action_executor = ActionExecutor(self)
-        self.ema_tracker = EmaTracker(EMA_30S_ALPHA, EMA_5M_ALPHA)
+        self.ema_tracker = EmaTracker()
         self.master_controller = MasterSwitchController(self)
 
     def _init_config_values(self) -> None:
@@ -648,23 +648,19 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         entry = self.learned_power.get(zone_name)
         if entry is None:
             return float(self.initial_learned_power)
-        if isinstance(entry, dict):
-            val = None
-            if mode and mode in entry:
-                val = entry.get(mode)
-            elif "default" in entry:
-                val = entry.get("default")
-            elif "heat" in entry:
-                val = entry.get("heat")
-            elif "cool" in entry:
-                val = entry.get("cool")
-            if val is not None:
-                return float(val)
-            return float(self.initial_learned_power)
-        try:
-            return float(entry)
-        except (ValueError, TypeError):
-            return float(self.initial_learned_power)
+        # entry is Dict[str, Any]
+        val = None
+        if mode and mode in entry:
+            val = entry[mode]
+        elif "default" in entry:
+            val = entry["default"]
+        elif "heat" in entry:
+            val = entry["heat"]
+        elif "cool" in entry:
+            val = entry["cool"]
+        if val is not None and isinstance(val, (int, float)):
+            return float(val)
+        return float(self.initial_learned_power)
 
     def get_peak_delta(
         self,
@@ -673,13 +669,8 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
     ) -> float | None:
         """Return peak delta for a zone and mode, or None if not available."""
         entry = self.learned_power.get(zone_name)
-        if not entry or not isinstance(entry, dict):
+        if not entry:
             return None
-        mode_key = mode or "default"
-        mode_entry = entry.get(mode_key, entry.get("default"))
-        if mode_entry and isinstance(mode_entry, dict):
-            peak_delta = mode_entry.get("peak_delta")
-            return float(peak_delta) if peak_delta is not None else None
         return None
 
     def get_stabilized_delta(
@@ -689,13 +680,8 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
     ) -> float | None:
         """Return stabilized delta for a zone and mode, or None if not available."""
         entry = self.learned_power.get(zone_name)
-        if not entry or not isinstance(entry, dict):
+        if not entry:
             return None
-        mode_key = mode or "default"
-        mode_entry = entry.get(mode_key, entry.get("default"))
-        if mode_entry and isinstance(mode_entry, dict):
-            stabilized_delta = mode_entry.get("stabilized_delta")
-            return float(stabilized_delta) if stabilized_delta is not None else None
         return None
 
     def get_time_to_peak(
@@ -705,13 +691,8 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
     ) -> float | None:
         """Return time_to_peak for a zone and mode, or None if not available."""
         entry = self.learned_power.get(zone_name)
-        if not entry or not isinstance(entry, dict):
+        if not entry:
             return None
-        mode_key = mode or "default"
-        mode_entry = entry.get(mode_key, entry.get("default"))
-        if mode_entry and isinstance(mode_entry, dict):
-            time_to_peak = mode_entry.get("time_to_peak")
-            return float(time_to_peak) if time_to_peak is not None else None
         return None
 
     def set_learned_power(
@@ -834,7 +815,9 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         # Update based on category
         if category == "lead":
             # Smooth update for lead (compressor start)
-            updated = (ALPHA * new_sample) + ((1.0 - ALPHA) * current_val)
+            from .helpers import calculate_ema
+
+            updated = calculate_ema(current_val, new_sample, ALPHA)
             updated = round(updated)  # store whole watts only
 
             # Update mode-specific and default values
@@ -853,7 +836,9 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             entry["extension_delta"] = float(new_sample)
         else:
             # Default to lead behavior for backward compatibility
-            updated = (ALPHA * new_sample) + ((1.0 - ALPHA) * current_val)
+            from .helpers import calculate_ema
+
+            updated = calculate_ema(current_val, new_sample, ALPHA)
             updated = round(updated)  # store whole watts only
 
             if mode:
@@ -1087,9 +1072,14 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             # the in-memory dict while the I/O operation is in progress.
             # Use deepcopy to be safe for nested structures.
             data_to_save = copy.deepcopy(self.stored_data)
-            await self.store.async_save(data_to_save)
+            await self.storage_circuit_breaker.call_with_timeout(
+                self.store.async_save(data_to_save)
+            )
             await self.storage_circuit_breaker.record_success()
             self._storage_dirty = False  # Clear dirty flag on successful save
+        except asyncio.TimeoutError:
+            _LOGGER.error("Storage save timed out in half-open circuit breaker state")
+            # record_failure() already called in call_with_timeout
         except (OSError, StorageError) as exc:
             _LOGGER.exception("Error saving to storage: %s", exc)
             await self.storage_circuit_breaker.record_failure()
@@ -1613,7 +1603,9 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         old_ema_30s = self.ema_30s
         old_ema_5m = self.ema_5m
 
-        self.ema_30s, self.ema_5m = self.ema_tracker.update(grid_raw)
+        self.ema_30s, self.ema_5m = self.ema_tracker.update(
+            grid_raw, EMA_30S_ALPHA, EMA_5M_ALPHA
+        )
 
         # Validate EMA values
         if not (
@@ -1678,12 +1670,13 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
 
     def _update_temp_ema_10m(self, zone_id: str, current_temp: float) -> None:
         """Update 10-minute EMA for temperature stability tracking."""
+        from .helpers import calculate_ema
+
         if zone_id not in self.temp_ema_10m:
             self.temp_ema_10m[zone_id] = current_temp
         else:
-            self.temp_ema_10m[zone_id] = (
-                EMA_10M_ALPHA * current_temp
-                + (1 - EMA_10M_ALPHA) * self.temp_ema_10m[zone_id]
+            self.temp_ema_10m[zone_id] = calculate_ema(
+                self.temp_ema_10m[zone_id], current_temp, EMA_10M_ALPHA
             )
 
     def _compute_required_export(
@@ -1751,35 +1744,6 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
 
             # Temperature unavailable
             self.zone_current_temps[zone_id] = None
-
-    def _all_active_zones_at_target(self, zone_to_check: str | None) -> bool:
-        """
-        Check if the specified zone has reached its comfort target.
-
-        Returns True if the zone is at or above/below target:
-        - In heat mode: zone >= max_temp_winter
-        - In cool mode: zone <= min_temp_summer
-
-        Returns False if zone has no sensor or is not at target.
-        """
-        if not zone_to_check or not self.season_mode:
-            # No zone specified or no season mode set; conservatively treat as not at target
-            return False
-
-        current_temp = self.zone_current_temps.get(zone_to_check)
-
-        # Missing sensor: assume "not at target" (conservative, keeps zone on)
-        if current_temp is None:
-            return False
-
-        if self.season_mode == "heat":
-            # Heat: zone must be at or above winter target
-            return current_temp >= self.max_temp_winter
-        elif self.season_mode == "cool":
-            # Cool: zone must be at or below summer target
-            return current_temp <= self.min_temp_summer
-
-        return True  # Shouldn't reach here, but don't block by default
 
     async def _perform_zone_swap(self, zone_to_remove: str, zone_to_add: str) -> None:
         """Perform a zone swap: remove satisfied zone, add needy zone."""
@@ -2006,7 +1970,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             new_interval = base_interval  # Use configured interval for stable state
 
         # Only update if interval changed
-        current_interval = cast(timedelta, self.update_interval)  # type: ignore[has-type]
+        current_interval = self.update_interval
         if current_interval is not None:
             current_seconds = current_interval.total_seconds()
             if new_interval != current_seconds:

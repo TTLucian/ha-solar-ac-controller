@@ -40,6 +40,7 @@ async def test_concurrent_debounced_saves_end_with_latest_value():
             should_attempt_operation=lambda: asyncio.sleep(0, result=True),
             record_success=lambda: asyncio.sleep(0, result=None),
             record_failure=lambda: asyncio.sleep(0, result=None),
+            call_with_timeout=lambda coro, timeout=10.0: coro,
         ),
     )
 
@@ -81,12 +82,16 @@ async def test_flush_pending_storage_save_cancels_and_saves_immediately():
     async def _record_failure():
         return None
 
+    async def _call_with_timeout(coro, timeout=10.0):
+        return await coro
+
     coord.storage_circuit_breaker = cast(
         StorageCircuitBreaker,
         SimpleNamespace(
             should_attempt_operation=_should_attempt,
             record_success=_record_success,
             record_failure=_record_failure,
+            call_with_timeout=_call_with_timeout,
         ),
     )
 

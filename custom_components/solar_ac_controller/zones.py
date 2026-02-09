@@ -160,7 +160,7 @@ class ZoneManager:
         zones_info = []
         for z in unlocked:
             temp = self.coordinator.zone_current_temps.get(z)
-            at_target = self.coordinator._all_active_zones_at_target(z)
+            at_target = self.is_zone_at_target(z)
             zones_info.append((z, temp, at_target))
 
         # Separate zones by comfort status
@@ -217,3 +217,71 @@ class ZoneManager:
             threshold = self.coordinator.short_cycle_off_seconds
 
         return cast(bool, (now - last) < threshold)
+
+    def is_zone_at_target(self, zone: str) -> bool:
+        """
+        Check if the specified zone has reached its comfort target using current temperature.
+
+        Returns True if the zone is at or above/below target:
+        - In heat mode: zone >= max_temp_winter
+        - In cool mode: zone <= min_temp_summer
+
+        Returns False if zone has no sensor or is not at target.
+        """
+        if not zone or not self.coordinator.season_mode:
+            return False
+
+        current_temp = self.coordinator.zone_current_temps.get(zone)
+        if current_temp is None:
+            return False
+
+        if self.coordinator.season_mode == "heat":
+            return current_temp >= self.coordinator.max_temp_winter
+        elif self.coordinator.season_mode == "cool":
+            return current_temp <= self.coordinator.min_temp_summer
+
+        return True  # Shouldn't reach here, but don't block by default
+
+    def is_zone_at_target_stable(self, zone: str) -> bool:
+        """
+        Check if zone reached target using stable 10min EMA temperature.
+
+        Uses a margin for stability to prevent oscillation.
+        """
+        from .decisions import DECISION_ZONE_TEMP_MARGIN
+
+        ema_temp = self.coordinator.temp_ema_10m.get(zone)
+        if ema_temp is None:
+            return False
+
+        if self.coordinator.season_mode == "heat":
+            target = self.coordinator.max_temp_winter
+            margin = DECISION_ZONE_TEMP_MARGIN
+            return ema_temp >= target - margin
+        elif self.coordinator.season_mode == "cool":
+            target = self.coordinator.min_temp_summer
+            margin = DECISION_ZONE_TEMP_MARGIN
+            return ema_temp <= target + margin
+
+        return True
+
+    def does_zone_need_heating(self, zone: str) -> bool:
+        """
+        Check if zone needs heating based on current temp vs target.
+
+        Only meaningful in heat mode. Returns True if zone temperature
+        is significantly below the winter target.
+        """
+        from .decisions import DECISION_ZONE_NEEDS_HEATING_DIFF
+
+        if self.coordinator.season_mode != "heat":
+            return False
+
+        current_temp = self.coordinator.zone_current_temps.get(zone)
+        if current_temp is None:
+            return False
+
+        return (
+            current_temp
+            < self.coordinator.max_temp_winter - DECISION_ZONE_NEEDS_HEATING_DIFF
+        )

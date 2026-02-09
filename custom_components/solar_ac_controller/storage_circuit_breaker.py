@@ -99,6 +99,27 @@ class StorageCircuitBreaker:
                 message, "warning" if new_state == "open" else "info"
             )
 
+    async def call_with_timeout(self, coro: Any, timeout: float = 10.0) -> Any:
+        """
+        Execute a coroutine with timeout protection when in half-open state.
+
+        In half-open state, wraps the operation with asyncio.wait_for to prevent
+        hanging operations from locking the circuit breaker indefinitely.
+        """
+        state = self._get_current_state()
+
+        if state == "half-open":
+            # In half-open state, add timeout protection
+            try:
+                return await asyncio.wait_for(coro, timeout=timeout)
+            except asyncio.TimeoutError:
+                # Treat timeout as a failure for circuit breaker purposes
+                await self.record_failure()
+                raise
+        else:
+            # In closed or open state, execute normally
+            return await coro
+
     async def is_open(self) -> bool:
         """Check if circuit breaker is open."""
         return not await self.should_attempt_operation()

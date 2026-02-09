@@ -44,6 +44,7 @@ async def test_stress_concurrent_debounced_saves_saves_latest():
             should_attempt_operation=lambda: asyncio.sleep(0, result=True),
             record_success=lambda: asyncio.sleep(0, result=None),
             record_failure=lambda: asyncio.sleep(0, result=None),
+            call_with_timeout=lambda coro, timeout=10.0: coro,
         ),
     )
 

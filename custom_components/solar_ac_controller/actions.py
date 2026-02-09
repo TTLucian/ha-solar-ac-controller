@@ -20,6 +20,7 @@ class ActionExecutor:
     def __init__(self, coordinator: SolarACCoordinator) -> None:
         """Initialize action executor."""
         self.coordinator = coordinator
+        self._action_lock = asyncio.Lock()
 
     async def attempt_add_zone(
         self,
@@ -40,8 +41,9 @@ class ActionExecutor:
             f"based on {self.coordinator.samples} power samples"
         )
 
-        await self.add_zone_without_learning(next_zone, ac_power_before)
-        self.coordinator.last_action = f"add_{next_zone}"
+        async with self._action_lock:
+            await self.add_zone_without_learning(next_zone, ac_power_before)
+            self.coordinator.last_action = f"add_{next_zone}"
 
     async def attempt_remove_zone(
         self,
@@ -60,8 +62,10 @@ class ActionExecutor:
             f"grid import {round(import_power)}W, "
             f"short cycling protection: {zone_mgr.is_short_cycling(last_zone)}"
         )
-        await self.remove_zone(last_zone)
-        self.coordinator.last_action = f"remove_{last_zone}"
+
+        async with self._action_lock:
+            await self.remove_zone(last_zone)
+            self.coordinator.last_action = f"remove_{last_zone}"
 
     async def add_zone(self, zone: str, ac_power_before: float) -> None:
         """Start learning and turn on zone."""

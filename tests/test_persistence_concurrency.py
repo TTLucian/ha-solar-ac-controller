@@ -38,12 +38,16 @@ async def test_perform_storage_save_deepcopy():
     async def _record_failure():
         return None
 
+    async def _call_with_timeout(coro, timeout=10.0):
+        return await coro
+
     coord.storage_circuit_breaker = cast(
         StorageCircuitBreaker,
         SimpleNamespace(
             should_attempt_operation=_should_attempt,
             record_success=_record_success,
             record_failure=_record_failure,
+            call_with_timeout=_call_with_timeout,
         ),
     )
 

@@ -31,8 +31,6 @@ from .const import (
     DECISION_STABILITY_DENOM_MIN,
     DECISION_SWAP_BUFFER_W,
     DECISION_VARIABILITY_DIVISOR,
-    DECISION_ZONE_NEEDS_HEATING_DIFF,
-    DECISION_ZONE_TEMP_MARGIN,
 )
 
 if TYPE_CHECKING:
@@ -379,7 +377,7 @@ class DecisionEngine:
             return None
 
         # Check if satisfied zone actually reached target (using 10min EMA)
-        if not self._zone_reached_target_stable(satisfied_zone):
+        if not self.coordinator.zone_manager.is_zone_at_target_stable(satisfied_zone):
             return None
 
         # Find highest priority zone that needs heating but isn't active
@@ -394,40 +392,12 @@ class DecisionEngine:
             available_zones,
             key=lambda z: self.coordinator.zone_priorities.get(z.split(".")[-1], 999),
         ):
-            if self._zone_needs_heating(zone) and self._power_compatible_for_swap(zone):
+            if self.coordinator.zone_manager.does_zone_need_heating(
+                zone
+            ) and self._power_compatible_for_swap(zone):
                 return cast(str, zone)
 
         return None
-
-    def _zone_reached_target_stable(self, zone: str) -> bool:
-        """Check if zone reached target using stable 10min EMA."""
-        ema_temp = self.coordinator.temp_ema_10m.get(zone)
-        if ema_temp is None:
-            return False
-
-        target = (
-            self.coordinator.max_temp_winter
-            if self.coordinator.season_mode == "heat"
-            else self.coordinator.min_temp_summer
-        )
-        margin = DECISION_ZONE_TEMP_MARGIN
-
-        return (
-            (ema_temp >= target - margin)
-            if self.coordinator.season_mode == "heat"
-            else (ema_temp <= target + margin)
-        )
-
-    def _zone_needs_heating(self, zone: str) -> bool:
-        """Check if zone needs heating based on current temp vs target."""
-        current_temp = self.coordinator.zone_current_temps.get(zone)
-        if current_temp is None:
-            return False
-
-        return (
-            current_temp
-            < self.coordinator.max_temp_winter - DECISION_ZONE_NEEDS_HEATING_DIFF
-        )
 
     def _power_compatible_for_swap(self, zone: str) -> bool:
         """Check if zone's power requirements are compatible for swapping."""
