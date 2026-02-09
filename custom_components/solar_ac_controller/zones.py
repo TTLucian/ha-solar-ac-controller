@@ -240,7 +240,7 @@ class ZoneManager:
         elif self.coordinator.season_mode == "cool":
             return current_temp <= self.coordinator.min_temp_summer
 
-        return True  # Shouldn't reach here, but don't block by default
+        return bool(True)  # Shouldn't reach here, but don't block by default
 
     def is_zone_at_target_stable(self, zone: str) -> bool:
         """
@@ -248,7 +248,7 @@ class ZoneManager:
 
         Uses a margin for stability to prevent oscillation.
         """
-        from .decisions import DECISION_ZONE_TEMP_MARGIN
+        from .const import DECISION_ZONE_TEMP_MARGIN
 
         ema_temp = self.coordinator.temp_ema_10m.get(zone)
         if ema_temp is None:
@@ -263,7 +263,7 @@ class ZoneManager:
             margin = DECISION_ZONE_TEMP_MARGIN
             return ema_temp <= target + margin
 
-        return True
+        return bool(True)
 
     def does_zone_need_heating(self, zone: str) -> bool:
         """
@@ -272,7 +272,7 @@ class ZoneManager:
         Only meaningful in heat mode. Returns True if zone temperature
         is significantly below the winter target.
         """
-        from .decisions import DECISION_ZONE_NEEDS_HEATING_DIFF
+        from .const import DECISION_ZONE_NEEDS_HEATING_DIFF
 
         if self.coordinator.season_mode != "heat":
             return False
