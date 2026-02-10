@@ -125,7 +125,7 @@ DEFAULT_ENABLE_TEMP_MODULATION = True
 STORAGE_KEY = "solar_ac_controller"
 # Bumped storage version to support migration to per-mode learned_power structure.
 # Increment this integer whenever the on-disk schema changes and implement a corresponding migration.
-STORAGE_VERSION = 3
+STORAGE_VERSION = 1
 
 # Decision engine tuning constants
 DECISION_EXPORT_MARGIN_DIVISOR = 40.0

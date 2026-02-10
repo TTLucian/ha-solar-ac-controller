@@ -41,6 +41,9 @@ async def _async_migrate_data(
     Normalize and migrate stored data for Solar AC Controller.
     STORAGE_VERSION is incremented whenever the structure of the stored payload changes.
     Document migration changes here and in commit messages for future maintainers.
+
+    Current logic assumes migration from any old version to current (handles all cases).
+    For version-specific migrations, add conditional logic based on old_major/old_minor.
     """
 
     if not isinstance(old_data, dict):
@@ -66,9 +69,20 @@ async def _async_migrate_data(
             for mode in ["default", "heat", "cool"]:
                 if mode not in val:
                     val[mode] = initial_lp
+        else:
+            # Handle invalid types by setting to default
+            _LOGGER.warning(f"Invalid learned_power value for zone {zone}: {val}, resetting to default")
+            learned_power[zone] = {
+                "default": initial_lp,
+                "heat": initial_lp,
+                "cool": initial_lp,
+            }
 
     migrated_data["learned_power"] = learned_power
-    migrated_data["samples"] = old_data.get("samples", 0)
+    samples = old_data.get("samples", 0)
+    if not isinstance(samples, (int, float)):
+        samples = 0
+    migrated_data["samples"] = int(samples)
 
     return migrated_data
 
