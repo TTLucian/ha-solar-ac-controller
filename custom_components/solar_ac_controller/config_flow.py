@@ -4,7 +4,8 @@ import logging
 from typing import Any, cast
 
 import voluptuous as vol
-from homeassistant.config_entries import ConfigEntry, ConfigFlow, OptionsFlow
+from homeassistant.config_entries import ConfigEntry, OptionsFlow
+from homeassistant.config_entries import ConfigFlow as BaseConfigFlow
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import selector
 from homeassistant.helpers.selector import NumberSelectorMode
@@ -352,7 +353,7 @@ async def _validate_zone_temp_sensors(
     return None
 
 
-class SolarACConfigFlow(ConfigFlow):
+class ConfigFlow(BaseConfigFlow):
     VERSION = 1
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> Any:
@@ -481,19 +482,6 @@ class SolarACConfigFlow(ConfigFlow):
             self._reconfigure_defaults = {}
 
         return await self.async_step_user(user_input)
-
-    async def async_migrate_entry(
-        self, hass: HomeAssistant, config_entry: ConfigEntry
-    ) -> bool:
-        """Migrate old config entry."""
-        _LOGGER.info(
-            "Migrating config entry from version %s to %s",
-            config_entry.version,
-            self.VERSION,
-        )
-
-        # For now, just update the version - no data changes needed
-        return True
 
 
 class SolarACOptionsFlowHandler(OptionsFlow):
