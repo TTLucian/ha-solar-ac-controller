@@ -57,11 +57,6 @@ _LOGGER = logging.getLogger(__name__)
 # --- HELPERS: Must be defined before use ---
 
 
-@callback  # type: ignore[untyped-decorator]
-def async_get_options_flow(config_entry: ConfigEntry) -> Any:
-    return SolarACOptionsFlowHandler(config_entry)
-
-
 def parse_numeric_list(val: Any) -> list[float | None] | None:
     """Helper to convert various inputs into a list of floats/None.
 
@@ -353,7 +348,7 @@ async def _validate_zone_temp_sensors(
 
 
 class SolarACConfigFlow(ConfigFlow):
-    VERSION = 2
+    VERSION = 1
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> Any:
         errors: dict[str, str] = {}
@@ -481,6 +476,11 @@ class SolarACConfigFlow(ConfigFlow):
             self._reconfigure_defaults = {}
 
         return await self.async_step_user(user_input)
+
+    @staticmethod
+    @callback  # type: ignore[untyped-decorator]
+    def async_get_options_flow(config_entry: ConfigEntry) -> Any:
+        return SolarACOptionsFlowHandler(config_entry)
 
     async def async_migrate_entry(
         self, hass: HomeAssistant, config_entry: ConfigEntry
