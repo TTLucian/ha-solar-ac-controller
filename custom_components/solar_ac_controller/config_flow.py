@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any, cast
 
 import voluptuous as vol
@@ -51,7 +52,14 @@ from .const import (
     DEFAULT_UPDATE_INTERVAL,
 )
 
+_LOGGER = logging.getLogger(__name__)
+
 # --- HELPERS: Must be defined before use ---
+
+
+@callback  # type: ignore[untyped-decorator]
+def async_get_options_flow(config_entry: ConfigEntry) -> Any:
+    return SolarACOptionsFlowHandler(config_entry)
 
 
 def parse_numeric_list(val: Any) -> list[float | None] | None:
@@ -474,10 +482,18 @@ class SolarACConfigFlow(ConfigFlow):
 
         return await self.async_step_user(user_input)
 
-    @staticmethod
-    @callback  # type: ignore[untyped-decorator]
-    def async_get_options_flow(config_entry: ConfigEntry) -> Any:
-        return SolarACOptionsFlowHandler(config_entry)
+    async def async_migrate_entry(
+        self, hass: HomeAssistant, config_entry: ConfigEntry
+    ) -> bool:
+        """Migrate old config entry."""
+        _LOGGER.info(
+            "Migrating config entry from version %s to %s",
+            config_entry.version,
+            self.VERSION,
+        )
+
+        # For now, just update the version - no data changes needed
+        return True
 
 
 class SolarACOptionsFlowHandler(OptionsFlow):
