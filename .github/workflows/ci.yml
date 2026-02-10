@@ -1,10 +1,12 @@
 name: CI
 
-"on":
+on:
   push:
     branches:
       - main
   pull_request:
+    branches:
+      - main
 
 jobs:
   lint:
@@ -12,13 +14,12 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: 'pip' # Speeds up subsequent runs
 
       - name: Install dependencies
         run: |
@@ -42,8 +43,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -53,7 +52,8 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install homeassistant==${{ matrix.ha-version }} pytest pytest-asyncio
+          pip install homeassistant==${{ matrix.ha-version }} \
+            pytest pytest-asyncio pytest-homeassistant-custom-component
 
       - name: Run tests
         run: pytest
@@ -63,8 +63,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          persist-credentials: false
 
       - name: HACS validation
         uses: hacs/action@main
@@ -73,10 +71,12 @@ jobs:
           ignore: brands
 
   release-drafter:
-    if: github.ref == 'refs/heads/main'
+    # Only run on main branch pushes, not on PRs
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: write
     steps:
       - name: Update Release Draft
         uses: release-drafter/release-drafter@v6
