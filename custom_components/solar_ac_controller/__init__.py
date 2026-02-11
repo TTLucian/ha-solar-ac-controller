@@ -71,7 +71,9 @@ async def _async_migrate_data(
                     val[mode] = initial_lp
         else:
             # Handle invalid types by setting to default
-            _LOGGER.warning(f"Invalid learned_power value for zone {zone}: {val}, resetting to default")
+            _LOGGER.warning(
+                f"Invalid learned_power value for zone {zone}: {val}, resetting to default"
+            )
             learned_power[zone] = {
                 "default": initial_lp,
                 "heat": initial_lp,
