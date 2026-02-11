@@ -353,7 +353,7 @@ class ConfigFlow(BaseConfigFlow):
     DOMAIN = "solar_ac_controller"
 
     @staticmethod
-    @callback
+    @callback  # type: ignore[untyped-decorator]
     def async_get_options_flow(config_entry: ConfigEntry) -> SolarACOptionsFlowHandler:
         """Get the options flow for this handler."""
         return SolarACOptionsFlowHandler(config_entry)
