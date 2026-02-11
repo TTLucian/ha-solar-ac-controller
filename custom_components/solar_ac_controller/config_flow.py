@@ -353,6 +353,10 @@ class ConfigFlow(config_entries.ConfigFlow):
 
     VERSION = 1
 
+    # Type annotations for dynamic attributes
+    _reconfigure_defaults: dict[str, Any]
+    data: dict[str, Any]
+
     @staticmethod
     @callback  # type: ignore[untyped-decorator]
     def async_get_options_flow(config_entry: ConfigEntry) -> SolarACOptionsFlowHandler:
@@ -364,9 +368,9 @@ class ConfigFlow(config_entries.ConfigFlow):
 
         # Initialize helper dicts with explicit type annotations for Mypy
         if not hasattr(self, "_reconfigure_defaults"):
-            self._reconfigure_defaults: dict[str, Any] = {}
+            self._reconfigure_defaults = {}
         if not hasattr(self, "data"):
-            self.data: dict[str, Any] = {}
+            self.data = {}
 
         if user_input is not None:
             # 1. Validate required fields exist
@@ -427,9 +431,9 @@ class ConfigFlow(config_entries.ConfigFlow):
     async def async_step_comfort(self, user_input: dict[str, Any] | None = None) -> Any:
         errors: dict[str, str] = {}
         if not hasattr(self, "_reconfigure_defaults"):
-            self._reconfigure_defaults: dict[str, Any] = {}
+            self._reconfigure_defaults = {}
         if not hasattr(self, "data"):
-            self.data: dict[str, Any] = {}
+            self.data = {}
         defaults = {**self._reconfigure_defaults, **self.data}
         _parse_manual_power = parse_numeric_list
         if user_input is not None:

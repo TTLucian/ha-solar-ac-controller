@@ -944,7 +944,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         ]  # Limit length to prevent extremely long keys
         return f"{level}:{pattern}"
 
-    async def _log(self, message: str, level: LogLevel = "info") -> None:
+    async def _log(self, message: str, level: LogLevel | None = "info") -> None:
         """Async logging hook used by coordinator and controller.
 
         Args:
