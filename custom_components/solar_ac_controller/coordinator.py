@@ -709,6 +709,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         entry = self.learned_power.get(zone_name)
         if not entry:
             return None
+        # TODO: Implement peak delta retrieval
         return None
 
     def get_stabilized_delta(
@@ -720,6 +721,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         entry = self.learned_power.get(zone_name)
         if not entry:
             return None
+        # TODO: Implement stabilized delta retrieval
         return None
 
     def get_time_to_peak(
@@ -731,6 +733,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         entry = self.learned_power.get(zone_name)
         if not entry:
             return None
+        # TODO: Implement time_to_peak retrieval
         return None
 
     def set_learned_power(
@@ -1247,7 +1250,8 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             return self.create_task(coro)
         except Exception:
             try:
-                return self.hass.async_create_task(coro)
+                task: asyncio.Task[Any] = self.hass.async_create_task(coro)
+                return task
             except Exception as e:
                 _LOGGER.warning("Failed to create background task: %s", e)
                 return None

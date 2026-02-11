@@ -362,11 +362,11 @@ class ConfigFlow(config_entries.ConfigFlow):
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> Any:
         errors: dict[str, str] = {}
 
-        # Initialize helper dicts if they don't exist
+        # Initialize helper dicts with explicit type annotations for Mypy
         if not hasattr(self, "_reconfigure_defaults"):
-            self._reconfigure_defaults = {}
+            self._reconfigure_defaults: dict[str, Any] = {}
         if not hasattr(self, "data"):
-            self.data = {}
+            self.data: dict[str, Any] = {}
 
         if user_input is not None:
             # 1. Validate required fields exist
@@ -379,7 +379,7 @@ class ConfigFlow(config_entries.ConfigFlow):
                 errors["base"] = "no_zones"
 
             if not errors:
-                # 2. Only NOW set the unique ID
+                # 2. Set the unique ID only when we have user_input
                 unique_id = f"{solar_sensor}|{grid_sensor}|{ac_power_sensor}"
                 await self.async_set_unique_id(unique_id)
                 self._abort_if_unique_id_configured()
@@ -403,9 +403,9 @@ class ConfigFlow(config_entries.ConfigFlow):
     async def async_step_timing(self, user_input: dict[str, Any] | None = None) -> Any:
         errors: dict[str, str] = {}
         if not hasattr(self, "_reconfigure_defaults"):
-            self._reconfigure_defaults = {}
+            self._reconfigure_defaults: dict[str, Any] = {}
         if not hasattr(self, "data"):
-            self.data = {}
+            self.data: dict[str, Any] = {}
         defaults = {**self._reconfigure_defaults, **self.data}
         if user_input is not None:
             errors = validate_panic_threshold(user_input, self.data, errors)
@@ -427,9 +427,9 @@ class ConfigFlow(config_entries.ConfigFlow):
     async def async_step_comfort(self, user_input: dict[str, Any] | None = None) -> Any:
         errors: dict[str, str] = {}
         if not hasattr(self, "_reconfigure_defaults"):
-            self._reconfigure_defaults = {}
+            self._reconfigure_defaults: dict[str, Any] = {}
         if not hasattr(self, "data"):
-            self.data = {}
+            self.data: dict[str, Any] = {}
         defaults = {**self._reconfigure_defaults, **self.data}
         _parse_manual_power = parse_numeric_list
         if user_input is not None:
