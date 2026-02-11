@@ -58,11 +58,6 @@ _LOGGER = logging.getLogger(__name__)
 # --- HELPERS: Must be defined before use ---
 
 
-@callback  # type: ignore[untyped-decorator]
-def async_get_options_flow(config_entry: ConfigEntry) -> Any:
-    return SolarACOptionsFlowHandler(config_entry)
-
-
 def parse_numeric_list(val: Any) -> list[float | None] | None:
     """Helper to convert various inputs into a list of floats/None.
 
@@ -356,6 +351,12 @@ async def _validate_zone_temp_sensors(
 class ConfigFlow(BaseConfigFlow):
     VERSION = 1
     DOMAIN = "solar_ac_controller"
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> SolarACOptionsFlowHandler:
+        """Get the options flow for this handler."""
+        return SolarACOptionsFlowHandler(config_entry)
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> Any:
         errors: dict[str, str] = {}
