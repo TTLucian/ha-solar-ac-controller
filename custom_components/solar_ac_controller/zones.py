@@ -305,4 +305,4 @@ class ZoneManager:
         state_obj = self.coordinator.hass.states.get(zone)
         if not state_obj:
             return False
-        return state_obj.state != "unavailable"
+        return cast(str, state_obj.state) != "unavailable"

@@ -3,7 +3,7 @@
 
 import time
 from collections import deque
-from typing import Any, Dict
+from typing import Any, Deque, Dict
 
 
 class MetricsCollector:
@@ -17,7 +17,7 @@ class MetricsCollector:
         self.total_cycle_duration = 0.0
         self.start_time = time.time()
         self.last_sensor_values: Dict[str, Any] = {}
-        self._history = deque(maxlen=500)
+        self._history: Deque[str] = deque(maxlen=500)
 
     def record_cycle_start(self) -> float:
         """Record start of a cycle."""
