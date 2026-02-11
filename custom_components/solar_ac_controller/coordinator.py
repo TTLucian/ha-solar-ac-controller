@@ -5,7 +5,7 @@ import asyncio
 import copy
 import logging
 from datetime import timedelta
-from typing import Any, Coroutine, Dict, Literal, Optional, TypeVar, Union, cast
+from typing import Any, Coroutine, Dict, Literal, Optional, TypedDict, TypeVar, cast
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
@@ -78,12 +78,27 @@ from .storage_circuit_breaker import StorageCircuitBreaker
 from .zone_config_parser import ZoneConfigParser
 from .zones import ZoneManager
 
+
+# Type definitions for better type safety
+class ZonePowerData(TypedDict, total=False):
+    """Power data for a zone with optional fields for different modes and deltas."""
+
+    default: float
+    heat: float
+    cool: float
+    lead_delta: float
+    extension_delta: float
+    time_to_peak: float
+    peak_delta: float
+    stabilized_delta: float
+
+
 # Type variables and literals for better type safety
 T = TypeVar("T")
 LogLevel = Literal["debug", "info", "warning", "error"]
 
 # Type aliases for better readability
-LearnedPowerData = Dict[str, Dict[str, Union[float, Dict[str, float]]]]
+LearnedPowerData = Dict[str, ZonePowerData]
 ZoneMapping = Dict[str, str]
 ZoneStates = Dict[str, str]
 ZoneLocks = Dict[str, Optional[float]]
@@ -630,7 +645,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         raw_learned = stored.get("learned_power", {}) or {}
         raw_samples = stored.get("samples", 0) or 0
 
-        self.learned_power = {}
+        self.learned_power: LearnedPowerData = {}
         self.samples = int(raw_samples)
 
         if isinstance(raw_learned, dict):
@@ -662,7 +677,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                     # Migrate old data: if no lead_delta but have default, set lead_delta to default
                     if "lead_delta" not in normalized and "default" in normalized:
                         normalized["lead_delta"] = normalized["default"]
-                    self.learned_power[zone_name] = normalized
+                    self.learned_power[zone_name] = cast(ZonePowerData, normalized)
                 else:
                     self.learned_power[zone_name] = {
                         "default": float(self.initial_learned_power),
@@ -689,7 +704,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         # entry is Dict[str, Any]
         val = None
         if mode and mode in entry:
-            val = entry[mode]
+            val = entry[mode]  # type: ignore[literal-required]
         elif "default" in entry:
             val = entry["default"]
         elif "heat" in entry:
@@ -804,15 +819,8 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         ALPHA = LEARNING_EMA_ALPHA
 
         # Initialize zone entry if missing
-
-        if zone_name not in self.learned_power or not isinstance(
-            self.learned_power.get(zone_name), dict
-        ):
-            val = self.learned_power.get(zone_name)
-            if isinstance(val, (int, float)):
-                base = float(val)  # type: ignore[unreachable]
-            else:
-                base = float(self.initial_learned_power)
+        if zone_name not in self.learned_power:
+            base = float(self.initial_learned_power)
             self.learned_power[zone_name] = {
                 "default": base,
                 "heat": base,
@@ -820,13 +828,13 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             }
 
         entry = self.learned_power[zone_name]
-        current_learned: float = entry.get(
+        current_learned = entry.get(
             mode or "default", entry.get("default", self.initial_learned_power)
         )
-        if current_learned is not None:
+        if current_learned is not None and isinstance(current_learned, (int, float)):
             current_val = float(current_learned)
         else:
-            current_val = float(self.initial_learned_power)  # type: ignore[unreachable]
+            current_val = float(self.initial_learned_power)
 
         # Absolute outlier filter
         if not (MIN_W <= new_sample <= MAX_W):
@@ -863,7 +871,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
 
             # Update mode-specific and default values
             if mode:
-                entry[mode] = float(updated)
+                entry[mode] = float(updated)  # type: ignore[literal-required]
             entry["default"] = float(updated)
             if "heat" not in entry:
                 entry["heat"] = entry["default"]
@@ -883,7 +891,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             updated = round(updated)  # store whole watts only
 
             if mode:
-                entry[mode] = float(updated)
+                entry[mode] = float(updated)  # type: ignore[literal-required]
             entry["default"] = float(updated)
             if "heat" not in entry:
                 entry["heat"] = entry["default"]
