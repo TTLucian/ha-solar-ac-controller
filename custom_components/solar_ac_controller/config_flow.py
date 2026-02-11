@@ -348,7 +348,7 @@ async def _validate_zone_temp_sensors(
     return None
 
 
-class ConfigFlow(config_entries.ConfigFlow, domain="solar_ac_controller"):
+class ConfigFlow(config_entries.ConfigFlow):
     """Handle a config flow for Solar AC Controller."""
 
     VERSION = 1
@@ -361,27 +361,38 @@ class ConfigFlow(config_entries.ConfigFlow, domain="solar_ac_controller"):
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> Any:
         errors: dict[str, str] = {}
+
+        # Initialize helper dicts if they don't exist
         if not hasattr(self, "_reconfigure_defaults"):
-            self._reconfigure_defaults: dict[str, Any] = {}
+            self._reconfigure_defaults = {}
         if not hasattr(self, "data"):
-            self.data: dict[str, Any] = {}
-        defaults = {**self._reconfigure_defaults, **self.data}
+            self.data = {}
+
         if user_input is not None:
+            # 1. Validate required fields exist
             zones = user_input.get(CONF_ZONES, [])
             solar_sensor = user_input.get(CONF_SOLAR_SENSOR)
             grid_sensor = user_input.get(CONF_GRID_SENSOR)
             ac_power_sensor = user_input.get(CONF_AC_POWER_SENSOR)
-            # Unique ID logic: prevent duplicate integration for same sensors
-            unique_id = f"{solar_sensor}|{grid_sensor}|{ac_power_sensor}"
-            await self.async_set_unique_id(unique_id)
-            self._abort_if_unique_id_configured()
+
             if not zones:
                 errors["base"] = "no_zones"
-            else:
+
+            if not errors:
+                # 2. Only NOW set the unique ID
+                unique_id = f"{solar_sensor}|{grid_sensor}|{ac_power_sensor}"
+                await self.async_set_unique_id(unique_id)
+                self._abort_if_unique_id_configured()
+
+                # 3. Check solar hysteresis
                 errors = validate_solar_hysteresis(user_input, self.data, errors)
+
             if not errors:
                 self.data = {**self.data, **user_input}
                 return await self.async_step_timing()
+
+        # Provide defaults for the form
+        defaults = {**self._reconfigure_defaults, **self.data}
         schema = schema_user(defaults)
         return self.async_show_form(
             step_id="user",
