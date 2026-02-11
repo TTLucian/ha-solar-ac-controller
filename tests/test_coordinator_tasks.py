@@ -12,6 +12,15 @@ from custom_components.solar_ac_controller.storage_circuit_breaker import (
 
 
 class FakeHass:
+    class MockLoop:
+        def call_later(self, delay, callback, *args):
+            """Mock call_later to execute immediately for testing."""
+            callback(*args)
+            return None
+
+    def __init__(self):
+        self.loop = self.MockLoop()
+
     def async_create_task(self, coro):
         return asyncio.create_task(coro)
 
@@ -55,6 +64,7 @@ async def test_async_set_integration_enabled_skips_save_when_circuit_open():
     coord._storage_lock = asyncio.Lock()
     coord.stored_data = {}
     coord._storage_dirty = False
+    coord._debounce_task = None
     coord.hass = FakeHass()
     coord._listeners = {}
 
