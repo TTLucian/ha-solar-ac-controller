@@ -59,10 +59,6 @@ from .const import (
     EMA_10M_ALPHA,
     EMA_30S_ALPHA,
     EMA_RESET_AFTER_OFF_SECONDS,
-    LEARNING_EMA_ALPHA,
-    LEARNING_MAX_POWER_W,
-    LEARNING_MIN_POWER_W,
-    LEARNING_RELATIVE_TOLERANCE,
     LEARNING_TIMEOUT_SECONDS,
     LOGBOOK_THROTTLE_SECONDS,
     PANIC_COOLDOWN_SECONDS,
@@ -81,16 +77,12 @@ from .zones import ZoneManager
 
 # Type definitions for better type safety
 class ZonePowerData(TypedDict, total=False):
-    """Power data for a zone with optional fields for different modes and deltas."""
+    """Power data for a zone."""
 
     default: float
     heat: float
     cool: float
     lead_delta: float
-    extension_delta: float
-    time_to_peak: float
-    peak_delta: float
-    stabilized_delta: float
 
 
 # Type variables and literals for better type safety
@@ -648,42 +640,45 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         self.learned_power: LearnedPowerData = {}
         self.samples = int(raw_samples)
 
+        # Since we're starting fresh, just ensure data matches our TypedDict
         if isinstance(raw_learned, dict):
             for zone_name, val in raw_learned.items():
-                if isinstance(val, (int, float)):
-                    v = float(val)
-                    self.learned_power[zone_name] = {
-                        "default": v,
-                        "heat": v,
-                        "cool": v,
-                        "lead_delta": v,
-                    }
-                elif isinstance(val, dict):
-                    normalized = {}
-                    for k, vv in val.items():
-                        try:
-                            normalized[k.lower()] = float(vv)
-                        except (ValueError, TypeError):
-                            continue
-                    if "default" not in normalized:
-                        normalized["default"] = normalized.get(
-                            "heat",
-                            normalized.get("cool", float(self.initial_learned_power)),
-                        )
-                    if "heat" not in normalized:
-                        normalized["heat"] = normalized["default"]
-                    if "cool" not in normalized:
-                        normalized["cool"] = normalized["default"]
-                    # Migrate old data: if no lead_delta but have default, set lead_delta to default
-                    if "lead_delta" not in normalized and "default" in normalized:
-                        normalized["lead_delta"] = normalized["default"]
-                    self.learned_power[zone_name] = cast(ZonePowerData, normalized)
+                if isinstance(val, dict):
+                    # Try to use the data if it looks valid
+                    try:
+                        normalized = {}
+                        for k, vv in val.items():
+                            if isinstance(vv, (int, float)):
+                                normalized[k.lower()] = float(vv)
+
+                        # Ensure required fields exist
+                        if "default" not in normalized:
+                            normalized["default"] = float(self.initial_learned_power)
+                        if "heat" not in normalized:
+                            normalized["heat"] = normalized["default"]
+                        if "cool" not in normalized:
+                            normalized["cool"] = normalized["default"]
+                        if "lead_delta" not in normalized:
+                            normalized["lead_delta"] = 0.0
+
+                        self.learned_power[zone_name] = cast(ZonePowerData, normalized)
+                    except (ValueError, TypeError):
+                        # Reset to defaults if data is malformed
+                        base = float(self.initial_learned_power)
+                        self.learned_power[zone_name] = {
+                            "default": base,
+                            "heat": base,
+                            "cool": base,
+                            "lead_delta": 0.0,
+                        }
                 else:
+                    # Reset to defaults for any non-dict data
+                    base = float(self.initial_learned_power)
                     self.learned_power[zone_name] = {
-                        "default": float(self.initial_learned_power),
-                        "heat": float(self.initial_learned_power),
-                        "cool": float(self.initial_learned_power),
-                        "lead_delta": float(self.initial_learned_power),
+                        "default": base,
+                        "heat": base,
+                        "cool": base,
+                        "lead_delta": 0.0,
                     }
         else:
             self.learned_power = {}
@@ -752,163 +747,26 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         return None
 
     def set_learned_power(
-        self,
-        zone_name: str,
-        value: float,
-        mode: Optional[str] = None,
-        category: Optional[str] = None,
-        time_to_peak: Optional[float] = None,
-        peak_delta: Optional[float] = None,
-        stabilized_delta: Optional[float] = None,
+        self, zone_name: str, value: float, mode: str | None = None
     ) -> None:
-        """Set learned power for a zone and mode with simple outlier filtering and smoothing.
-
-        Goals:
-        - Ignore clearly inconsistent samples (too high/low vs reasonable bounds or prior value)
-        - Smooth accepted samples into the learned value (EMA-style)
-        - Keep schema stable; no per-sample storage required
-        """
-        try:
-            new_sample = float(value)
-        except (TypeError, ValueError):
-            return
-
-        # Validate zone_name against configured zones
-        all_zones = self.config.get(CONF_ZONES, [])
-        zone_names = [z.split(".")[-1] for z in all_zones]
-
-        if zone_name not in zone_names:
-            _LOGGER.warning(
-                "Attempted to set learned power for unconfigured zone: %s. "
-                "Configured zones: %s",
-                zone_name,
-                zone_names,
-            )
-            return
-
-        # Validate mode string
-        valid_modes = {"default", "heat", "cool"}
-        if mode and mode not in valid_modes:
-            _LOGGER.warning(
-                "Attempted to set learned power with invalid mode: %s. "
-                "Valid modes: %s",
-                mode,
-                valid_modes,
-            )
-            return
-
-        # Validate category
-        valid_categories = {"lead", "extension"}
-        if category and category not in valid_categories:
-            _LOGGER.warning(
-                "Attempted to set learned power with invalid category: %s. "
-                "Valid categories: %s",
-                category,
-                valid_categories,
-            )
-            return
-
-        # Reasonable absolute bounds for a single zone incremental draw (W)
-        MIN_W = LEARNING_MIN_POWER_W
-        MAX_W = LEARNING_MAX_POWER_W
-        # Relative tolerance around existing learned value (± fraction)
-        REL_TOL = (
-            LEARNING_RELATIVE_TOLERANCE  # accept within ±50% of current learned value
-        )
-        # Smoothing factor for EMA update
-        ALPHA = LEARNING_EMA_ALPHA
-
-        # Initialize zone entry if missing
+        """Update learned power for a specific zone and mode."""
+        # Ensure the zone exists as a dictionary
         if zone_name not in self.learned_power:
             base = float(self.initial_learned_power)
             self.learned_power[zone_name] = {
                 "default": base,
                 "heat": base,
                 "cool": base,
+                "lead_delta": 0.0,
             }
 
+        # Update the specific mode or default
         entry = self.learned_power[zone_name]
-        current_learned = entry.get(
-            mode or "default", entry.get("default", self.initial_learned_power)
-        )
-        if current_learned is not None and isinstance(current_learned, (int, float)):
-            current_val = float(current_learned)
-        else:
-            current_val = float(self.initial_learned_power)
+        target_key = mode if mode in ["heat", "cool"] else "default"
+        entry[target_key] = float(value)  # type: ignore[literal-required]
 
-        # Absolute outlier filter
-        if not (MIN_W <= new_sample <= MAX_W):
-            _LOGGER.debug(
-                "Discarding outlier sample for %s: %sW outside [%s,%s]",
-                zone_name,
-                new_sample,
-                MIN_W,
-                MAX_W,
-            )
-            return
-
-        # Relative outlier filter (only apply if we have a meaningful current value)
-        lower = max(MIN_W, current_val * (1.0 - REL_TOL))
-        upper = min(MAX_W, current_val * (1.0 + REL_TOL))
-        if not (lower <= new_sample <= upper):
-            _LOGGER.debug(
-                "Discarding relative outlier for %s: %sW outside [%s,%s] around current %sW",
-                zone_name,
-                new_sample,
-                round(lower, 1),
-                round(upper, 1),
-                round(current_val, 1),
-            )
-            return
-
-        # Update based on category
-        if category == "lead":
-            # Smooth update for lead (compressor start)
-            from .helpers import calculate_ema
-
-            updated = calculate_ema(current_val, new_sample, ALPHA)
-            updated = round(updated)  # store whole watts only
-
-            # Update mode-specific and default values
-            if mode:
-                entry[mode] = float(updated)  # type: ignore[literal-required]
-            entry["default"] = float(updated)
-            if "heat" not in entry:
-                entry["heat"] = entry["default"]
-            if "cool" not in entry:
-                entry["cool"] = entry["default"]
-
-            # Store the raw delta
-            entry["lead_delta"] = float(new_sample)
-        elif category == "extension":
-            # No smoothing for extension (additional zone), just store the delta
-            entry["extension_delta"] = float(new_sample)
-        else:
-            # Default to lead behavior for backward compatibility
-            from .helpers import calculate_ema
-
-            updated = calculate_ema(current_val, new_sample, ALPHA)
-            updated = round(updated)  # store whole watts only
-
-            if mode:
-                entry[mode] = float(updated)  # type: ignore[literal-required]
-            entry["default"] = float(updated)
-            if "heat" not in entry:
-                entry["heat"] = entry["default"]
-            if "cool" not in entry:
-                entry["cool"] = entry["default"]
-
-            entry["lead_delta"] = float(new_sample)
-
-        # Update time_to_peak if provided (typically for lead)
-        if time_to_peak is not None:
-            entry["time_to_peak"] = float(time_to_peak)
-
-        # Update peak_delta and stabilized_delta if provided
-        if peak_delta is not None:
-            entry["peak_delta"] = float(peak_delta)
-        if stabilized_delta is not None:
-            entry["stabilized_delta"] = float(stabilized_delta)
+        self._storage_dirty = True
+        _LOGGER.debug(f"Learned new power for {zone_name} ({target_key}): {value}W")
 
     async def async_persist_learned_values(self) -> None:
         """Persist learned values to storage."""
@@ -1768,21 +1626,8 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             grid_raw, EMA_30S_ALPHA, EMA_5M_ALPHA
         )
 
-        # Validate EMA values
-        if not (
-            isinstance(self.ema_30s, (int, float))
-            and isinstance(self.ema_5m, (int, float))
-        ):
-            # Log EMA validation failure asynchronously on HA loop
-            self.create_background_task(
-                self._log_ema_validation_failure(
-                    "non_numeric", grid_raw, old_ema_30s, old_ema_5m
-                )
-            )
-            # Reset to safe values
-            self.ema_tracker.reset()
-            self.ema_30s, self.ema_5m = 0.0, 0.0
-        elif not (-50000 <= self.ema_30s <= 50000) or not (
+        # Validate EMA values are within reasonable range
+        if not (-50000 <= self.ema_30s <= 50000) or not (
             -50000 <= self.ema_5m <= 50000
         ):
             self.create_background_task(
