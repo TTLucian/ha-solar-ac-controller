@@ -110,7 +110,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             _LOGGER.warning(
                 "Storage circuit breaker open, skipping integration enabled save"
             )
-            self.async_update_listeners()
+            self._debounce_recalc()
             return
 
         try:
@@ -119,7 +119,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             _LOGGER.exception(
                 "Error scheduling integration enabled state save: %s", exc
             )
-        self.async_update_listeners()
+        self._debounce_recalc()
 
     async def async_set_activity_logging_enabled(self, enabled: bool) -> None:
         """Toggle activity logging and persist state."""
@@ -142,14 +142,14 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                 "Storage circuit breaker open, skipping activity logging save"
             )
             # Even if we can't persist, notify listeners of the in-memory change
-            self.async_update_listeners()
+            self._debounce_recalc()
             return
 
         try:
             await self._debounced_save()
         except (asyncio.CancelledError, OSError, ValueError) as exc:
             _LOGGER.exception("Error scheduling activity logging state save: %s", exc)
-        self.async_update_listeners()
+        self._debounce_recalc()
 
     def __init__(
         self,
@@ -193,7 +193,12 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         )
         self._storage_lock = asyncio.Lock()
         self._update_lock = asyncio.Lock()
+        self._state_lock = asyncio.Lock()
         self._storage_dirty = False  # Track if data has actually changed
+
+        # Recalc debouncing for service calls
+        self._pending_recalc = False
+        self._debounce_task = None
 
         # State lookup cache for performance
         self._state_cache: Dict[str, Any] = {}
@@ -318,7 +323,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             await self._debounced_save()
         except (asyncio.CancelledError, OSError, ValueError) as exc:
             _LOGGER.exception("Error scheduling season mode save: %s", exc)
-        self.async_update_listeners()
+        self._debounce_recalc()
 
     async def async_set_aggressiveness(self, value: float) -> None:
         """Set aggressiveness and persist to config entry options."""
@@ -341,7 +346,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             _LOGGER.exception("Failed to persist aggressiveness option: %s", exc)
 
         # Notify listeners so entity states refresh
-        self.async_update_listeners()
+        self._debounce_recalc()
 
     def _init_runtime_state(self) -> None:
         """Initialize runtime state variables."""
@@ -380,6 +385,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         self.last_action_start_ts: float | None = None
         self.last_action_duration: float | None = None
         self._panic_task: Optional[asyncio.Task[None]] = None
+        self._panic_active = False
         self.last_panic_ts: float | None = None
 
         # Learning state
@@ -415,6 +421,18 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         self._sensor_unavailable_since: Dict[str, float] = (
             {}
         )  # sensor_id -> timestamp when it became unavailable
+
+    def _debounce_recalc(self) -> None:
+        """Debounce recalculation triggers from rapid service calls."""
+        self._pending_recalc = True
+        if self._debounce_task is None:
+            self._debounce_task = self.hass.loop.call_later(1.0, self._execute_recalc)
+
+    def _execute_recalc(self) -> None:
+        """Execute debounced recalculation."""
+        self._pending_recalc = False
+        self._debounce_task = None
+        self.async_update_listeners()
 
     async def _log_configuration_validation(self) -> None:
         """Log configuration validation results during startup."""
@@ -1204,7 +1222,8 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                     hasattr(self, "integration_enabled")
                     and not self.integration_enabled
                 ):
-                    self.last_action = "integration_disabled"
+                    async with self._state_lock:
+                        self.last_action = "integration_disabled"
                     self.note = "Integration disabled by user."
                     _LOGGER.debug("Integration disabled, skipping all logic.")
                     self.metrics.record_cycle_end(cycle_start, success=True)
@@ -1245,7 +1264,8 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                         self.update_interval = timedelta(
                             seconds=300
                         )  # Check every 5 minutes
-                        self.last_action = "integration_frozen"
+                        async with self._state_lock:
+                            self.last_action = "integration_frozen"
                         self.note = f"Integration frozen: solar {round(solar)}W < on_threshold {on_threshold}W"
                         self.metrics.record_cycle_end(cycle_start, success=True)
                         return
@@ -1260,7 +1280,8 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                         self.update_interval = timedelta(
                             seconds=300
                         )  # Check every 5 minutes
-                        self.last_action = "integration_frozen"
+                        async with self._state_lock:
+                            self.last_action = "integration_frozen"
                         self.note = f"Integration frozen: solar {round(solar)}W < off_threshold {off_threshold}W"
                         self.metrics.record_cycle_end(cycle_start, success=True)
                         return
@@ -1309,7 +1330,8 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                     _LOGGER.error(
                         "zone_manager is not initialized! Skipping update cycle."
                     )
-                    self.last_action = "zone_manager_uninitialized"
+                    async with self._state_lock:
+                        self.last_action = "zone_manager_uninitialized"
                     return
 
                 active_zones = (
@@ -1414,6 +1436,10 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                     conf_info += f"last_candidate={last_zone.split('.')[-1]}"
                 await self._log(f"[CONFIDENCE] {conf_info}", "debug")
 
+                # Prevent decision overrides during active panic
+                if getattr(self, "_panic_active", False):
+                    return
+
                 now_ts = dt_util.utcnow().timestamp()
 
                 # 8. Learning timeout
@@ -1445,7 +1471,8 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
 
                 # 10. Panic cooldown
                 if self.panic_manager.is_in_cooldown:
-                    self.last_action = "panic_cooldown"
+                    async with self._state_lock:
+                        self.last_action = "panic_cooldown"
                     # Calculate remaining cooldown time
                     now_ts = dt_util.utcnow().timestamp()
                     cooldown_remaining = max(
@@ -1519,7 +1546,8 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                         return
 
                 # 12. SYSTEM BALANCED
-                self.last_action = "balanced"
+                async with self._state_lock:
+                    self.last_action = "balanced"
                 self.note = f"No action: system balanced. ema30={round(self.ema_30s)}, ema5m={round(self.ema_5m)}, zones={on_count}, samples={self.samples}"
 
                 # Log balanced state every 10 minutes (600 seconds) to avoid spam
@@ -1784,7 +1812,8 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
 
             # Record swap time
             self.zone_last_swap_time[zone_to_remove] = now_ts
-            self.last_action = "zone_swap"
+            async with self._state_lock:
+                self.last_action = "zone_swap"
 
         except (ValueError, TypeError, AttributeError, KeyError) as e:
             _LOGGER.exception(f"Failed to perform zone swap: {e}")
@@ -1947,7 +1976,8 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                 return
 
         # System balanced
-        self.last_action = "balanced"
+        async with self._state_lock:
+            self.last_action = "balanced"
 
     def _update_adaptive_interval(self) -> None:
         """Update update interval based on system state for adaptive performance."""
@@ -1979,6 +2009,9 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
 
     async def _async_cleanup_tasks(self) -> None:
         """Clean up running tasks during shutdown."""
+        # Cancel the coordinator's refresh task
+        await self.async_shutdown()
+
         # Cancel panic task
         if getattr(self, "panic_manager", None) is not None:
             await self.panic_manager.cancel_panic()

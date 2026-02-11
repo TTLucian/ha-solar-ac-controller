@@ -6,7 +6,10 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util import dt as dt_util
+
+from .const import CONF_ZONES
 
 if TYPE_CHECKING:
     from .coordinator import SolarACCoordinator
@@ -30,6 +33,13 @@ class ActionExecutor:
         required_export: float,
     ) -> None:
         """Log and execute add zone action."""
+        # Validate zone exists in configuration
+        configured_zones = self.coordinator.config.get(CONF_ZONES, [])
+        if next_zone not in configured_zones:
+            raise HomeAssistantError(
+                f"Invalid zone '{next_zone}': not in configured zones {configured_zones}"
+            )
+
         if self.coordinator.last_action == f"add_{next_zone}":
             return
 
@@ -43,6 +53,7 @@ class ActionExecutor:
 
         async with self._action_lock:
             await self.add_zone_without_learning(next_zone, ac_power_before)
+        async with self.coordinator._state_lock:
             self.coordinator.last_action = f"add_{next_zone}"
 
     async def attempt_remove_zone(
@@ -51,6 +62,13 @@ class ActionExecutor:
         import_power: float,
     ) -> None:
         """Log and execute remove zone action."""
+        # Validate zone exists in configuration
+        configured_zones = self.coordinator.config.get(CONF_ZONES, [])
+        if last_zone not in configured_zones:
+            raise HomeAssistantError(
+                f"Invalid zone '{last_zone}': not in configured zones {configured_zones}"
+            )
+
         if self.coordinator.last_action == f"remove_{last_zone}":
             return
 
@@ -69,6 +87,13 @@ class ActionExecutor:
 
     async def add_zone(self, zone: str, ac_power_before: float) -> None:
         """Start learning and turn on zone."""
+        # Validate zone exists in configuration
+        configured_zones = self.coordinator.config.get(CONF_ZONES, [])
+        if zone not in configured_zones:
+            raise HomeAssistantError(
+                f"Invalid zone '{zone}': not in configured zones {configured_zones}"
+            )
+
         if await self.coordinator.controller.is_learning_active():
             await self.coordinator._log(
                 f"Power learning for '{zone.split('.')[-1]}' skipped - "
@@ -111,6 +136,13 @@ class ActionExecutor:
         self, zone: str, ac_power_before: float
     ) -> None:
         """Turn on zone without starting learning (for multi-zone additions)."""
+        # Validate zone exists in configuration
+        configured_zones = self.coordinator.config.get(CONF_ZONES, [])
+        if zone not in configured_zones:
+            raise HomeAssistantError(
+                f"Invalid zone '{zone}': not in configured zones {configured_zones}"
+            )
+
         start = dt_util.utcnow().timestamp()
         try:
             await self.call_entity_service(zone, True)
@@ -138,6 +170,13 @@ class ActionExecutor:
 
     async def remove_zone(self, zone: str) -> None:
         """Turn off zone and update short-cycle memory."""
+        # Validate zone exists in configuration
+        configured_zones = self.coordinator.config.get(CONF_ZONES, [])
+        if zone not in configured_zones:
+            raise HomeAssistantError(
+                f"Invalid zone '{zone}': not in configured zones {configured_zones}"
+            )
+
         start = dt_util.utcnow().timestamp()
         try:
             await self.call_entity_service(zone, False)
@@ -256,4 +295,7 @@ class ActionExecutor:
         except (ValueError, TypeError, AttributeError, KeyError) as e:
             _LOGGER.exception(
                 "Fallback climate.%s failed for %s: %s", service, entity_id, e
+            )
+            raise HomeAssistantError(
+                f"Failed to {service} {entity_id} - entity unavailable or unresponsive"
             )

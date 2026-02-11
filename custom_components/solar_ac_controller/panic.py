@@ -53,6 +53,7 @@ class PanicManager:
     async def cancel_panic(self) -> None:
         """Request panic cancellation and cancel any running panic task."""
         self._cancel_requested = True
+        self.coordinator._panic_active = False  # Clear panic active flag
         if self.coordinator._panic_task and not self.coordinator._panic_task.done():
             self.coordinator._panic_task.cancel()
             try:
@@ -67,6 +68,7 @@ class PanicManager:
 
     async def schedule_panic(self, active_zones: list[str]) -> None:
         """Schedule panic task if not already running."""
+        self.coordinator._panic_active = True  # Prevent decision overrides
         if self.coordinator.last_action != "panic":
             await self.coordinator._log(
                 f"[PANIC_SHED_TRIGGER] ema30={round(self.coordinator.ema_30s)} "
@@ -152,10 +154,12 @@ class PanicManager:
                     f"ema5m={round(self.coordinator.ema_5m)} zones={active_zones}"
                 )
 
-                self.coordinator.last_action = "panic"
+                async with self.coordinator._state_lock:
+                    self.coordinator.last_action = "panic"
         except asyncio.CancelledError:
             _LOGGER.debug("Panic task cancelled")
         except (ValueError, TypeError, AttributeError, KeyError) as e:
             _LOGGER.exception("Error in panic task: %s", e)
         finally:
             self.coordinator._panic_task = None
+            self.coordinator._panic_active = False

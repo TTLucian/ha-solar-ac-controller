@@ -479,6 +479,7 @@ class ConfigFlow(BaseConfigFlow):
                     entry,
                     data={**entry.data, **user_input},
                 )
+                await self.hass.config_entries.async_reload(entry.entry_id)
                 return self.async_abort(reason="reconfigured")
         else:
             self._reconfigure_defaults = {}
@@ -527,7 +528,9 @@ class SolarACOptionsFlowHandler(OptionsFlow):
                 if self.data.get(CONF_ENABLE_TEMP_MODULATION):
                     return await self.async_step_comfort()
                 else:
-                    return self.async_create_entry(title="", data=self.data)
+                    result = self.async_create_entry(title="", data=self.data)
+                    await self.hass.config_entries.async_reload(self.entry.entry_id)
+                    return result
         schema = schema_timing(defaults)
         return self.async_show_form(
             step_id="timing",

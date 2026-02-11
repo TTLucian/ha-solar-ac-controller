@@ -116,7 +116,13 @@ class ZoneManager:
 
         # Next zone always uses config order (simplest, most predictable)
         next_zone = next(
-            (z for z in all_zones if z not in active_zones and not self.is_locked(z)),
+            (
+                z
+                for z in all_zones
+                if z not in active_zones
+                and not self.is_locked(z)
+                and self._is_zone_available(z)
+            ),
             None,
         )
 
@@ -132,7 +138,11 @@ class ZoneManager:
             last_zone = self._select_last_by_temperature(active_zones)
         else:
             last_zone = next(
-                (z for z in reversed(active_zones) if not self.is_locked(z)),
+                (
+                    z
+                    for z in reversed(active_zones)
+                    if not self.is_locked(z) and self._is_zone_available(z)
+                ),
                 None,
             )
 
@@ -151,7 +161,11 @@ class ZoneManager:
         3. Zones without sensors treated conservatively (kept on unless no other choice)
         Fallback: If no zones at target and removal is required (e.g., high import), return least important unlocked zone.
         """
-        unlocked = [z for z in active_zones if not self.is_locked(z)]
+        unlocked = [
+            z
+            for z in active_zones
+            if not self.is_locked(z) and self._is_zone_available(z)
+        ]
 
         if not unlocked:
             return None
@@ -285,3 +299,10 @@ class ZoneManager:
             current_temp
             < self.coordinator.max_temp_winter - DECISION_ZONE_NEEDS_HEATING_DIFF
         )
+
+    def _is_zone_available(self, zone: str) -> bool:
+        """Check if a zone entity is available (not unavailable state)."""
+        state_obj = self.coordinator.hass.states.get(zone)
+        if not state_obj:
+            return False
+        return state_obj.state != "unavailable"

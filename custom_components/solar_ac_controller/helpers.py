@@ -151,7 +151,8 @@ class MasterSwitchController:
                 {"entity_id": ac_switch},
                 blocking=True,
             )
-            self.coordinator.last_action = "master_on"
+            async with self.coordinator._state_lock:
+                self.coordinator.last_action = "master_on"
             self.coordinator.master_last_action_time = dt_util.utcnow().timestamp()
             # Track commanded state to avoid repeated commands
             self.coordinator.master_commanded_state = "on"
@@ -174,7 +175,8 @@ class MasterSwitchController:
                 {"entity_id": ac_switch},
                 blocking=True,
             )
-            self.coordinator.last_action = "master_off"
+            async with self.coordinator._state_lock:
+                self.coordinator.last_action = "master_off"
             self.coordinator.master_last_action_time = dt_util.utcnow().timestamp()
             # Track commanded state to avoid repeated commands
             self.coordinator.master_commanded_state = "off"

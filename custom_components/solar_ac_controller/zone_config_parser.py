@@ -14,6 +14,9 @@ class ZoneConfigParser:
         config_entry: ConfigEntry, zones: List[str]
     ) -> Dict[str, str]:
         """Parse zone temperature sensor mappings."""
+        if not isinstance(zones, list) or not all(isinstance(z, str) for z in zones):
+            return {}
+
         zone_temp_sensors_list = (
             config_entry.options.get(
                 "zone_temp_sensors", config_entry.data.get("zone_temp_sensors", [])
@@ -21,10 +24,15 @@ class ZoneConfigParser:
             or []
         )
 
+        if not isinstance(zone_temp_sensors_list, list):
+            zone_temp_sensors_list = []
+
         zone_temp_sensors = {}
         for idx, zone_id in enumerate(zones):
             if idx < len(zone_temp_sensors_list) and zone_temp_sensors_list[idx]:
-                zone_temp_sensors[zone_id] = zone_temp_sensors_list[idx]
+                sensor = zone_temp_sensors_list[idx]
+                if isinstance(sensor, str) and sensor:
+                    zone_temp_sensors[zone_id] = sensor
 
         return zone_temp_sensors
 
@@ -33,6 +41,9 @@ class ZoneConfigParser:
         config_entry: ConfigEntry, zones: List[str]
     ) -> Dict[str, float]:
         """Parse zone manual power mappings."""
+        if not isinstance(zones, list) or not all(isinstance(z, str) for z in zones):
+            return {}
+
         raw_manual = config_entry.options.get(
             "zone_manual_power", config_entry.data.get("zone_manual_power", [])
         )

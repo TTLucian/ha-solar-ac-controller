@@ -2,6 +2,7 @@
 """Metrics collection for Solar AC Controller."""
 
 import time
+from collections import deque
 from typing import Any, Dict
 
 
@@ -16,6 +17,7 @@ class MetricsCollector:
         self.total_cycle_duration = 0.0
         self.start_time = time.time()
         self.last_sensor_values: Dict[str, Any] = {}
+        self._history = deque(maxlen=500)
 
     def record_cycle_start(self) -> float:
         """Record start of a cycle."""
@@ -40,6 +42,10 @@ class MetricsCollector:
             "timestamp": time.time(),
         }
 
+    def record_event(self, event: str) -> None:
+        """Record an event in history."""
+        self._history.append(event)
+
     def get_summary(self) -> Dict[str, Any]:
         """Get metrics summary."""
         uptime = time.time() - self.start_time
@@ -52,4 +58,5 @@ class MetricsCollector:
             "uptime_seconds": uptime,
             "cycles_per_second": self.cycle_count / max(uptime, 1),
             "last_sensor_values": self.last_sensor_values,
+            "history": list(self._history),
         }
