@@ -385,7 +385,8 @@ class DecisionEngine:
         available_zones = [
             z
             for z in self.coordinator.config.get(CONF_ZONES, [])
-            if z not in active_zones and not self.coordinator.zone_manager.is_locked(z)
+            if z not in active_zones
+            and not await self.coordinator.zone_manager.is_locked(z)
         ]
 
         for zone in sorted(

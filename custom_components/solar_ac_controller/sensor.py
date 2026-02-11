@@ -119,19 +119,25 @@ class _BaseSolarACSensor(SensorEntity):
         """Synchronous wrapper to schedule async state update."""
         # Prefer Home Assistant's task creation when available
         if getattr(self, "hass", None):
-            # Prefer coordinator's safe task creator when available
-            try:
-                if getattr(self, "coordinator", None) and hasattr(
-                    self.coordinator, "create_task"
-                ):
-                    self.coordinator.create_task(self._smart_write_ha_state())
-                else:
-                    self.hass.async_create_task(self._smart_write_ha_state())
-            except Exception:
+            # Use coordinator's safe task creator when available
+            if getattr(self, "coordinator", None) and hasattr(
+                self.coordinator, "create_background_task"
+            ):
+                self.coordinator.create_background_task(self._smart_write_ha_state())
+            else:
+                # Fallback: use coordinator's create_task or hass.async_create_task
                 try:
-                    self.hass.async_create_task(self._smart_write_ha_state())
+                    if getattr(self, "coordinator", None) and hasattr(
+                        self.coordinator, "create_task"
+                    ):
+                        self.coordinator.create_task(self._smart_write_ha_state())
+                    else:
+                        self.hass.async_create_task(self._smart_write_ha_state())
                 except Exception:
-                    pass
+                    try:
+                        self.hass.async_create_task(self._smart_write_ha_state())
+                    except Exception:
+                        pass
         else:
             asyncio.create_task(self._smart_write_ha_state())
 

@@ -4,8 +4,8 @@ import logging
 from typing import Any, cast
 
 import voluptuous as vol
+from homeassistant import config_entries
 from homeassistant.config_entries import ConfigEntry, OptionsFlow
-from homeassistant.config_entries import ConfigFlow as BaseConfigFlow
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import selector
 from homeassistant.helpers.selector import NumberSelectorMode
@@ -348,9 +348,10 @@ async def _validate_zone_temp_sensors(
     return None
 
 
-class ConfigFlow(BaseConfigFlow):
+class ConfigFlow(config_entries.ConfigFlow, domain="solar_ac_controller"):
+    """Handle a config flow for Solar AC Controller."""
+
     VERSION = 1
-    DOMAIN = "solar_ac_controller"
 
     @staticmethod
     @callback  # type: ignore[untyped-decorator]

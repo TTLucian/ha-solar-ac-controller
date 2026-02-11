@@ -113,6 +113,27 @@ EMA_RESET_AFTER_OFF_SECONDS = 600
 # Panic / safety configuration
 PANIC_COOLDOWN_SECONDS = 120
 
+# Master switch command grace period (seconds)
+MASTER_SWITCH_COMMAND_GRACE_PERIOD = 10
+
+# Manual override detection window (seconds)
+MANUAL_OVERRIDE_DETECTION_WINDOW = 10
+
+# Logbook throttling (seconds)
+LOGBOOK_THROTTLE_SECONDS = 3.0
+
+# Learning stabilization reading count
+STABILIZATION_READING_COUNT = 24
+
+# Power readings buffer limit (5 minutes at 5s intervals)
+POWER_READINGS_MAX_ENTRIES = 60
+
+# Balanced state log interval (seconds)
+BALANCED_LOG_INTERVAL_SECONDS = 600
+
+# Stale tracking data cleanup interval (seconds)
+STALE_TRACKING_CLEANUP_INTERVAL_SECONDS = 3600
+
 # Comfort temperature targets (C) - 0.1 increment precision
 DEFAULT_MAX_TEMP_WINTER = 21.0
 DEFAULT_MIN_TEMP_SUMMER = 21.0

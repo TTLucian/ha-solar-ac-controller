@@ -83,7 +83,7 @@ async def async_get_config_entry_diagnostics(
                 zone
             ),
             "is_locked": (
-                getattr(coordinator, "zone_manager").is_locked(zone)
+                await getattr(coordinator, "zone_manager").is_locked(zone)
                 if getattr(coordinator, "zone_manager", None)
                 else None
             ),

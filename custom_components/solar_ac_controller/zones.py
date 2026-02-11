@@ -26,8 +26,12 @@ class ZoneManager:
         """Update zone states, detect manual overrides, and return active zones."""
         active_zones: list[str] = []
 
+        # Get all states once for efficient batch lookup
+        all_states = self.coordinator.hass.states.all()
+        state_map = {s.entity_id: s for s in all_states}
+
         for zone in self.coordinator.config.get(CONF_ZONES, []):
-            state_obj = self.coordinator.hass.states.get(zone)
+            state_obj = state_map.get(zone)
             if not state_obj:
                 _LOGGER.warning(
                     f"Configured zone entity '{zone}' is missing in Home Assistant. Check for typos or missing entities."
@@ -64,33 +68,31 @@ class ZoneManager:
 
         return active_zones
 
-    def is_locked(self, zone_id: str) -> bool:
+    async def is_locked(self, zone_id: str) -> bool:
         """Return True if a zone is locked due to manual override."""
-        until = self.coordinator.zone_manual_lock_until.get(zone_id)
-        if until:
-            now = dt_util.utcnow().timestamp()
-            if now >= until:
-                # Lock has expired - remove it and log
-                del self.coordinator.zone_manual_lock_until[zone_id]
-                # Schedule expiration log on HA loop using coordinator helper
-                try:
-                    if hasattr(self.coordinator, "create_task"):
-                        self.coordinator.create_task(
-                            self._log_zone_lock_expired(zone_id)
-                        )
-                    else:
-                        self.coordinator.hass.async_create_task(
-                            self._log_zone_lock_expired(zone_id)
-                        )
-                except Exception:
-                    try:
-                        self.coordinator.hass.async_create_task(
-                            self._log_zone_lock_expired(zone_id)
-                        )
-                    except Exception:
-                        pass
+        should_log = False
+
+        # Check lock status under protection of state lock
+        async with self.coordinator._state_lock:
+            until = self.coordinator.zone_manual_lock_until.get(zone_id)
+            if until:
+                now = dt_util.utcnow().timestamp()
+                if now >= until:
+                    # Lock has expired - remove it
+                    del self.coordinator.zone_manual_lock_until[zone_id]
+                    should_log = True
+                else:
+                    return True
+            else:
                 return False
-            return True
+
+        # Log expiration outside the lock to avoid I/O under lock
+        if should_log:
+            # Schedule expiration log on HA loop using coordinator helper
+            self.coordinator.create_background_task(
+                self._log_zone_lock_expired(zone_id)
+            )
+
         return False
 
     async def _log_zone_lock_expired(self, zone_id: str) -> None:
@@ -100,7 +102,7 @@ class ZoneManager:
             "info",
         )
 
-    def select_next_and_last_zone(
+    async def select_next_and_last_zone(
         self, active_zones: list[str]
     ) -> tuple[str | None, str | None]:
         """
@@ -115,16 +117,15 @@ class ZoneManager:
         all_zones = self.coordinator.config.get(CONF_ZONES, [])
 
         # Next zone always uses config order (simplest, most predictable)
-        next_zone = next(
-            (
-                z
-                for z in all_zones
-                if z not in active_zones
-                and not self.is_locked(z)
+        next_zone = None
+        for z in all_zones:
+            if (
+                z not in active_zones
+                and not await self.is_locked(z)
                 and self._is_zone_available(z)
-            ),
-            None,
-        )
+            ):
+                next_zone = z
+                break
 
         # Determine if we should use temperature-based removal prioritization
         use_temp_priority = (
@@ -135,20 +136,17 @@ class ZoneManager:
 
         # Select last zone to remove: by comfort (if temp enabled) or by recency
         if use_temp_priority:
-            last_zone = self._select_last_by_temperature(active_zones)
+            last_zone = await self._select_last_by_temperature(active_zones)
         else:
-            last_zone = next(
-                (
-                    z
-                    for z in reversed(active_zones)
-                    if not self.is_locked(z) and self._is_zone_available(z)
-                ),
-                None,
-            )
+            last_zone = None
+            for z in reversed(active_zones):
+                if not await self.is_locked(z) and self._is_zone_available(z):
+                    last_zone = z
+                    break
 
         return next_zone, last_zone
 
-    def _select_last_by_temperature(self, active_zones: list[str]) -> str | None:
+    async def _select_last_by_temperature(self, active_zones: list[str]) -> str | None:
         """
         Select zone to remove based on comfort achievement.
 
@@ -161,11 +159,10 @@ class ZoneManager:
         3. Zones without sensors treated conservatively (kept on unless no other choice)
         Fallback: If no zones at target and removal is required (e.g., high import), return least important unlocked zone.
         """
-        unlocked = [
-            z
-            for z in active_zones
-            if not self.is_locked(z) and self._is_zone_available(z)
-        ]
+        unlocked = []
+        for z in active_zones:
+            if not await self.is_locked(z) and self._is_zone_available(z):
+                unlocked.append(z)
 
         if not unlocked:
             return None

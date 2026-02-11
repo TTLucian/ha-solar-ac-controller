@@ -5,6 +5,11 @@ from typing import Any, Dict, List, cast
 
 from homeassistant.util import dt as dt_util
 
+from .const import (
+    MANUAL_OVERRIDE_DETECTION_WINDOW,
+    MASTER_SWITCH_COMMAND_GRACE_PERIOD,
+)
+
 
 def short_entity_name(entity_id: str) -> str:
     """Extract the short name from an entity ID (e.g., 'climate.zone1' -> 'zone1')."""
@@ -88,8 +93,17 @@ class MasterSwitchController:
         # to avoid oscillation when switch entity state updates are delayed
         now = dt_util.utcnow().timestamp()
         last_command_time = getattr(self.coordinator, "master_last_command_time", 0)
-        if commanded_state and (now - last_command_time) < 30:  # 30 second grace period
-            effective_state = commanded_state
+        if (
+            commanded_state
+            and (now - last_command_time) < MASTER_SWITCH_COMMAND_GRACE_PERIOD
+        ):
+            # Verify commanded state matches reality
+            if commanded_state == switch_state:
+                effective_state = commanded_state
+            else:
+                # State diverged - clear commanded state
+                self.coordinator.master_commanded_state = None
+                effective_state = switch_state
         else:
             effective_state = switch_state
             # Clear commanded state if grace period expired
@@ -103,7 +117,8 @@ class MasterSwitchController:
             # If no recent coordinator action (within 10s), it's a manual change
             if (
                 self.coordinator.master_last_action_time is None
-                or (now - self.coordinator.master_last_action_time) > 10
+                or (now - self.coordinator.master_last_action_time)
+                > MANUAL_OVERRIDE_DETECTION_WINDOW
             ):
                 self.coordinator.master_manual_lock_state = switch_state
                 await self.coordinator._log(
@@ -252,39 +267,40 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
     # Limit learned_power dict size for attribute payload (HA truncates large attributes)
     learned_power = dict(getattr(coordinator, "learned_power", {}) or {})
     if len(learned_power) > 20:
+        original_count = len(learned_power)
         learned_power = {k: learned_power[k] for k in list(learned_power)[:20]}
-        learned_power["_truncated"] = f"{len(learned_power)}+ entries, truncated"
+        learned_power["_truncated"] = f"{original_count} entries, showing first 20"
 
     # Limit zone dict sizes to prevent memory bloat in state history
     zone_last_changed = dict(getattr(coordinator, "zone_last_changed", {}) or {})
     if len(zone_last_changed) > 50:
+        original_count = len(zone_last_changed)
         zone_last_changed = {k: v for k, v in list(zone_last_changed.items())[:50]}
-        zone_last_changed["_truncated"] = (
-            f"{len(zone_last_changed)}+ entries, truncated"
-        )
+        zone_last_changed["_truncated"] = f"{original_count} entries, showing first 50"
 
     zone_last_state = dict(getattr(coordinator, "zone_last_state", {}) or {})
     if len(zone_last_state) > 50:
+        original_count = len(zone_last_state)
         zone_last_state = {k: v for k, v in list(zone_last_state.items())[:50]}
-        zone_last_state["_truncated"] = f"{len(zone_last_state)}+ entries, truncated"
+        zone_last_state["_truncated"] = f"{original_count} entries, showing first 50"
 
     zone_manual_lock_until = dict(
         getattr(coordinator, "zone_manual_lock_until", {}) or {}
     )
     if len(zone_manual_lock_until) > 50:
+        original_count = len(zone_manual_lock_until)
         zone_manual_lock_until = {
             k: v for k, v in list(zone_manual_lock_until.items())[:50]
         }
         zone_manual_lock_until["_truncated"] = (
-            f"{len(zone_manual_lock_until)}+ entries, truncated"
+            f"{original_count} entries, showing first 50"
         )
 
     zone_current_temps = dict(getattr(coordinator, "zone_current_temps", {}) or {})
     if len(zone_current_temps) > 50:
+        original_count = len(zone_current_temps)
         zone_current_temps = {k: v for k, v in list(zone_current_temps.items())[:50]}
-        zone_current_temps["_truncated"] = (
-            f"{len(zone_current_temps)}+ entries, truncated"
-        )
+        zone_current_temps["_truncated"] = f"{original_count} entries, showing first 50"
 
     learning_active = bool(getattr(coordinator, "learning_active_cached", False))
     learning_zone = getattr(coordinator, "learning_zone", None)

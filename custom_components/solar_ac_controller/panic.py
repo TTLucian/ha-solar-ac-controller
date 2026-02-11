@@ -53,22 +53,36 @@ class PanicManager:
     async def cancel_panic(self) -> None:
         """Request panic cancellation and cancel any running panic task."""
         self._cancel_requested = True
-        self.coordinator._panic_active = False  # Clear panic active flag
-        if self.coordinator._panic_task and not self.coordinator._panic_task.done():
-            self.coordinator._panic_task.cancel()
+
+        # Safely access panic task state under lock
+        async with self.coordinator._state_lock:
+            self.coordinator._panic_active = False
+            task = self.coordinator._panic_task
+
+        if task and not task.done():
+            task.cancel()
             try:
-                await self.coordinator._panic_task
+                await task
             except asyncio.CancelledError:
                 # Expected during cooperative cancellation
                 pass
             except (AttributeError, TypeError) as exc:
                 _LOGGER.debug("Error during panic task cancellation: %s", exc)
             finally:
-                self.coordinator._panic_task = None
+                # Clear task reference after cancellation
+                async with self.coordinator._state_lock:
+                    if self.coordinator._panic_task is task:
+                        self.coordinator._panic_task = None
 
     async def schedule_panic(self, active_zones: list[str]) -> None:
         """Schedule panic task if not already running."""
-        self.coordinator._panic_active = True  # Prevent decision overrides
+        async with self.coordinator._state_lock:
+            self.coordinator._panic_active = True  # Prevent decision overrides
+            task_exists = (
+                self.coordinator._panic_task is not None
+                and not self.coordinator._panic_task.done()
+            )
+
         if self.coordinator.last_action != "panic":
             await self.coordinator._log(
                 f"[PANIC_SHED_TRIGGER] ema30={round(self.coordinator.ema_30s)} "
@@ -76,36 +90,24 @@ class PanicManager:
                 f"threshold={self.coordinator.panic_threshold} "
                 f"zones={active_zones}"
             )
-            if not self.coordinator._panic_task or self.coordinator._panic_task.done():
-                # Reset any previous cancellation request when starting a new panic
-                self._cancel_requested = False
-                try:
-                    # Prefer coordinator helper to create safe task
-                    if hasattr(self.coordinator, "create_task"):
-                        self.coordinator._panic_task = self.coordinator.create_task(
-                            self._panic_task_runner(active_zones)
-                        )
-                    else:
-                        self.coordinator._panic_task = (
-                            self.coordinator.hass.async_create_task(
-                                self._panic_task_runner(active_zones)
-                            )
-                        )
-                except Exception:
-                    try:
-                        self.coordinator._panic_task = (
-                            self.coordinator.hass.async_create_task(
-                                self._panic_task_runner(active_zones)
-                            )
-                        )
-                    except Exception:
-                        self.coordinator._panic_task = None
+
+        if not task_exists:
+            # Reset any previous cancellation request when starting a new panic
+            self._cancel_requested = False
+            async with self.coordinator._state_lock:
+                self.coordinator._panic_task = self.coordinator.create_background_task(
+                    self._panic_task_runner(active_zones)
+                )
 
     async def _panic_shed(self, active_zones: list[str]) -> None:
         """Shed all but the first active zone during panic."""
         start = dt_util.utcnow().timestamp()
         for zone in active_zones[1:]:
             await self.coordinator.action_executor.call_entity_service(zone, False)
+            # Notify learning session of panic removal (for contamination detection)
+            await self.coordinator.controller.session.notify_zone_changed_during_learning(
+                zone, "panic"
+            )
             await asyncio.sleep(self.coordinator.action_delay_seconds)
         end = dt_util.utcnow().timestamp()
         self.coordinator.last_action_start_ts = start
@@ -161,5 +163,6 @@ class PanicManager:
         except (ValueError, TypeError, AttributeError, KeyError) as e:
             _LOGGER.exception("Error in panic task: %s", e)
         finally:
-            self.coordinator._panic_task = None
-            self.coordinator._panic_active = False
+            async with self.coordinator._state_lock:
+                self.coordinator._panic_task = None
+                self.coordinator._panic_active = False

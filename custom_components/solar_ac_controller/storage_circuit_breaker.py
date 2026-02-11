@@ -106,9 +106,11 @@ class StorageCircuitBreaker:
         In half-open state, wraps the operation with asyncio.wait_for to prevent
         hanging operations from locking the circuit breaker indefinitely.
         """
-        state = self._get_current_state()
+        async with self._lock:
+            state = self._get_current_state()
+            is_half_open = state == "half-open"
 
-        if state == "half-open":
+        if is_half_open:
             # In half-open state, add timeout protection
             try:
                 return await asyncio.wait_for(coro, timeout=timeout)

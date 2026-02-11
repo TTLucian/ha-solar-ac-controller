@@ -95,9 +95,10 @@ class ActionExecutor:
             )
 
         if await self.coordinator.controller.is_learning_active():
+            current_learning_zone = await self.coordinator.controller.session.get_zone()
             await self.coordinator._log(
                 f"Power learning for '{zone.split('.')[-1]}' skipped - "
-                f"another zone ('{self.coordinator.learning_zone.split('.')[-1] if self.coordinator.learning_zone else 'unknown'}') "
+                f"another zone ('{current_learning_zone.split('.')[-1] if current_learning_zone else 'unknown'}') "
                 f"is currently being measured"
             )
             return
@@ -116,8 +117,8 @@ class ActionExecutor:
             self.coordinator.zone_last_changed_type[zone] = "on"
 
         # Notify learning session of zone addition (for contamination detection)
-        await self.coordinator.controller.session.notify_zone_added_during_learning(
-            zone
+        await self.coordinator.controller.session.notify_zone_changed_during_learning(
+            zone, "add"
         )
 
         # Check for cancellation before delay
@@ -154,8 +155,8 @@ class ActionExecutor:
             self.coordinator.zone_last_changed_type[zone] = "on"
 
         # Notify learning session of zone addition (for contamination detection)
-        await self.coordinator.controller.session.notify_zone_added_during_learning(
-            zone
+        await self.coordinator.controller.session.notify_zone_changed_during_learning(
+            zone, "add"
         )
 
         # Check for cancellation before delay
@@ -186,6 +187,11 @@ class ActionExecutor:
             self.coordinator.last_action_duration = now_ts - start
             self.coordinator.zone_last_changed[zone] = now_ts
             self.coordinator.zone_last_changed_type[zone] = "off"
+
+        # Notify learning session of zone removal (for contamination detection)
+        await self.coordinator.controller.session.notify_zone_changed_during_learning(
+            zone, "remove"
+        )
 
         # Set compressor recovery window to avoid rapid re-adds until hardware ramps
         try:

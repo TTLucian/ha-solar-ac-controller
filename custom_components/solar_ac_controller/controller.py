@@ -9,6 +9,8 @@ from typing import Any, Awaitable, Callable, List, Optional, Tuple, cast
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
+from .const import POWER_READINGS_MAX_ENTRIES, STABILIZATION_READING_COUNT
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -42,7 +44,7 @@ class LearningSession:
         # Learning contamination protection
         self._learning_contaminated = False
         self._contamination_timestamp: Optional[float] = None
-        self._zones_added_during_learning: List[str] = []
+        self._zones_changed_during_learning: List[Tuple[str, str]] = []
         self._peak_detection_timestamp: Optional[float] = None
         self._stabilization_timestamp: Optional[float] = None
         self._time_to_peak: Optional[float] = None
@@ -58,7 +60,7 @@ class LearningSession:
             self._start_time = start_time
             # Reset contamination tracking for new session
             self._learning_contaminated = False
-            self._zones_added_during_learning = []
+            self._zones_changed_during_learning = []
 
     async def end_session(self) -> None:
         async with self._lock:
@@ -68,7 +70,7 @@ class LearningSession:
             # Reset contamination tracking
             self._learning_contaminated = False
             self._contamination_timestamp = None
-            self._zones_added_during_learning = []
+            self._zones_changed_during_learning = []
             self._peak_detection_timestamp = None
             self._time_to_peak = None
 
@@ -80,33 +82,33 @@ class LearningSession:
         async with self._lock:
             return self._start_time
 
-    async def notify_zone_added_during_learning(self, zone: str) -> None:
-        """Notify that a zone was added while learning is active (potential contamination)."""
+    async def notify_zone_changed_during_learning(self, zone: str, action: str) -> None:
+        """Notify that a zone state changed during learning (potential contamination)."""
         async with self._lock:
             if self._active and zone != self._zone:
-                # Different zone added during learning - mark as contaminated
-                now = dt_util.utcnow().timestamp()
-                if not self._learning_contaminated:
-                    # First contamination - record timestamp
-                    self._learning_contaminated = True
-                    self._contamination_timestamp = now
-                self._zones_added_during_learning.append(zone)
-                _LOGGER.warning(
-                    f"Zone {zone} added during learning of {self._zone} - "
-                    f"learning results may be contaminated"
-                )
-                # Also log to coordinator for logbook visibility
-                log_fn = cast(
-                    Callable[[str], Awaitable[None]] | None,
-                    getattr(self.coordinator, "_log", None),
-                )
-                if log_fn:
-                    try:
-                        await log_fn(
-                            f"[LEARNING_CONTAMINATION] zone={zone} added during learning of {self._zone}"
-                        )
-                    except (AttributeError, TypeError, ValueError):
-                        pass
+                if action in ("add", "remove", "panic"):
+                    now = dt_util.utcnow().timestamp()
+                    if not self._learning_contaminated:
+                        # First contamination - record timestamp
+                        self._learning_contaminated = True
+                        self._contamination_timestamp = now
+                    self._zones_changed_during_learning.append((zone, action))
+                    _LOGGER.warning(
+                        f"Zone {zone} {action} during learning of {self._zone} - "
+                        f"learning results may be contaminated"
+                    )
+                    # Also log to coordinator for logbook visibility
+                    log_fn = cast(
+                        Callable[[str], Awaitable[None]] | None,
+                        getattr(self.coordinator, "_log", None),
+                    )
+                    if log_fn:
+                        try:
+                            await log_fn(
+                                f"[LEARNING_CONTAMINATION] zone={zone} action={action} during learning of {self._zone}"
+                            )
+                        except (AttributeError, TypeError, ValueError):
+                            pass
 
     async def is_learning_contaminated(self) -> bool:
         """Check if current learning session has been contaminated by other zone additions."""
@@ -150,6 +152,12 @@ class LearningSession:
             now = dt_util.utcnow().timestamp()
             self._power_readings.append((now, power))
 
+            # Limit readings to last 60 entries (5 minutes at 5s intervals)
+            if len(self._power_readings) > POWER_READINGS_MAX_ENTRIES:
+                self._power_readings = self._power_readings[
+                    -POWER_READINGS_MAX_ENTRIES:
+                ]
+
             # Update peak tracking
             if power > self._peak_power:
                 self._peak_power = power
@@ -169,8 +177,12 @@ class LearningSession:
                         self._time_to_peak = now - self._start_time
 
             # Detect stabilization (low variation in recent readings)
-            if len(self._power_readings) >= 24:  # 2 minutes at 5s intervals
-                recent_readings = [p for _, p in self._power_readings[-24:]]
+            if (
+                len(self._power_readings) >= STABILIZATION_READING_COUNT
+            ):  # 2 minutes at 5s intervals
+                recent_readings = [
+                    p for _, p in self._power_readings[-STABILIZATION_READING_COUNT:]
+                ]
                 avg_power = sum(recent_readings) / len(recent_readings)
                 max_variation = max(recent_readings) - min(recent_readings)
 
@@ -283,9 +295,9 @@ class SolarACController:
                 _LOGGER.debug("finish_learning called but no learning zone set")
                 return LearningResult(False, error_message="No learning zone set")
 
-            # Check for learning contamination (other zones added during learning)
+            # Check for learning contamination (other zones changed during learning)
             if self.session._learning_contaminated:
-                contaminated_zones = self.session._zones_added_during_learning
+                contaminated_changes = self.session._zones_changed_during_learning
                 peak_valid = await self.session.is_peak_valid()
                 stabilization_valid = await self.session.is_stabilization_valid()
 
@@ -293,7 +305,7 @@ class SolarACController:
                     # Neither peak nor stabilization is valid - discard everything
                     _LOGGER.warning(
                         f"Discarding all learning results for {zone} due to contamination "
-                        f"from zones added during learning: {contaminated_zones}"
+                        f"from zone changes during learning: {contaminated_changes}"
                     )
                     # Also log to coordinator for logbook visibility
                     log_fn = cast(
@@ -304,20 +316,20 @@ class SolarACController:
                         try:
                             await log_fn(
                                 f"[LEARNING_CONTAMINATION] zone={zone} action=discard_all "
-                                f"contaminated_by={contaminated_zones}"
+                                f"contaminated_by={contaminated_changes}"
                             )
                         except (AttributeError, TypeError, ValueError):
                             pass
                     await self._reset_learning_state_async()
                     return LearningResult(
                         False,
-                        error_message=f"Learning contaminated by zone additions: {contaminated_zones}",
+                        error_message=f"Learning contaminated by zone changes: {contaminated_changes}",
                     )
                 elif peak_valid and not stabilization_valid:
                     # Peak is valid but stabilization is contaminated - use peak only
                     _LOGGER.warning(
                         f"Using peak power for {zone} but discarding stabilization due to contamination "
-                        f"from zones added during learning: {contaminated_zones}"
+                        f"from zone changes during learning: {contaminated_changes}"
                     )
                     # Also log to coordinator for logbook visibility
                     log_fn = cast(
@@ -328,7 +340,7 @@ class SolarACController:
                         try:
                             await log_fn(
                                 f"[LEARNING_CONTAMINATION] zone={zone} action=use_peak_only "
-                                f"contaminated_by={contaminated_zones}"
+                                f"contaminated_by={contaminated_changes}"
                             )
                         except (AttributeError, TypeError, ValueError):
                             pass
@@ -346,7 +358,7 @@ class SolarACController:
                         try:
                             await log_fn(
                                 f"[LEARNING_CONTAMINATION] zone={zone} action=use_stabilization "
-                                f"contaminated_by={contaminated_zones}"
+                                f"contaminated_by={contaminated_changes}"
                             )
                         except (AttributeError, TypeError, ValueError):
                             pass

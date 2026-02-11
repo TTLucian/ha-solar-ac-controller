@@ -5,7 +5,7 @@ import asyncio
 import copy
 import logging
 from datetime import timedelta
-from typing import Any, Coroutine, Dict, Optional, Union, cast
+from typing import Any, Coroutine, Dict, Literal, Optional, TypeVar, Union, cast
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
@@ -14,6 +14,7 @@ from homeassistant.util import dt as dt_util
 from .actions import ActionExecutor
 from .config_manager import ConfigManager
 from .const import (
+    BALANCED_LOG_INTERVAL_SECONDS,
     CONF_AC_POWER_SENSOR,
     CONF_AC_SWITCH,
     CONF_ACTION_DELAY_SECONDS,
@@ -63,7 +64,9 @@ from .const import (
     LEARNING_MIN_POWER_W,
     LEARNING_RELATIVE_TOLERANCE,
     LEARNING_TIMEOUT_SECONDS,
+    LOGBOOK_THROTTLE_SECONDS,
     PANIC_COOLDOWN_SECONDS,
+    STALE_TRACKING_CLEANUP_INTERVAL_SECONDS,
     ZONE_SWAP_MIN_INTERVAL_SECONDS,
 )
 from .decisions import DecisionEngine
@@ -75,20 +78,42 @@ from .storage_circuit_breaker import StorageCircuitBreaker
 from .zone_config_parser import ZoneConfigParser
 from .zones import ZoneManager
 
+# Type variables and literals for better type safety
+T = TypeVar("T")
+LogLevel = Literal["debug", "info", "warning", "error"]
+
 # Type aliases for better readability
 LearnedPowerData = Dict[str, Dict[str, Union[float, Dict[str, float]]]]
 ZoneMapping = Dict[str, str]
-ZoneStates = Dict[str, Any]
+ZoneStates = Dict[str, str]
 ZoneLocks = Dict[str, Optional[float]]
 SensorStates = Dict[str, Any]
 
 _LOGGER = logging.getLogger(__name__)
+
+# Maximum number of logbook throttling entries to prevent memory leaks
+MAX_LOGBOOK_ENTRIES = 1000
+
+# State cache TTL in seconds - should be less than typical update intervals
+STATE_CACHE_TTL = 5.0
 
 
 class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
     """Coordinator for Solar AC Controller integration."""
 
     note: str = ""  # Breadcrumb for diagnostics
+
+    # Define all zone tracking dicts in one place for automatic cleanup
+    ZONE_TRACKING_DICTS = [
+        "temp_ema_10m",
+        "zone_last_swap_time",
+        "zone_last_changed",
+        "zone_manual_lock_until",
+        "zone_current_temps",
+        "zone_last_changed_type",
+        "zone_last_state",
+        "zone_priorities",
+    ]
 
     async def async_set_integration_enabled(self, enabled: bool) -> None:
         """Update and persist integration state."""
@@ -97,14 +122,11 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             f"Integration {'enabled' if enabled else 'disabled'} by user.", "info"
         )
         # Mutate stored_data under storage lock to avoid races when available
-        _lock = getattr(self, "_storage_lock", None)
-        if _lock is not None:
-            async with _lock:
-                self.stored_data["integration_enabled"] = enabled
-                self._storage_dirty = True  # Mark as dirty
-        else:
+        if not hasattr(self, "_storage_lock"):
+            self._storage_lock = asyncio.Lock()
+        async with self._storage_lock:
             self.stored_data["integration_enabled"] = enabled
-            self._storage_dirty = True
+            self._storage_dirty = True  # Mark as dirty
 
         if not await self.storage_circuit_breaker.should_attempt_operation():
             _LOGGER.warning(
@@ -128,14 +150,11 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             f"Activity logging {'enabled' if enabled else 'disabled'} by user.", "info"
         )
         # Mutate stored_data under storage lock to avoid races when available
-        _lock = getattr(self, "_storage_lock", None)
-        if _lock is not None:
-            async with _lock:
-                self.stored_data["activity_logging_enabled"] = enabled
-                self._storage_dirty = True  # Mark as dirty
-        else:
+        if not hasattr(self, "_storage_lock"):
+            self._storage_lock = asyncio.Lock()
+        async with self._storage_lock:
             self.stored_data["activity_logging_enabled"] = enabled
-            self._storage_dirty = True
+            self._storage_dirty = True  # Mark as dirty
 
         if not await self.storage_circuit_breaker.should_attempt_operation():
             _LOGGER.warning(
@@ -194,6 +213,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         self._storage_lock = asyncio.Lock()
         self._update_lock = asyncio.Lock()
         self._state_lock = asyncio.Lock()
+        self._cache_lock = asyncio.Lock()
         self._storage_dirty = False  # Track if data has actually changed
 
         # Recalc debouncing for service calls
@@ -219,6 +239,10 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         # Initialize learned data from storage
         self._init_learned_data(stored)
 
+        # Validate configuration BEFORE initializing components (basic validation only)
+        self._validate_configuration_basic()
+        self._config_validated = True
+
         # Initialize core components
         self._init_core_components()
 
@@ -228,9 +252,8 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         # Initialize zone mappings
         self._init_zone_mappings()
 
-        # Validate configuration once during initialization (after zone mappings are set up)
-        self._validate_configuration()
-        self._config_validated = True
+        # Validate zone temperature sensors (requires zone mappings to be initialized)
+        self._validate_zone_temp_sensors()
 
         # Initialize runtime state
         self._init_runtime_state()
@@ -306,14 +329,11 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         """Set season mode and persist state."""
         self.season_mode = value
         # Mutate stored_data under storage lock to avoid races when available
-        _lock = getattr(self, "_storage_lock", None)
-        if _lock is not None:
-            async with _lock:
-                self.stored_data["season_mode"] = value
-                self._storage_dirty = True  # Mark as dirty
-        else:
+        if not hasattr(self, "_storage_lock"):
+            self._storage_lock = asyncio.Lock()
+        async with self._storage_lock:
             self.stored_data["season_mode"] = value
-            self._storage_dirty = True
+            self._storage_dirty = True  # Mark as dirty
 
         if not await self.storage_circuit_breaker.should_attempt_operation():
             _LOGGER.warning("Storage circuit breaker open, skipping season mode save")
@@ -911,7 +931,17 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
     # -------------------------------------------------------------------------
     # Minimal async logging hook used by coordinator and controller
     # -------------------------------------------------------------------------
-    async def _log(self, message: str, level: str = "info") -> None:
+    def _throttle_logbook_key(self, message: str, level: str) -> str:
+        """Create stable key for logbook throttling by extracting message pattern."""
+        # Extract message pattern, ignoring dynamic values like timestamps, sensor values, etc.
+        # Use first few words to create a stable pattern while avoiding overly specific matches
+        words = message.split()[:3] if message else [""]  # First 3 words max
+        pattern = " ".join(words).strip()[
+            :50
+        ]  # Limit length to prevent extremely long keys
+        return f"{level}:{pattern}"
+
+    async def _log(self, message: str, level: LogLevel = "info") -> None:
         """Async logging hook used by coordinator and controller.
 
         Args:
@@ -950,7 +980,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                 try:
                     # Lazy-init throttle settings
                     if not hasattr(self, "_logbook_throttle_seconds"):
-                        self._logbook_throttle_seconds = 3.0
+                        self._logbook_throttle_seconds = LOGBOOK_THROTTLE_SECONDS
                     if not hasattr(self, "_last_logbook_emit"):
                         self._last_logbook_emit: dict[str, float] = {}
 
@@ -986,11 +1016,21 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                     # Enhanced message with context for better diagnostics
                     enhanced_message = f"[{logbook_level}] {message}"
 
-                    # Throttle repeated identical messages to avoid logbook spam
+                    # Throttle repeated messages to avoid logbook spam using stable keys
                     now_ts = dt_util.utcnow().timestamp()
-                    key = f"{logbook_level}:{message}"
+                    key = self._throttle_logbook_key(message, logbook_level)
                     last = self._last_logbook_emit.get(key, 0.0)
                     if now_ts - last >= float(self._logbook_throttle_seconds):
+                        # Clean up old entries if dictionary is getting too large
+                        if len(self._last_logbook_emit) > MAX_LOGBOOK_ENTRIES:
+                            # Remove oldest 20% of entries
+                            sorted_entries = sorted(
+                                self._last_logbook_emit.items(), key=lambda x: x[1]
+                            )
+                            to_remove = sorted_entries[: MAX_LOGBOOK_ENTRIES // 5]
+                            for old_key, _ in to_remove:
+                                del self._last_logbook_emit[old_key]
+
                         payload = {
                             "name": "Solar AC Controller",
                             "message": enhanced_message,
@@ -1010,44 +1050,49 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
 
     async def _debounced_save(self) -> None:
         """Debounced storage save to prevent excessive I/O."""
-        # Early return if no changes to save
-        if not self._storage_dirty:
-            return
+        try:
+            async with asyncio.timeout(2):  # 2-second timeout for storage operations
+                async with self._storage_lock:
+                    # Check dirty flag INSIDE the lock to prevent TOCTOU race
+                    if not self._storage_dirty:
+                        return
 
-        async with self._storage_lock:
-            now = dt_util.utcnow().timestamp()
-            time_since_last_save = now - self._last_storage_save
+                    now = dt_util.utcnow().timestamp()
+                    time_since_last_save = now - self._last_storage_save
 
-            if time_since_last_save < self._storage_debounce_seconds:
-                # Cancel existing task if it's still pending
-                if (
-                    self._storage_debounce_task
-                    and not self._storage_debounce_task.done()
-                ):
-                    self._storage_debounce_task.cancel()
-                    try:
-                        await self._storage_debounce_task
-                    except asyncio.CancelledError:
-                        pass
-                    finally:
-                        self._storage_debounce_task = None  # Clean up reference
+                    if time_since_last_save < self._storage_debounce_seconds:
+                        # Cancel existing task if it's still pending
+                        if (
+                            self._storage_debounce_task
+                            and not self._storage_debounce_task.done()
+                        ):
+                            self._storage_debounce_task.cancel()
+                            try:
+                                await self._storage_debounce_task
+                            except asyncio.CancelledError:
+                                pass
+                            finally:
+                                self._storage_debounce_task = None  # Clean up reference
 
-                # Schedule new save
-                delay = self._storage_debounce_seconds - time_since_last_save
-                # Schedule delayed save on Home Assistant's loop (use safe wrapper)
-                try:
-                    self._storage_debounce_task = self.create_task(
-                        self._delayed_save(delay)
-                    )
-                except Exception:
-                    self._storage_debounce_task = self.hass.async_create_task(
-                        self._delayed_save(delay)
-                    )
-                return
+                        # Schedule new save
+                        delay = self._storage_debounce_seconds - time_since_last_save
+                        # Schedule delayed save on Home Assistant's loop (use safe wrapper)
+                        try:
+                            self._storage_debounce_task = self.create_task(
+                                self._delayed_save(delay)
+                            )
+                        except Exception:
+                            # Fallback: create task without exception handling if create_task fails
+                            self._storage_debounce_task = self.hass.async_create_task(
+                                self._delayed_save(delay)
+                            )
+                        return
 
-            # Save immediately if enough time has passed
-            await self._perform_storage_save()
-            self._last_storage_save = now
+                    # Save immediately if enough time has passed
+                    await self._perform_storage_save()
+                    self._last_storage_save = now
+        except asyncio.TimeoutError:
+            _LOGGER.error("Storage lock acquisition timed out - possible deadlock!")
 
     async def _delayed_save(self, delay: float) -> None:
         """Perform delayed storage save."""
@@ -1088,8 +1133,13 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         try:
             # Copy stored_data to avoid races where other coroutines mutate
             # the in-memory dict while the I/O operation is in progress.
-            # Use deepcopy to be safe for nested structures.
-            data_to_save = copy.deepcopy(self.stored_data)
+            # Deep copy nested structures but shallow copy primitives for performance.
+            data_to_save = {}
+            for key, value in self.stored_data.items():
+                if isinstance(value, (dict, list)):
+                    data_to_save[key] = copy.deepcopy(value)
+                else:
+                    data_to_save[key] = value
             await self.storage_circuit_breaker.call_with_timeout(
                 self.store.async_save(data_to_save)
             )
@@ -1102,19 +1152,20 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             _LOGGER.exception("Error saving to storage: %s", exc)
             await self.storage_circuit_breaker.record_failure()
 
-    def _get_cached_state(self, entity_id: str) -> Any:
+    async def _get_cached_state(self, entity_id: str) -> Any:
         """Get entity state with caching for performance."""
-        now = dt_util.utcnow().timestamp()
+        async with self._cache_lock:
+            now = dt_util.utcnow().timestamp()
 
-        # Invalidate cache every update cycle (every few seconds)
-        if now - self._cache_timestamp > 1.0:
-            self._state_cache.clear()
-            self._cache_timestamp = now
+            # Invalidate cache after TTL expires to balance performance vs freshness
+            if now - self._cache_timestamp > STATE_CACHE_TTL:
+                self._state_cache.clear()
+                self._cache_timestamp = now
 
-        if entity_id not in self._state_cache:
-            self._state_cache[entity_id] = self.hass.states.get(entity_id)
+            if entity_id not in self._state_cache:
+                self._state_cache[entity_id] = self.hass.states.get(entity_id)
 
-        return self._state_cache[entity_id]
+            return self._state_cache[entity_id]
 
     def _validate_sensor_state(self, state: Any, sensor_name: str) -> float:
         """Validate sensor state and return numeric value."""
@@ -1133,18 +1184,9 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                 - self._sensor_unavailable_since[sensor_name]
             )
             # Use safe task creation helper to ensure exceptions are logged
-            try:
-                self.create_task(
-                    self._log_sensor_recovery(sensor_name, unavailable_duration)
-                )
-            except Exception:
-                # Fallback to direct task creation if helper isn't available
-                try:
-                    self.hass.async_create_task(
-                        self._log_sensor_recovery(sensor_name, unavailable_duration)
-                    )
-                except Exception:
-                    pass
+            self.create_background_task(
+                self._log_sensor_recovery(sensor_name, unavailable_duration)
+            )
             del self._sensor_unavailable_since[sensor_name]
 
         try:
@@ -1159,7 +1201,21 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             "info",
         )
 
-    def create_task(self, coro: Coroutine[Any, Any, Any]) -> asyncio.Task[Any]:
+    def _cleanup_sensor_tracking(self) -> None:
+        """Remove stale sensor tracking entries."""
+        configured_sensors = {
+            self.config.get(CONF_GRID_SENSOR),
+            self.config.get(CONF_SOLAR_SENSOR),
+            self.config.get(CONF_AC_POWER_SENSOR),
+        }
+        # Remove None values that might be in the set
+        configured_sensors.discard(None)
+
+        stale_sensors = set(self._sensor_unavailable_since.keys()) - configured_sensors
+        for sensor in stale_sensors:
+            del self._sensor_unavailable_since[sensor]
+
+    def create_task(self, coro: Coroutine[None, None, T]) -> asyncio.Task[T]:
         """Create a background task and ensure exceptions are logged.
 
         Use this instead of calling `hass.async_create_task` directly to
@@ -1183,8 +1239,21 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             pass
         return cast(asyncio.Task[Any], task)
 
-    def _validate_configuration(self) -> None:
-        """Validate configuration on startup."""
+    def create_background_task(
+        self, coro: Coroutine[Any, Any, Any]
+    ) -> Optional[asyncio.Task[Any]]:
+        """Create a background task with proper error handling and fallback."""
+        try:
+            return self.create_task(coro)
+        except Exception:
+            try:
+                return self.hass.async_create_task(coro)
+            except Exception as e:
+                _LOGGER.warning("Failed to create background task: %s", e)
+                return None
+
+    def _validate_configuration_basic(self) -> None:
+        """Validate basic configuration requirements on startup."""
         from .exceptions import ConfigurationError
 
         required_sensors = [CONF_GRID_SENSOR, CONF_SOLAR_SENSOR, CONF_AC_POWER_SENSOR]
@@ -1197,6 +1266,8 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         if not zones:
             raise ConfigurationError("At least one zone must be configured")
 
+    def _validate_zone_temp_sensors(self) -> None:
+        """Validate zone temperature sensors exist if configured."""
         # Validate zone temperature sensors exist if configured
         for zone, sensor in self.zone_temp_sensors.items():
             if sensor and not self.hass.states.get(sensor):
@@ -1208,419 +1279,469 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
 
     async def _async_update_data(self) -> None:
         """Main loop executed every 5 seconds."""
-        async with self._update_lock:
-            cycle_start = self.metrics.record_cycle_start()
+        try:
+            async with asyncio.timeout(5):  # 5-second timeout to prevent deadlocks
+                async with self._update_lock:
+                    cycle_start = self.metrics.record_cycle_start()
 
-            # Log configuration validation on first run
-            if not self._config_validation_logged:
-                await self._log_configuration_validation()
-                self._config_validation_logged = True
+                    # Log configuration validation on first run
+                    if not self._config_validation_logged:
+                        await self._log_configuration_validation()
+                        self._config_validation_logged = True
 
-            try:
-                # Integration enable/disable logic
-                if (
-                    hasattr(self, "integration_enabled")
-                    and not self.integration_enabled
-                ):
-                    async with self._state_lock:
-                        self.last_action = "integration_disabled"
-                    self.note = "Integration disabled by user."
-                    _LOGGER.debug("Integration disabled, skipping all logic.")
-                    self.metrics.record_cycle_end(cycle_start, success=True)
-                    return
+                    try:
+                        # Integration enable/disable logic
+                        if (
+                            hasattr(self, "integration_enabled")
+                            and not self.integration_enabled
+                        ):
+                            async with self._state_lock:
+                                self.last_action = "integration_disabled"
+                            self.note = "Integration disabled by user."
+                            _LOGGER.debug("Integration disabled, skipping all logic.")
+                            self.metrics.record_cycle_end(cycle_start, success=True)
+                            return
 
-                # 1. Read sensors (grid, solar, ac_power)
-                grid_raw = self._validate_sensor_state(
-                    self._get_cached_state(self.config_manager.get(CONF_GRID_SENSOR)),
-                    "Grid sensor",
-                )
-                solar = self._validate_sensor_state(
-                    self._get_cached_state(self.config_manager.get(CONF_SOLAR_SENSOR)),
-                    "Solar sensor",
-                )
+                        # 1. Read sensors (grid, solar, ac_power)
+                        grid_raw = self._validate_sensor_state(
+                            await self._get_cached_state(
+                                self.config_manager.get(CONF_GRID_SENSOR)
+                            ),
+                            "Grid sensor",
+                        )
+                        solar = self._validate_sensor_state(
+                            await self._get_cached_state(
+                                self.config_manager.get(CONF_SOLAR_SENSOR)
+                            ),
+                            "Solar sensor",
+                        )
 
-                # Solar-based integration freeze/unfreeze logic
-                on_threshold = self.config_manager.get_float(
-                    CONF_SOLAR_THRESHOLD_ON, DEFAULT_SOLAR_THRESHOLD_ON
-                )
-                off_threshold = self.config_manager.get_float(
-                    CONF_SOLAR_THRESHOLD_OFF, DEFAULT_SOLAR_THRESHOLD_OFF
-                )
+                        # Solar-based integration freeze/unfreeze logic
+                        on_threshold = self.config_manager.get_float(
+                            CONF_SOLAR_THRESHOLD_ON, DEFAULT_SOLAR_THRESHOLD_ON
+                        )
+                        off_threshold = self.config_manager.get_float(
+                            CONF_SOLAR_THRESHOLD_OFF, DEFAULT_SOLAR_THRESHOLD_OFF
+                        )
 
-                if not self.integration_active:
-                    if solar >= on_threshold:
-                        # Unfreeze: solar has reached on_threshold
-                        self.integration_active = True
-                        self.update_interval = timedelta(
-                            seconds=self.config_manager.get_int(
-                                CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL
+                        if not self.integration_active:
+                            if solar >= on_threshold:
+                                # Unfreeze: solar has reached on_threshold
+                                self.integration_active = True
+                                self.update_interval = timedelta(
+                                    seconds=self.config_manager.get_int(
+                                        CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL
+                                    )
+                                )
+                                await self._log(
+                                    f"[INTEGRATION_UNFROZEN] solar={round(solar)}W >= on_threshold={on_threshold}W, starting calculations"
+                                )
+                            else:
+                                # Still frozen: check less frequently
+                                self.update_interval = timedelta(
+                                    seconds=300
+                                )  # Check every 5 minutes
+                                async with self._state_lock:
+                                    self.last_action = "integration_frozen"
+                                self.note = f"Integration frozen: solar {round(solar)}W < on_threshold {on_threshold}W"
+                                self.metrics.record_cycle_end(cycle_start, success=True)
+                                return
+                        else:
+                            if solar < off_threshold:
+                                # Freeze: solar has dropped below off_threshold
+                                await self._log(
+                                    f"[INTEGRATION_FREEZING] solar={round(solar)}W < off_threshold={off_threshold}W, turning off zones and master"
+                                )
+                                await self._perform_freeze_cleanup()
+                                self.integration_active = False
+                                self.update_interval = timedelta(
+                                    seconds=300
+                                )  # Check every 5 minutes
+                                async with self._state_lock:
+                                    self.last_action = "integration_frozen"
+                                self.note = f"Integration frozen: solar {round(solar)}W < off_threshold {off_threshold}W"
+                                self.metrics.record_cycle_end(cycle_start, success=True)
+                                return
+
+                        ac_power = self._validate_sensor_state(
+                            await self._get_cached_state(
+                                self.config_manager.get(CONF_AC_POWER_SENSOR)
+                            ),
+                            "AC power sensor",
+                        )
+
+                        self.metrics.record_sensor_values(grid_raw, solar, ac_power)
+
+                        _LOGGER.debug(
+                            "Cycle sensors: grid_raw=%s solar=%s ac_power=%s",
+                            grid_raw,
+                            solar,
+                            ac_power,
+                        )
+
+                        # Enhanced logging with sensor values and calculations (every minute)
+                        self._cycle_counter += 1
+                        if (
+                            self._cycle_counter - self._last_sensor_log_cycle >= 6
+                        ):  # Every ~60 seconds
+                            await self._log(
+                                f"[SENSORS] grid={round(grid_raw)}W solar={round(solar)}W ac_power={round(ac_power)}W "
+                                f"ema30s={round(self.ema_30s)}W ema5m={round(self.ema_5m)}W",
+                                "debug",
+                            )
+                            self._last_sensor_log_cycle = self._cycle_counter
+
+                        # Periodic cleanup of stale sensor tracking (every ~10 minutes)
+                        if self._cycle_counter % 100 == 0:
+                            self._cleanup_sensor_tracking()
+
+                        # EMA updates
+                        self._update_ema(grid_raw)
+
+                        # 2. Master switch auto-control (based ONLY on solar production)
+                        await self.master_controller.handle_master_switch(
+                            solar, cycle_start
+                        )
+
+                        # 3. Update zone temperatures for comfort target checking
+                        self._read_zone_temps()
+
+                        # 5. EMA updates
+
+                        # 6. Determine zones and detect manual overrides
+                        if (
+                            not hasattr(self, "zone_manager")
+                            or self.zone_manager is None
+                        ):
+                            _LOGGER.error(
+                                "zone_manager is not initialized! Skipping update cycle."
+                            )
+                            async with self._state_lock:
+                                self.last_action = "zone_manager_uninitialized"
+                            return
+
+                        active_zones = (
+                            await self.zone_manager.update_zone_states_and_overrides()
+                        )
+                        on_count = len(active_zones)
+                        self.on_count = on_count  # Set for panic manager
+
+                        # Store active zones for decision engine
+                        self.active_zones = active_zones
+
+                        # 7. Compute required export and confidences
+                        next_zone, last_zone = (
+                            await self.zone_manager.select_next_and_last_zone(
+                                active_zones
                             )
                         )
-                        await self._log(
-                            f"[INTEGRATION_UNFROZEN] solar={round(solar)}W >= on_threshold={on_threshold}W, starting calculations"
+                        required_export = self._compute_required_export(
+                            next_zone, mode=self.season_mode
                         )
-                    else:
-                        # Still frozen: check less frequently
-                        self.update_interval = timedelta(
-                            seconds=300
-                        )  # Check every 5 minutes
+                        export = -self.ema_30s
+                        import_power = self.ema_5m
+
+                        # Store for sensors
+                        self.next_zone = next_zone
+                        self.last_zone = last_zone
+                        self.required_export = required_export
+                        # Track source for diagnostics: manual override vs learned power
+                        try:
+                            if (
+                                next_zone
+                                and isinstance(self.zone_manual_power, dict)
+                                and next_zone in self.zone_manual_power
+                            ):
+                                self.required_export_source = "Manual Power Override"
+                            elif self.last_action == "panic_cooldown":
+                                self.required_export_source = "Panic Recovery"
+                            elif self.last_action == "integration_disabled":
+                                self.required_export_source = "Integration Disabled"
+                            elif self.last_action == "solar_too_low":
+                                self.required_export_source = "Solar Freeze"
+                            else:
+                                self.required_export_source = "Learned Power"
+                        except (ValueError, TypeError, KeyError, AttributeError):
+                            self.required_export_source = "Learned Power"
+                        self.export_margin = (
+                            None
+                            if required_export is None
+                            else export - required_export
+                        )
+
+                        # Enhanced logging for zone selection and calculations
+                        zone_info = f"active_zones={len(active_zones)}"
+                        if next_zone:
+                            next_zone_name = next_zone.split(".")[-1]
+                            next_power = self.get_learned_power(
+                                next_zone_name, self.season_mode
+                            )
+                            zone_info += f" next_zone={next_zone}({round(next_power)}W)"
+                        if last_zone:
+                            last_zone_name = last_zone.split(".")[-1]
+                            last_power = self.get_learned_power(
+                                last_zone_name, self.season_mode
+                            )
+                            zone_info += f" last_zone={last_zone}({round(last_power)}W)"
+                        if required_export is not None:
+                            zone_info += f" required_export={round(required_export)}W"
+                        zone_info += f" export={round(export)}W import_power={round(import_power)}W season_mode={self.season_mode}"
+
+                        await self._log(f"[ZONE_CALC] {zone_info}", "debug")
+
+                        self.last_add_conf = self.decision_engine.compute_add_conf(
+                            export=export,
+                            required_export=required_export,
+                            last_zone=last_zone,
+                        )
+                        self.last_remove_conf = (
+                            self.decision_engine.compute_remove_conf(
+                                import_power=import_power,
+                                last_zone=last_zone,
+                            )
+                        )
+
+                        # Unified confidence
+                        # Treat remove confidence as a positive "removal pressure" value.
+                        # Negative values from compute_remove_conf (e.g., due to short-cycle
+                        # penalties) should not *increase* add confidence, so clamp to zero.
+                        remove_pressure = max(0.0, self.last_remove_conf)
+                        self.confidence = self.last_add_conf - remove_pressure
+
+                        # Enhanced logging for confidence calculations
+                        conf_info = f"unified_conf={round(self.confidence, 2)} "
+                        conf_info += f"(add={round(self.last_add_conf, 2)}, remove={round(self.last_remove_conf, 2)}) "
+                        conf_info += f"thresholds(add≥{round(self.unified_add_threshold, 2)}, remove≤{round(self.unified_remove_threshold, 2)}) "
+
+                        # Determine decision state for clarity
+                        if self.confidence >= self.unified_add_threshold:
+                            decision_state = "ADD_READY"
+                        elif self.confidence <= self.unified_remove_threshold:
+                            decision_state = "REMOVE_READY"
+                        else:
+                            decision_state = "STABLE"
+
+                        conf_info += f"→ {decision_state}"
+                        if next_zone:
+                            conf_info += f"next_candidate={next_zone.split('.')[-1]} "
+                        if last_zone:
+                            conf_info += f"last_candidate={last_zone.split('.')[-1]}"
+                        await self._log(f"[CONFIDENCE] {conf_info}", "debug")
+
+                        # Prevent decision overrides during active panic
+                        if getattr(self, "_panic_active", False):
+                            return
+
+                        now_ts = dt_util.utcnow().timestamp()
+
+                        # 8. Learning timeout
+                        learning_zone = await self.controller.session.get_zone()
+                        learning_start_time = (
+                            await self.controller.session.get_start_time()
+                        )
+                        # Update cached learning flag for synchronous checks in DecisionEngine
+                        try:
+                            self.learning_active_cached = bool(learning_zone)
+                        except Exception:
+                            self.learning_active_cached = False
+                        if (
+                            learning_zone
+                            and learning_start_time
+                            and now_ts - learning_start_time >= LEARNING_TIMEOUT_SECONDS
+                        ):
+                            await self._log(
+                                f"[LEARNING_TIMEOUT] zone={learning_zone}", "info"
+                            )
+                            result = await self.controller.finish_learning()
+                            if not result.success:
+                                await self._log(
+                                    f"Learning failed: {result.error_message}",
+                                    "warning",
+                                )
+                            return
+
+                        # 9. Panic logic
+                        if self.panic_manager.should_panic:
+                            self.note = "Panic triggered: grid import exceeded threshold with multiple zones active."
+                            await self.panic_manager.schedule_panic(active_zones)
+                            return
+
+                        # 10. Panic cooldown
+                        if self.panic_manager.is_in_cooldown:
+                            async with self._state_lock:
+                                self.last_action = "panic_cooldown"
+                            # Calculate remaining cooldown time
+                            now_ts = dt_util.utcnow().timestamp()
+                            cooldown_remaining = max(
+                                0,
+                                PANIC_COOLDOWN_SECONDS
+                                - (now_ts - (self.last_panic_ts or 0)),
+                            )
+                            self.note = (
+                                f"Panic cooldown active for {round(cooldown_remaining)}s: "
+                                "skipping add/remove decisions."
+                            )
+                            await self._log(
+                                f"[PANIC_COOLDOWN] active for {round(cooldown_remaining)}s, "
+                                f"skipping add/remove decisions (active_zones={len(active_zones)})"
+                            )
+                            return
+
+                        # 11. ADD zone decision
+                        if next_zone and await self.decision_engine.should_add_zone(
+                            next_zone,
+                            required_export if required_export is not None else 0.0,
+                        ):
+                            # Single zone addition (normal case)
+
+                            # Single zone addition (normal case)
+                            zone_name = next_zone.split(".")[-1]
+                            learned_power = self.get_learned_power(
+                                zone_name, self.season_mode
+                            )
+                            reason = f"Activating zone '{zone_name}' - "
+                            reason += f"confidence score {round(self.confidence, 1)} meets activation threshold, "
+                            reason += f"excess solar power {round(export)}W available, "
+                            reason += f"zone requires {round(learned_power)}W, "
+                            reason += f"currently {len(active_zones)} zones active"
+                            self.note = f"Adding zone {next_zone}: confidence {round(self.confidence, 2)} >= {round(self.unified_add_threshold, 2)}"
+                            await self._log(reason, "info")
+                            await self.action_executor.attempt_add_zone(
+                                next_zone,
+                                ac_power,
+                                export,
+                                required_export if required_export is not None else 0.0,
+                            )
+                            return
+
+                        # 11. REMOVE zone decision
+                        if last_zone and await self.decision_engine.should_remove_zone(
+                            last_zone, import_power, active_zones
+                        ):
+                            zone_name = last_zone.split(".")[-1]
+                            learned_power = self.get_learned_power(
+                                zone_name, self.season_mode
+                            )
+                            reason = f"Removing zone {last_zone} ({zone_name}): "
+                            reason += f"unified_conf={round(self.confidence, 2)} <= remove_threshold={round(self.unified_remove_threshold, 2)}, "
+                            reason += f"import_power={round(import_power)}W > 0W, "
+                            reason += f"learned_power={round(learned_power)}W, "
+                            reason += f"current_grid={round(self.ema_30s)}W, active_zones={len(active_zones)}, season_mode={self.season_mode}"
+                            self.note = f"Removing zone {last_zone}: unified_conf={round(self.confidence, 2)} <= {round(self.unified_remove_threshold, 2)}"
+                            await self._log(f"[REMOVE_ZONE] {reason}")
+                            await self.action_executor.attempt_remove_zone(
+                                last_zone, import_power
+                            )
+                            return
+
+                        # 11.5. ZONE SWAP decision (only when no net add/remove needed)
+                        # Sort active zones by reverse priority (remove lowest priority satisfied zones first)
+                        for active_zone in sorted(
+                            active_zones,
+                            key=lambda z: self.zone_priorities.get(
+                                z.split(".")[-1], 999
+                            ),
+                            reverse=True,
+                        ):
+                            zone_to_add = await self.decision_engine.should_swap_zone(
+                                active_zone, import_power
+                            )
+                            if zone_to_add:
+                                await self._perform_zone_swap(active_zone, zone_to_add)
+                                return
+
+                        # 12. SYSTEM BALANCED
                         async with self._state_lock:
-                            self.last_action = "integration_frozen"
-                        self.note = f"Integration frozen: solar {round(solar)}W < on_threshold {on_threshold}W"
-                        self.metrics.record_cycle_end(cycle_start, success=True)
-                        return
-                else:
-                    if solar < off_threshold:
-                        # Freeze: solar has dropped below off_threshold
-                        await self._log(
-                            f"[INTEGRATION_FREEZING] solar={round(solar)}W < off_threshold={off_threshold}W, turning off zones and master"
-                        )
-                        await self._perform_freeze_cleanup()
-                        self.integration_active = False
-                        self.update_interval = timedelta(
-                            seconds=300
-                        )  # Check every 5 minutes
-                        async with self._state_lock:
-                            self.last_action = "integration_frozen"
-                        self.note = f"Integration frozen: solar {round(solar)}W < off_threshold {off_threshold}W"
-                        self.metrics.record_cycle_end(cycle_start, success=True)
-                        return
+                            self.last_action = "balanced"
+                        self.note = f"No action: system balanced. ema30={round(self.ema_30s)}, ema5m={round(self.ema_5m)}, zones={on_count}, samples={self.samples}"
 
-                ac_power = self._validate_sensor_state(
-                    self._get_cached_state(
-                        self.config_manager.get(CONF_AC_POWER_SENSOR)
-                    ),
-                    "AC power sensor",
-                )
-
-                self.metrics.record_sensor_values(grid_raw, solar, ac_power)
-
-                _LOGGER.debug(
-                    "Cycle sensors: grid_raw=%s solar=%s ac_power=%s",
-                    grid_raw,
-                    solar,
-                    ac_power,
-                )
-
-                # Enhanced logging with sensor values and calculations (every minute)
-                self._cycle_counter += 1
-                if (
-                    self._cycle_counter - self._last_sensor_log_cycle >= 6
-                ):  # Every ~60 seconds
-                    await self._log(
-                        f"[SENSORS] grid={round(grid_raw)}W solar={round(solar)}W ac_power={round(ac_power)}W "
-                        f"ema30s={round(self.ema_30s)}W ema5m={round(self.ema_5m)}W",
-                        "debug",
-                    )
-                    self._last_sensor_log_cycle = self._cycle_counter
-
-                # EMA updates
-                self._update_ema(grid_raw)
-
-                # 2. Master switch auto-control (based ONLY on solar production)
-                await self.master_controller.handle_master_switch(solar, cycle_start)
-
-                # 3. Update zone temperatures for comfort target checking
-                self._read_zone_temps()
-
-                # 5. EMA updates
-
-                # 6. Determine zones and detect manual overrides
-                if not hasattr(self, "zone_manager") or self.zone_manager is None:
-                    _LOGGER.error(
-                        "zone_manager is not initialized! Skipping update cycle."
-                    )
-                    async with self._state_lock:
-                        self.last_action = "zone_manager_uninitialized"
-                    return
-
-                active_zones = (
-                    await self.zone_manager.update_zone_states_and_overrides()
-                )
-                on_count = len(active_zones)
-                self.on_count = on_count  # Set for panic manager
-
-                # Store active zones for decision engine
-                self.active_zones = active_zones
-
-                # 7. Compute required export and confidences
-                next_zone, last_zone = self.zone_manager.select_next_and_last_zone(
-                    active_zones
-                )
-                required_export = self._compute_required_export(
-                    next_zone, mode=self.season_mode
-                )
-                export = -self.ema_30s
-                import_power = self.ema_5m
-
-                # Store for sensors
-                self.next_zone = next_zone
-                self.last_zone = last_zone
-                self.required_export = required_export
-                # Track source for diagnostics: manual override vs learned power
-                try:
-                    if (
-                        next_zone
-                        and isinstance(self.zone_manual_power, dict)
-                        and next_zone in self.zone_manual_power
-                    ):
-                        self.required_export_source = "Manual Power Override"
-                    elif self.last_action == "panic_cooldown":
-                        self.required_export_source = "Panic Recovery"
-                    elif self.last_action == "integration_disabled":
-                        self.required_export_source = "Integration Disabled"
-                    elif self.last_action == "solar_too_low":
-                        self.required_export_source = "Solar Freeze"
-                    else:
-                        self.required_export_source = "Learned Power"
-                except (ValueError, TypeError, KeyError, AttributeError):
-                    self.required_export_source = "Learned Power"
-                self.export_margin = (
-                    None if required_export is None else export - required_export
-                )
-
-                # Enhanced logging for zone selection and calculations
-                zone_info = f"active_zones={len(active_zones)}"
-                if next_zone:
-                    next_zone_name = next_zone.split(".")[-1]
-                    next_power = self.get_learned_power(
-                        next_zone_name, self.season_mode
-                    )
-                    zone_info += f" next_zone={next_zone}({round(next_power)}W)"
-                if last_zone:
-                    last_zone_name = last_zone.split(".")[-1]
-                    last_power = self.get_learned_power(
-                        last_zone_name, self.season_mode
-                    )
-                    zone_info += f" last_zone={last_zone}({round(last_power)}W)"
-                if required_export is not None:
-                    zone_info += f" required_export={round(required_export)}W"
-                zone_info += f" export={round(export)}W import_power={round(import_power)}W season_mode={self.season_mode}"
-
-                await self._log(f"[ZONE_CALC] {zone_info}", "debug")
-
-                self.last_add_conf = self.decision_engine.compute_add_conf(
-                    export=export,
-                    required_export=required_export,
-                    last_zone=last_zone,
-                )
-                self.last_remove_conf = self.decision_engine.compute_remove_conf(
-                    import_power=import_power,
-                    last_zone=last_zone,
-                )
-
-                # Unified confidence
-                # Treat remove confidence as a positive "removal pressure" value.
-                # Negative values from compute_remove_conf (e.g., due to short-cycle
-                # penalties) should not *increase* add confidence, so clamp to zero.
-                remove_pressure = max(0.0, self.last_remove_conf)
-                self.confidence = self.last_add_conf - remove_pressure
-
-                # Enhanced logging for confidence calculations
-                conf_info = f"unified_conf={round(self.confidence, 2)} "
-                conf_info += f"(add={round(self.last_add_conf, 2)}, remove={round(self.last_remove_conf, 2)}) "
-                conf_info += f"thresholds(add≥{round(self.unified_add_threshold, 2)}, remove≤{round(self.unified_remove_threshold, 2)}) "
-
-                # Determine decision state for clarity
-                if self.confidence >= self.unified_add_threshold:
-                    decision_state = "ADD_READY"
-                elif self.confidence <= self.unified_remove_threshold:
-                    decision_state = "REMOVE_READY"
-                else:
-                    decision_state = "STABLE"
-
-                conf_info += f"→ {decision_state}"
-                if next_zone:
-                    conf_info += f"next_candidate={next_zone.split('.')[-1]} "
-                if last_zone:
-                    conf_info += f"last_candidate={last_zone.split('.')[-1]}"
-                await self._log(f"[CONFIDENCE] {conf_info}", "debug")
-
-                # Prevent decision overrides during active panic
-                if getattr(self, "_panic_active", False):
-                    return
-
-                now_ts = dt_util.utcnow().timestamp()
-
-                # 8. Learning timeout
-                learning_zone = await self.controller.session.get_zone()
-                learning_start_time = await self.controller.session.get_start_time()
-                # Update cached learning flag for synchronous checks in DecisionEngine
-                try:
-                    self.learning_active_cached = bool(learning_zone)
-                except Exception:
-                    self.learning_active_cached = False
-                if (
-                    learning_zone
-                    and learning_start_time
-                    and now_ts - learning_start_time >= LEARNING_TIMEOUT_SECONDS
-                ):
-                    await self._log(f"[LEARNING_TIMEOUT] zone={learning_zone}", "info")
-                    result = await self.controller.finish_learning()
-                    if not result.success:
-                        await self._log(
-                            f"Learning failed: {result.error_message}", "warning"
-                        )
-                    return
-
-                # 9. Panic logic
-                if self.panic_manager.should_panic:
-                    self.note = "Panic triggered: grid import exceeded threshold with multiple zones active."
-                    await self.panic_manager.schedule_panic(active_zones)
-                    return
-
-                # 10. Panic cooldown
-                if self.panic_manager.is_in_cooldown:
-                    async with self._state_lock:
-                        self.last_action = "panic_cooldown"
-                    # Calculate remaining cooldown time
-                    now_ts = dt_util.utcnow().timestamp()
-                    cooldown_remaining = max(
-                        0,
-                        PANIC_COOLDOWN_SECONDS - (now_ts - (self.last_panic_ts or 0)),
-                    )
-                    self.note = (
-                        f"Panic cooldown active for {round(cooldown_remaining)}s: "
-                        "skipping add/remove decisions."
-                    )
-                    await self._log(
-                        f"[PANIC_COOLDOWN] active for {round(cooldown_remaining)}s, "
-                        f"skipping add/remove decisions (active_zones={len(active_zones)})"
-                    )
-                    return
-
-                # 11. ADD zone decision
-                if next_zone and await self.decision_engine.should_add_zone(
-                    next_zone, required_export if required_export is not None else 0.0
-                ):
-                    # Single zone addition (normal case)
-
-                    # Single zone addition (normal case)
-                    zone_name = next_zone.split(".")[-1]
-                    learned_power = self.get_learned_power(zone_name, self.season_mode)
-                    reason = f"Activating zone '{zone_name}' - "
-                    reason += f"confidence score {round(self.confidence, 1)} meets activation threshold, "
-                    reason += f"excess solar power {round(export)}W available, "
-                    reason += f"zone requires {round(learned_power)}W, "
-                    reason += f"currently {len(active_zones)} zones active"
-                    self.note = f"Adding zone {next_zone}: confidence {round(self.confidence, 2)} >= {round(self.unified_add_threshold, 2)}"
-                    await self._log(reason, "info")
-                    await self.action_executor.attempt_add_zone(
-                        next_zone,
-                        ac_power,
-                        export,
-                        required_export if required_export is not None else 0.0,
-                    )
-                    return
-
-                # 11. REMOVE zone decision
-                if last_zone and await self.decision_engine.should_remove_zone(
-                    last_zone, import_power, active_zones
-                ):
-                    zone_name = last_zone.split(".")[-1]
-                    learned_power = self.get_learned_power(zone_name, self.season_mode)
-                    reason = f"Removing zone {last_zone} ({zone_name}): "
-                    reason += f"unified_conf={round(self.confidence, 2)} <= remove_threshold={round(self.unified_remove_threshold, 2)}, "
-                    reason += f"import_power={round(import_power)}W > 0W, "
-                    reason += f"learned_power={round(learned_power)}W, "
-                    reason += f"current_grid={round(self.ema_30s)}W, active_zones={len(active_zones)}, season_mode={self.season_mode}"
-                    self.note = f"Removing zone {last_zone}: unified_conf={round(self.confidence, 2)} <= {round(self.unified_remove_threshold, 2)}"
-                    await self._log(f"[REMOVE_ZONE] {reason}")
-                    await self.action_executor.attempt_remove_zone(
-                        last_zone, import_power
-                    )
-                    return
-
-                # 11.5. ZONE SWAP decision (only when no net add/remove needed)
-                # Sort active zones by reverse priority (remove lowest priority satisfied zones first)
-                for active_zone in sorted(
-                    active_zones,
-                    key=lambda z: self.zone_priorities.get(z.split(".")[-1], 999),
-                    reverse=True,
-                ):
-                    zone_to_add = await self.decision_engine.should_swap_zone(
-                        active_zone, import_power
-                    )
-                    if zone_to_add:
-                        await self._perform_zone_swap(active_zone, zone_to_add)
-                        return
-
-                # 12. SYSTEM BALANCED
-                async with self._state_lock:
-                    self.last_action = "balanced"
-                self.note = f"No action: system balanced. ema30={round(self.ema_30s)}, ema5m={round(self.ema_5m)}, zones={on_count}, samples={self.samples}"
-
-                # Log balanced state every 10 minutes (600 seconds) to avoid spam
-                now_ts = dt_util.utcnow().timestamp()
-                last_balanced_log = getattr(self, "_last_balanced_log_time", 0)
-                if now_ts - last_balanced_log >= 600:  # 10 minutes
-                    # Build active zone details with learned power for better diagnostics
-                    try:
-                        zone_details = []
-                        for z in active_zones:
-                            short = z.split(".")[-1]
+                        # Log balanced state every 10 minutes (600 seconds) to avoid spam
+                        now_ts = dt_util.utcnow().timestamp()
+                        last_balanced_log = getattr(self, "_last_balanced_log_time", 0)
+                        if (
+                            now_ts - last_balanced_log >= BALANCED_LOG_INTERVAL_SECONDS
+                        ):  # 10 minutes
+                            # Build active zone details with learned power for better diagnostics
                             try:
-                                p = round(
-                                    self.get_learned_power(short, self.season_mode)
+                                zone_details = []
+                                for z in active_zones:
+                                    short = z.split(".")[-1]
+                                    try:
+                                        p = round(
+                                            self.get_learned_power(
+                                                short, self.season_mode
+                                            )
+                                        )
+                                    except Exception:
+                                        p = None
+                                    if p is None:
+                                        zone_details.append(f"{z}")
+                                    else:
+                                        zone_details.append(f"{z}({p}W)")
+                                zones_str = (
+                                    ",".join(zone_details) if zone_details else "none"
                                 )
                             except Exception:
-                                p = None
-                            if p is None:
-                                zone_details.append(f"{z}")
-                            else:
-                                zone_details.append(f"{z}({p}W)")
-                        zones_str = ",".join(zone_details) if zone_details else "none"
-                    except Exception:
-                        zones_str = ",".join(active_zones) if active_zones else "none"
+                                zones_str = (
+                                    ",".join(active_zones) if active_zones else "none"
+                                )
 
-                    msg = (
-                        f"[SYSTEM_BALANCED] grid={round(self.ema_30s)}W "
-                        f"solar={round(self.ema_30s + self.ema_5m)}W "
-                        f"ema30s={round(self.ema_30s)}W ema5m={round(self.ema_5m)}W "
-                        f"active_zones={on_count} zones=[{zones_str}] "
-                        f"unified_conf={round(self.confidence,2)} "
-                        f"(add={round(self.last_add_conf,2)},remove={round(self.last_remove_conf,2)}) "
-                        f"samples={self.samples} season_mode={self.season_mode}"
-                    )
+                            msg = (
+                                f"[SYSTEM_BALANCED] grid={round(self.ema_30s)}W "
+                                f"solar={round(self.ema_30s + self.ema_5m)}W "
+                                f"ema30s={round(self.ema_30s)}W ema5m={round(self.ema_5m)}W "
+                                f"active_zones={on_count} zones=[{zones_str}] "
+                                f"unified_conf={round(self.confidence,2)} "
+                                f"(add={round(self.last_add_conf,2)},remove={round(self.last_remove_conf,2)}) "
+                                f"samples={self.samples} season_mode={self.season_mode}"
+                            )
 
-                    await self._log(msg)
-                    self._last_balanced_log_time = now_ts
+                            await self._log(msg)
+                            self._last_balanced_log_time = now_ts
 
-                    # Notify listeners so diagnostic sensor state updates immediately
-                    try:
-                        self.async_update_listeners()
-                    except Exception:
-                        # Do not let listener notification errors affect main loop
-                        _LOGGER.debug(
-                            "Failed to async_update_listeners after balanced state",
-                            exc_info=True,
-                        )
+                            # Notify listeners so diagnostic sensor state updates immediately
+                            try:
+                                self.async_update_listeners()
+                            except Exception:
+                                # Do not let listener notification errors affect main loop
+                                _LOGGER.debug(
+                                    "Failed to async_update_listeners after balanced state",
+                                    exc_info=True,
+                                )
 
-                # Periodic cleanup of stale tracking data (every hour)
-                now_ts = dt_util.utcnow().timestamp()
-                if getattr(self, "_last_cleanup_time", 0) + 3600 < now_ts:
-                    self._cleanup_stale_tracking_data()
-                    self._last_cleanup_time = now_ts
+                        # Periodic cleanup of stale tracking data (every hour)
+                        now_ts = dt_util.utcnow().timestamp()
+                        if (
+                            getattr(self, "_last_cleanup_time", 0)
+                            + STALE_TRACKING_CLEANUP_INTERVAL_SECONDS
+                            < now_ts
+                        ):
+                            self._cleanup_stale_tracking_data()
+                            self._last_cleanup_time = now_ts
 
-                # Update adaptive interval based on system state
-                self._update_adaptive_interval()
+                        # Update adaptive interval based on system state
+                        self._update_adaptive_interval()
 
-                self.metrics.record_cycle_end(cycle_start, success=True)
-            except (SensorUnavailableError, SensorInvalidError) as e:
-                # Sensor issues are expected during startup or temporary outages
-                self.note = f"Sensor error: {e}"
-                _LOGGER.warning("Sensor error in update cycle: %s", e)
-                self.metrics.record_cycle_end(cycle_start, success=False)
-            except (
-                asyncio.CancelledError,
-                OSError,
-                ValueError,
-                TypeError,
-                AttributeError,
-            ) as e:
-                self.note = f"Unexpected error in update cycle: {e}"
-                _LOGGER.exception("Unexpected error in _async_update_data")
-                self.metrics.record_cycle_end(cycle_start, success=False)
+                        self.metrics.record_cycle_end(cycle_start, success=True)
+                    except (SensorUnavailableError, SensorInvalidError) as e:
+                        # Sensor issues are expected during startup or temporary outages
+                        self.note = f"Sensor error: {e}"
+                        _LOGGER.warning("Sensor error in update cycle: %s", e)
+                        self.metrics.record_cycle_end(cycle_start, success=False)
+                    except (
+                        asyncio.CancelledError,
+                        OSError,
+                        ValueError,
+                        TypeError,
+                        AttributeError,
+                    ) as e:
+                        self.note = f"Unexpected error in update cycle: {e}"
+                        _LOGGER.exception("Unexpected error in _async_update_data")
+                        self.metrics.record_cycle_end(cycle_start, success=False)
+        except asyncio.TimeoutError:
+            self.note = "Update lock acquisition timed out - possible deadlock!"
+            _LOGGER.error("Update lock acquisition timed out - possible deadlock!")
+            # Don't record cycle metrics since we never started
 
         # -------------------------------------------------------------------------
         # EMA / metrics / guards
@@ -1641,42 +1762,22 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             and isinstance(self.ema_5m, (int, float))
         ):
             # Log EMA validation failure asynchronously on HA loop
-            try:  # type: ignore[unreachable]
-                self.create_task(
-                    self._log_ema_validation_failure(
-                        "non_numeric", grid_raw, old_ema_30s, old_ema_5m
-                    )
+            self.create_background_task(
+                self._log_ema_validation_failure(
+                    "non_numeric", grid_raw, old_ema_30s, old_ema_5m
                 )
-            except Exception:
-                try:
-                    self.hass.async_create_task(
-                        self._log_ema_validation_failure(
-                            "non_numeric", grid_raw, old_ema_30s, old_ema_5m
-                        )
-                    )
-                except Exception:
-                    pass
+            )
             # Reset to safe values
             self.ema_tracker.reset()
             self.ema_30s, self.ema_5m = 0.0, 0.0
         elif not (-50000 <= self.ema_30s <= 50000) or not (
             -50000 <= self.ema_5m <= 50000
         ):
-            try:
-                self.create_task(
-                    self._log_ema_validation_failure(
-                        "out_of_range", grid_raw, old_ema_30s, old_ema_5m
-                    )
+            self.create_background_task(
+                self._log_ema_validation_failure(
+                    "out_of_range", grid_raw, old_ema_30s, old_ema_5m
                 )
-            except Exception:
-                try:
-                    self.hass.async_create_task(
-                        self._log_ema_validation_failure(
-                            "out_of_range", grid_raw, old_ema_30s, old_ema_5m
-                        )
-                    )
-                except Exception:
-                    pass
+            )
             # Reset to safe values
             self.ema_tracker.reset()
             self.ema_30s, self.ema_5m = 0.0, 0.0
@@ -1845,46 +1946,30 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             )
 
         # Track master_off_since for EMA reset
-        now_ts = dt_util.utcnow().timestamp()
-        if self.master_off_since is None:
-            self.master_off_since = now_ts
+        async with self._state_lock:
+            now_ts = dt_util.utcnow().timestamp()
+            if self.master_off_since is None:
+                self.master_off_since = now_ts
 
-        # Reset EMA after long OFF (only once per off period)
-        if (
-            now_ts - self.master_off_since >= EMA_RESET_AFTER_OFF_SECONDS
-            and not self.master_ema_reset_done
-        ):
-            if self.ema_30s != 0.0 or self.ema_5m != 0.0:
-                await self._log("[EMA_RESET_AFTER_MASTER_OFF] resetting EMA")
-            self.ema_tracker.reset()
-            self.master_ema_reset_done = True
+            # Reset EMA after long OFF (only once per off period)
+            if (
+                now_ts - self.master_off_since >= EMA_RESET_AFTER_OFF_SECONDS
+                and not self.master_ema_reset_done
+            ):
+                if self.ema_30s != 0.0 or self.ema_5m != 0.0:
+                    await self._log("[EMA_RESET_AFTER_MASTER_OFF] resetting EMA")
+                self.ema_tracker.reset()
+                self.master_ema_reset_done = True
 
     def _cleanup_stale_tracking_data(self) -> None:
         """Remove tracking data for zones no longer in configuration."""
         current_zones = set(self.config.get(CONF_ZONES, []))
 
-        # Clean temp EMA tracking
-        stale_zones = set(self.temp_ema_10m.keys()) - current_zones
-        for zone in stale_zones:
-            del self.temp_ema_10m[zone]
-
-        # Clean swap time tracking
-        stale_zones = set(self.zone_last_swap_time.keys()) - current_zones
-        for zone in stale_zones:
-            del self.zone_last_swap_time[zone]
-
-        # Also clean: zone_last_changed, zone_manual_lock_until, zone_current_temps
-        for tracking_dict in [
-            self.zone_last_changed,
-            self.zone_manual_lock_until,
-            self.zone_current_temps,
-            self.zone_last_changed_type,
-            self.zone_last_state,
-        ]:
-            tracking_dict = cast(dict[str, Any], tracking_dict)
+        for dict_name in self.ZONE_TRACKING_DICTS:
+            tracking_dict = getattr(self, dict_name, {})
             stale = set(tracking_dict.keys()) - current_zones
             for zone in stale:
-                del tracking_dict[zone]
+                tracking_dict.pop(zone, None)
 
     async def async_update_solar_allocation(self) -> None:
         """Main solar allocation decision loop - add/remove zones based on surplus."""
@@ -1910,7 +1995,9 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         active_zones = self.active_zones or []
 
         # Compute required export and confidences
-        next_zone, last_zone = self.zone_manager.select_next_and_last_zone(active_zones)
+        next_zone, last_zone = await self.zone_manager.select_next_and_last_zone(
+            active_zones
+        )
         required_export = self._compute_required_export(
             next_zone, mode=self.season_mode
         )
