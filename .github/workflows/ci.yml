@@ -78,9 +78,19 @@ jobs:
       contents: write
       pull-requests: write
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract version from manifest.json
+        id: manifest
+        run: |
+          VERSION=$(jq -r '.version' custom_components/solar_ac_controller/manifest.json)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
       - name: Update Release Draft
         uses: release-drafter/release-drafter@v6
         with:
           config-name: release-drafter.yml
+          version: ${{ steps.manifest.outputs.version }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
