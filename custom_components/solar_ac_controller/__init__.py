@@ -28,7 +28,7 @@ from .exceptions import StorageError
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS = ["sensor", "binary_sensor"]
-ALL_PLATFORMS = PLATFORMS + ["switch", "select"]
+ALL_PLATFORMS = PLATFORMS + ["switch", "select", "number"]
 
 
 async def _async_migrate_data(
