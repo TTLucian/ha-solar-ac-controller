@@ -43,6 +43,8 @@ async def test_async_persist_learned_values_saves_rounded_values():
         "zone2": {"default": 45.2, "heat": 45.2, "cool": 45.2, "lead_delta": 0.0},
     }
     coord.samples = 7
+    coord.learned_idle_power = 18.75
+    coord.idle_power_samples = 10
 
     # Circuit breaker allows operation
     async def _should_attempt():
@@ -79,6 +81,8 @@ async def test_async_persist_learned_values_saves_rounded_values():
     assert mock_store.saved["learned_power"]["zone1"]["heat"] == 201
     assert mock_store.saved["learned_power"]["zone2"]["default"] == 45
     assert mock_store.saved["samples"] == 7
+    assert mock_store.saved["idle_power"] == 18.8
+    assert mock_store.saved["idle_power_samples"] == 10
     # Coordinator should clear dirty flag after successful save
     assert coord._storage_dirty is False
 
