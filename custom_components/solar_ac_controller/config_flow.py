@@ -349,7 +349,7 @@ async def _validate_zone_temp_sensors(
     return None
 
 
-class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg]
     """Handle a config flow for Solar AC Controller."""
 
     VERSION = 1
@@ -366,9 +366,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         # Initialize helper dicts with explicit type annotations for Mypy
         if not hasattr(self, "_reconfigure_defaults"):
-            self._reconfigure_defaults = {}
+            self._reconfigure_defaults: dict[str, Any] = {}
         if not hasattr(self, "data"):
-            self.data = {}
+            self.data: dict[str, Any] = {}
 
         if user_input is not None:
             # 1. Validate required fields exist
@@ -405,9 +405,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_timing(self, user_input: dict[str, Any] | None = None) -> Any:
         errors: dict[str, str] = {}
         if not hasattr(self, "_reconfigure_defaults"):
-            self._reconfigure_defaults: dict[str, Any] = {}
+            self._reconfigure_defaults = {}
         if not hasattr(self, "data"):
-            self.data: dict[str, Any] = {}
+            self.data = {}
         defaults = {**self._reconfigure_defaults, **self.data}
         if user_input is not None:
             errors = validate_panic_threshold(user_input, self.data, errors)
