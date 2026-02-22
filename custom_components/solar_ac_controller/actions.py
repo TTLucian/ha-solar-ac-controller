@@ -52,7 +52,7 @@ class ActionExecutor:
         )
 
         async with self._action_lock:
-            await self.add_zone_without_learning(next_zone, ac_power_before)
+            await self.add_zone(next_zone, ac_power_before)
         async with self.coordinator._state_lock:
             self.coordinator.last_action = f"add_{next_zone}"
 
@@ -101,6 +101,7 @@ class ActionExecutor:
                 f"another zone ('{current_learning_zone.split('.')[-1] if current_learning_zone else 'unknown'}') "
                 f"is currently being measured"
             )
+            await self.add_zone_without_learning(zone, ac_power_before)
             return
 
         # Mark learning before action, but actual power delta is validated later

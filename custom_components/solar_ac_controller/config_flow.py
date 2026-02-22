@@ -6,7 +6,7 @@ from typing import Any, cast
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigEntry, OptionsFlow
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers import selector
 from homeassistant.helpers.selector import NumberSelectorMode
 
@@ -51,6 +51,7 @@ from .const import (
     DEFAULT_SOLAR_THRESHOLD_OFF,
     DEFAULT_SOLAR_THRESHOLD_ON,
     DEFAULT_UPDATE_INTERVAL,
+    DOMAIN,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -348,18 +349,15 @@ async def _validate_zone_temp_sensors(
     return None
 
 
-class ConfigFlow(config_entries.ConfigFlow):
+class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Solar AC Controller."""
 
     VERSION = 1
 
-    # Type annotations for dynamic attributes
-    _reconfigure_defaults: dict[str, Any]
-    data: dict[str, Any]
-
-    @staticmethod
-    @callback  # type: ignore[untyped-decorator]
-    def async_get_options_flow(config_entry: ConfigEntry) -> SolarACOptionsFlowHandler:
+    @classmethod
+    def async_get_options_flow(
+        cls, config_entry: ConfigEntry
+    ) -> SolarACOptionsFlowHandler:
         """Get the options flow for this handler."""
         return SolarACOptionsFlowHandler(config_entry)
 

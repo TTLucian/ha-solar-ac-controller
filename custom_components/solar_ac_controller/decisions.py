@@ -216,14 +216,7 @@ class DecisionEngine:
         import_power: float,
         last_zone: str | None,
     ) -> float:
-        """Compute remove zone confidence score.
-
-        PANIC FAST-TRACK: If import_power >= panic_threshold, immediately return 100.0.
-        """
-        # Panic fast-track
-        if import_power >= self.coordinator.panic_threshold:
-            return 100.0
-
+        """Compute remove zone confidence score."""
         a = self.coordinator.aggressiveness
         penalty_scale = max(0.25, 1.5 - 1.0 * float(a))
         bonus_scale = max(0.5, 0.5 + 1.5 * float(a))

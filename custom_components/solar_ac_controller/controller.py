@@ -289,263 +289,67 @@ class SolarACController:
 
     async def finish_learning(self) -> LearningResult:
         """Finish learning for the current zone using smart phase detection."""
+        # Snapshot all session state under the lock in one shot, then release it.
+        # This avoids re-entrant lock acquisition: the async helper methods on
+        # LearningSession (is_peak_valid, get_peak_power, end_session, etc.) all
+        # acquire self._lock themselves, so calling them while already holding the
+        # lock would deadlock (asyncio.Lock is not reentrant).
         async with self.session._lock:
             zone = self.session._zone
             if not zone:
                 _LOGGER.debug("finish_learning called but no learning zone set")
                 return LearningResult(False, error_message="No learning zone set")
 
-            # Check for learning contamination (other zones changed during learning)
-            if self.session._learning_contaminated:
-                contaminated_changes = self.session._zones_changed_during_learning
-                peak_valid = await self.session.is_peak_valid()
-                stabilization_valid = await self.session.is_stabilization_valid()
-
-                if not peak_valid and not stabilization_valid:
-                    # Neither peak nor stabilization is valid - discard everything
-                    _LOGGER.warning(
-                        f"Discarding all learning results for {zone} due to contamination "
-                        f"from zone changes during learning: {contaminated_changes}"
-                    )
-                    # Also log to coordinator for logbook visibility
-                    log_fn = cast(
-                        Callable[[str], Awaitable[None]] | None,
-                        getattr(self.coordinator, "_log", None),
-                    )
-                    if log_fn:
-                        try:
-                            await log_fn(
-                                f"[LEARNING_CONTAMINATION] zone={zone} action=discard_all "
-                                f"contaminated_by={contaminated_changes}"
-                            )
-                        except (AttributeError, TypeError, ValueError):
-                            pass
-                    await self._reset_learning_state_async()
-                    return LearningResult(
-                        False,
-                        error_message=f"Learning contaminated by zone changes: {contaminated_changes}",
-                    )
-                elif peak_valid and not stabilization_valid:
-                    # Peak is valid but stabilization is contaminated - use peak only
-                    _LOGGER.warning(
-                        f"Using peak power for {zone} but discarding stabilization due to contamination "
-                        f"from zone changes during learning: {contaminated_changes}"
-                    )
-                    # Also log to coordinator for logbook visibility
-                    log_fn = cast(
-                        Callable[[str], Awaitable[None]] | None,
-                        getattr(self.coordinator, "_log", None),
-                    )
-                    if log_fn:
-                        try:
-                            await log_fn(
-                                f"[LEARNING_CONTAMINATION] zone={zone} action=use_peak_only "
-                                f"contaminated_by={contaminated_changes}"
-                            )
-                        except (AttributeError, TypeError, ValueError):
-                            pass
-                elif not peak_valid and stabilization_valid:
-                    # This shouldn't happen with current logic, but handle it
-                    _LOGGER.warning(
-                        f"Peak invalid but stabilization valid for {zone} - using stabilization"
-                    )
-                    # Also log to coordinator for logbook visibility
-                    log_fn = cast(
-                        Callable[[str], Awaitable[None]] | None,
-                        getattr(self.coordinator, "_log", None),
-                    )
-                    if log_fn:
-                        try:
-                            await log_fn(
-                                f"[LEARNING_CONTAMINATION] zone={zone} action=use_stabilization "
-                                f"contaminated_by={contaminated_changes}"
-                            )
-                        except (AttributeError, TypeError, ValueError):
-                            pass
-
-            # Get peak power from smart phase detection
-            peak_power = await self.session.get_peak_power()
-            stabilized_power = await self.session.get_stabilized_power()
-
-            # Determine which values are valid based on contamination timing
-            peak_valid = await self.session.is_peak_valid()
-            stabilization_valid = await self.session.is_stabilization_valid()
-
-            # Calculate learned power: average of valid measurements, or use whichever is available
-            learned_power: float | None = None
-            if (
-                peak_valid
-                and peak_power > 0
-                and stabilization_valid
-                and stabilized_power > 0
-            ):
-                # Both valid: use average for balanced estimate
-                learned_power = (peak_power + stabilized_power) / 2
-                _LOGGER.debug(
-                    f"Using average of peak ({peak_power}W) and stabilized ({stabilized_power}W) = {learned_power}W for {zone}"
-                )
-            elif peak_valid and peak_power > 0:
-                learned_power = peak_power
-                _LOGGER.debug(f"Using valid peak power: {learned_power}W for {zone}")
-            elif stabilization_valid and stabilized_power > 0:
-                learned_power = stabilized_power
-                _LOGGER.debug(
-                    f"Using valid stabilized power: {learned_power}W for {zone}"
-                )
-            else:
-                learned_power = peak_power if peak_power > 0 else stabilized_power
-
-            if learned_power <= 0:
-                # Fallback to EMA if phase detection failed
-                ema = getattr(self.coordinator, "ema_30s", None)
-                try:
-                    learned_power = float(ema) if ema is not None else None
-                except (TypeError, ValueError):
-                    learned_power = None
-
-            if learned_power is None or learned_power <= 0:
-                _LOGGER.debug(
-                    "Unable to determine learned power from phase detection or EMA"
-                )
-                await self._reset_learning_state_async()
-                return LearningResult(
-                    False, error_message="Unable to determine learned power"
-                )
-
-            assert (
-                learned_power is not None
-            )  # At this point, learned_power is guaranteed to be a float
-
-            ac_before = getattr(self.coordinator, "ac_power_before", None)
-            if ac_before is None:
-                _LOGGER.debug("No baseline power available for learning")
-                await self._reset_learning_state_async()
-                return LearningResult(
-                    False, error_message="No baseline power available"
-                )
-
-            # Calculate deltas for peak and stabilized power
-            peak_delta = (
-                (peak_power - ac_before) if peak_valid and peak_power > 0 else None
+            # Snapshot everything needed for the rest of this method.
+            learning_contaminated = self.session._learning_contaminated
+            contaminated_changes = list(self.session._zones_changed_during_learning)
+            peak_detected = self.session._peak_detected
+            peak_detection_timestamp = self.session._peak_detection_timestamp
+            contamination_timestamp = self.session._contamination_timestamp
+            stabilized_detected = self.session._stabilized_detected
+            stabilization_timestamp = self.session._stabilization_timestamp
+            peak_power = self.session._peak_power if peak_detected else 0.0
+            stabilized_power = (
+                self.session._stabilized_power if stabilized_detected else 0.0
             )
-            stabilized_delta = (
-                (stabilized_power - ac_before)
-                if stabilization_valid and stabilized_power > 0
-                else None
+            time_to_peak = self.session._time_to_peak
+        # Lock is released here — all subsequent operations are lock-free.
+
+        # Compute validity from the snapshot (mirrors is_peak_valid / is_stabilization_valid).
+        def _peak_valid() -> bool:
+            if not peak_detected:
+                return False
+            if not learning_contaminated:
+                return True
+            return (
+                peak_detection_timestamp is not None
+                and contamination_timestamp is not None
+                and peak_detection_timestamp < contamination_timestamp
             )
 
-            # Calculate delta (learned power - baseline)
-            try:
-                delta = abs(float(learned_power) - float(ac_before))
-            except (ValueError, TypeError):
-                _LOGGER.debug("Failed to compute power delta")
-                await self._reset_learning_state_async()
-                return LearningResult(
-                    False, error_message="Failed to compute power delta"
-                )
-
-            # Smart bounds checking - focus on peak power but allow reasonable ranges
-            zone_name = zone.split(".")[-1]
-
-            # Absolute bounds (keep existing protection)
-            MIN_W = 200.0  # From const.LEARNING_MIN_POWER_W
-            MAX_W = 3000.0  # From const.LEARNING_MAX_POWER_W
-
-            if not (MIN_W <= delta <= MAX_W):
-                _LOGGER.debug(
-                    "Discarding outlier sample for %s: %sW outside [%s,%s]",
-                    zone_name,
-                    delta,
-                    MIN_W,
-                    MAX_W,
-                )
-                await self._reset_learning_state_async()
-                return LearningResult(
-                    False, error_message=f"Power delta {delta}W outside valid range"
-                )
-
-            # Get zone mode for learning
-            zone_state_obj = self.hass.states.get(zone)
-            mode = None
-            if zone_state_obj:
-                hvac_mode = zone_state_obj.attributes.get(
-                    "hvac_mode"
-                ) or zone_state_obj.attributes.get("hvac_action")
-                if isinstance(hvac_mode, str):
-                    if "heat" in hvac_mode:
-                        mode = "heat"
-                    elif "cool" in hvac_mode:
-                        mode = "cool"
-                else:
-                    if zone_state_obj.state == "heat":
-                        mode = "heat"
-                    elif zone_state_obj.state == "cool":
-                        mode = "cool"
-
-            # Classify the learning session based on baseline power
-            category = None
-            if ac_before < 50.0:
-                category = "lead"  # Compressor was OFF
-            elif ac_before > 150.0:
-                category = "extension"  # Compressor was already ON
-
-            if category is None:
-                _LOGGER.debug(
-                    "Skipping learning save: ac_before=%sW not in classification range",
-                    ac_before,
-                )
-                await self._reset_learning_state_async()
-                return LearningResult(
-                    False, error_message=f"Baseline power {ac_before}W not classifiable"
-                )
-
-            # Save the learned power
-            time_to_peak = await self.session.get_time_to_peak()
-            set_lp = getattr(self.coordinator, "set_learned_power", None)
-            persist_fn = cast(
-                Callable[[], Awaitable[None]] | None,
-                getattr(self.coordinator, "async_persist_learned_values", None),
+        def _stabilization_valid() -> bool:
+            if not stabilized_detected:
+                return False
+            if not learning_contaminated:
+                return True
+            return (
+                stabilization_timestamp is not None
+                and contamination_timestamp is not None
+                and stabilization_timestamp < contamination_timestamp
             )
-            if not (set_lp and callable(set_lp)) or not persist_fn:
-                _LOGGER.error(
-                    "Coordinator missing required persistence API; aborting learning save"
-                )
-                await self._reset_learning_state_async()
-                return LearningResult(
-                    False, error_message="Coordinator missing persistence API"
-                )
 
-            try:
-                set_lp(
-                    zone_name,
-                    float(delta),
-                    mode=mode,
-                    category=category,
-                    time_to_peak=time_to_peak,
-                    peak_delta=peak_delta,
-                    stabilized_delta=stabilized_delta,
-                )
-                self.coordinator.samples = (
-                    int(getattr(self.coordinator, "samples", 0) or 0) + 1
-                )
-                await persist_fn()
-                _LOGGER.info(
-                    "Finished learning: zone=%s mode=%s category=%s delta=%s samples=%s (peak_delta: %sW, stabilized_delta: %sW, time_to_peak: %ss)",
-                    zone,
-                    mode or "default",
-                    category,
-                    round(delta, 2),
-                    self.coordinator.samples,
-                    round(peak_delta, 2) if peak_delta is not None else "N/A",
-                    (
-                        round(stabilized_delta, 2)
-                        if stabilized_delta is not None
-                        else "N/A"
-                    ),
-                    round(time_to_peak, 2) if time_to_peak is not None else "N/A",
-                )
+        peak_valid = _peak_valid()
+        stabilization_valid = _stabilization_valid()
 
-                # Enhanced logging for learning completion
+        # Check for learning contamination (other zones changed during learning)
+        if learning_contaminated:
+            if not peak_valid and not stabilization_valid:
+                # Neither peak nor stabilization is valid - discard everything
+                _LOGGER.warning(
+                    f"Discarding all learning results for {zone} due to contamination "
+                    f"from zone changes during learning: {contaminated_changes}"
+                )
+                # Also log to coordinator for logbook visibility
                 log_fn = cast(
                     Callable[[str], Awaitable[None]] | None,
                     getattr(self.coordinator, "_log", None),
@@ -553,36 +357,253 @@ class SolarACController:
                 if log_fn:
                     try:
                         await log_fn(
-                            f"[LEARNING_COMPLETE] zone={zone} mode={mode or 'default'} category={category} "
-                            f"ac_before={round(ac_before, 2)}W learned_power={round(learned_power, 2)}W "
-                            f"delta={round(delta, 2)}W samples={self.coordinator.samples} "
-                            f"peak_delta={round(peak_delta, 2) if peak_delta is not None else 'N/A'}W "
-                            f"stabilized_delta={round(stabilized_delta, 2) if stabilized_delta is not None else 'N/A'}W "
-                            f"time_to_peak={round(time_to_peak, 2) if time_to_peak is not None else 'N/A'}s"
+                            f"[LEARNING_CONTAMINATION] zone={zone} action=discard_all "
+                            f"contaminated_by={contaminated_changes}"
                         )
-                    except (AttributeError, TypeError, ValueError) as exc2:
-                        _LOGGER.exception(
-                            "Failed to write learning completion to coordinator log: %s",
-                            exc2,
-                        )
-                await self.session.end_session()
-                return LearningResult(True, delta)
-            except (ValueError, TypeError, AttributeError, KeyError) as exc:
-                _LOGGER.exception("Error finishing learning for %s: %s", zone, exc)
+                    except (AttributeError, TypeError, ValueError):
+                        pass
+                await self._reset_learning_state_async()
+                return LearningResult(
+                    False,
+                    error_message=f"Learning contaminated by zone changes: {contaminated_changes}",
+                )
+            elif peak_valid and not stabilization_valid:
+                # Peak is valid but stabilization is contaminated - use peak only
+                _LOGGER.warning(
+                    f"Using peak power for {zone} but discarding stabilization due to contamination "
+                    f"from zone changes during learning: {contaminated_changes}"
+                )
+                # Also log to coordinator for logbook visibility
                 log_fn = cast(
                     Callable[[str], Awaitable[None]] | None,
                     getattr(self.coordinator, "_log", None),
                 )
                 if log_fn:
                     try:
-                        await log_fn(f"[LEARNING_SAVE_ERROR] zone={zone} err={exc}")
-                    except (AttributeError, TypeError, ValueError) as exc2:
-                        _LOGGER.exception(
-                            "Failed to write learning error to coordinator log: %s",
-                            exc2,
+                        await log_fn(
+                            f"[LEARNING_CONTAMINATION] zone={zone} action=use_peak_only "
+                            f"contaminated_by={contaminated_changes}"
                         )
-                await self._reset_learning_state_async()
-                return LearningResult(False, error_message=str(exc))
+                    except (AttributeError, TypeError, ValueError):
+                        pass
+            elif not peak_valid and stabilization_valid:
+                # This shouldn't happen with current logic, but handle it
+                _LOGGER.warning(
+                    f"Peak invalid but stabilization valid for {zone} - using stabilization"
+                )
+                # Also log to coordinator for logbook visibility
+                log_fn = cast(
+                    Callable[[str], Awaitable[None]] | None,
+                    getattr(self.coordinator, "_log", None),
+                )
+                if log_fn:
+                    try:
+                        await log_fn(
+                            f"[LEARNING_CONTAMINATION] zone={zone} action=use_stabilization "
+                            f"contaminated_by={contaminated_changes}"
+                        )
+                    except (AttributeError, TypeError, ValueError):
+                        pass
+
+        # Calculate learned power: average of valid measurements, or use whichever is available
+        learned_power: float | None = None
+        if (
+            peak_valid
+            and peak_power > 0
+            and stabilization_valid
+            and stabilized_power > 0
+        ):
+            # Both valid: use average for balanced estimate
+            learned_power = (peak_power + stabilized_power) / 2
+            _LOGGER.debug(
+                f"Using average of peak ({peak_power}W) and stabilized ({stabilized_power}W) = {learned_power}W for {zone}"
+            )
+        elif peak_valid and peak_power > 0:
+            learned_power = peak_power
+            _LOGGER.debug(f"Using valid peak power: {learned_power}W for {zone}")
+        elif stabilization_valid and stabilized_power > 0:
+            learned_power = stabilized_power
+            _LOGGER.debug(f"Using valid stabilized power: {learned_power}W for {zone}")
+        else:
+            learned_power = peak_power if peak_power > 0 else stabilized_power
+
+        if learned_power <= 0:
+            # Fallback to EMA if phase detection failed
+            ema = getattr(self.coordinator, "ema_30s", None)
+            try:
+                learned_power = float(ema) if ema is not None else None
+            except (TypeError, ValueError):
+                learned_power = None
+
+        if learned_power is None or learned_power <= 0:
+            _LOGGER.debug(
+                "Unable to determine learned power from phase detection or EMA"
+            )
+            await self._reset_learning_state_async()
+            return LearningResult(
+                False, error_message="Unable to determine learned power"
+            )
+
+        assert (
+            learned_power is not None
+        )  # At this point, learned_power is guaranteed to be a float
+
+        ac_before = getattr(self.coordinator, "ac_power_before", None)
+        if ac_before is None:
+            _LOGGER.debug("No baseline power available for learning")
+            await self._reset_learning_state_async()
+            return LearningResult(False, error_message="No baseline power available")
+
+        # Calculate deltas for peak and stabilized power
+        peak_delta = (peak_power - ac_before) if peak_valid and peak_power > 0 else None
+        stabilized_delta = (
+            (stabilized_power - ac_before)
+            if stabilization_valid and stabilized_power > 0
+            else None
+        )
+
+        # Calculate delta (learned power - baseline)
+        try:
+            delta = abs(float(learned_power) - float(ac_before))
+        except (ValueError, TypeError):
+            _LOGGER.debug("Failed to compute power delta")
+            await self._reset_learning_state_async()
+            return LearningResult(False, error_message="Failed to compute power delta")
+
+        # Smart bounds checking - focus on peak power but allow reasonable ranges
+        zone_name = zone.split(".")[-1]
+
+        # Absolute bounds (keep existing protection)
+        MIN_W = 200.0  # From const.LEARNING_MIN_POWER_W
+        MAX_W = 3000.0  # From const.LEARNING_MAX_POWER_W
+
+        if not (MIN_W <= delta <= MAX_W):
+            _LOGGER.debug(
+                "Discarding outlier sample for %s: %sW outside [%s,%s]",
+                zone_name,
+                delta,
+                MIN_W,
+                MAX_W,
+            )
+            await self._reset_learning_state_async()
+            return LearningResult(
+                False, error_message=f"Power delta {delta}W outside valid range"
+            )
+
+        # Get zone mode for learning
+        zone_state_obj = self.hass.states.get(zone)
+        mode = None
+        if zone_state_obj:
+            hvac_mode = zone_state_obj.attributes.get(
+                "hvac_mode"
+            ) or zone_state_obj.attributes.get("hvac_action")
+            if isinstance(hvac_mode, str):
+                if "heat" in hvac_mode:
+                    mode = "heat"
+                elif "cool" in hvac_mode:
+                    mode = "cool"
+            else:
+                if zone_state_obj.state == "heat":
+                    mode = "heat"
+                elif zone_state_obj.state == "cool":
+                    mode = "cool"
+
+        # Classify the learning session based on baseline power
+        category = None
+        if ac_before < 50.0:
+            category = "lead"  # Compressor was OFF
+        elif ac_before > 150.0:
+            category = "extension"  # Compressor was already ON
+
+        if category is None:
+            _LOGGER.debug(
+                "Skipping learning save: ac_before=%sW not in classification range",
+                ac_before,
+            )
+            await self._reset_learning_state_async()
+            return LearningResult(
+                False, error_message=f"Baseline power {ac_before}W not classifiable"
+            )
+
+        # time_to_peak was already snapshotted from session state under the lock above.
+        set_lp = getattr(self.coordinator, "set_learned_power", None)
+        persist_fn = cast(
+            Callable[[], Awaitable[None]] | None,
+            getattr(self.coordinator, "async_persist_learned_values", None),
+        )
+        if not (set_lp and callable(set_lp)) or not persist_fn:
+            _LOGGER.error(
+                "Coordinator missing required persistence API; aborting learning save"
+            )
+            await self._reset_learning_state_async()
+            return LearningResult(
+                False, error_message="Coordinator missing persistence API"
+            )
+
+        try:
+            set_lp(
+                zone_name,
+                float(delta),
+                mode=mode,
+                category=category,
+                time_to_peak=time_to_peak,
+                peak_delta=peak_delta,
+                stabilized_delta=stabilized_delta,
+            )
+            self.coordinator.samples = (
+                int(getattr(self.coordinator, "samples", 0) or 0) + 1
+            )
+            await persist_fn()
+            _LOGGER.info(
+                "Finished learning: zone=%s mode=%s category=%s delta=%s samples=%s (peak_delta: %sW, stabilized_delta: %sW, time_to_peak: %ss)",
+                zone,
+                mode or "default",
+                category,
+                round(delta, 2),
+                self.coordinator.samples,
+                round(peak_delta, 2) if peak_delta is not None else "N/A",
+                (round(stabilized_delta, 2) if stabilized_delta is not None else "N/A"),
+                round(time_to_peak, 2) if time_to_peak is not None else "N/A",
+            )
+
+            # Enhanced logging for learning completion
+            log_fn = cast(
+                Callable[[str], Awaitable[None]] | None,
+                getattr(self.coordinator, "_log", None),
+            )
+            if log_fn:
+                try:
+                    await log_fn(
+                        f"[LEARNING_COMPLETE] zone={zone} mode={mode or 'default'} category={category} "
+                        f"ac_before={round(ac_before, 2)}W learned_power={round(learned_power, 2)}W "
+                        f"delta={round(delta, 2)}W samples={self.coordinator.samples} "
+                        f"peak_delta={round(peak_delta, 2) if peak_delta is not None else 'N/A'}W "
+                        f"stabilized_delta={round(stabilized_delta, 2) if stabilized_delta is not None else 'N/A'}W "
+                        f"time_to_peak={round(time_to_peak, 2) if time_to_peak is not None else 'N/A'}s"
+                    )
+                except (AttributeError, TypeError, ValueError) as exc2:
+                    _LOGGER.exception(
+                        "Failed to write learning completion to coordinator log: %s",
+                        exc2,
+                    )
+            await self.session.end_session()
+            return LearningResult(True, delta)
+        except (ValueError, TypeError, AttributeError, KeyError) as exc:
+            _LOGGER.exception("Error finishing learning for %s: %s", zone, exc)
+            log_fn = cast(
+                Callable[[str], Awaitable[None]] | None,
+                getattr(self.coordinator, "_log", None),
+            )
+            if log_fn:
+                try:
+                    await log_fn(f"[LEARNING_SAVE_ERROR] zone={zone} err={exc}")
+                except (AttributeError, TypeError, ValueError) as exc2:
+                    _LOGGER.exception(
+                        "Failed to write learning error to coordinator log: %s",
+                        exc2,
+                    )
+            await self._reset_learning_state_async()
+            return LearningResult(False, error_message=str(exc))
 
     async def _save(self) -> None:
         persist_fn = cast(

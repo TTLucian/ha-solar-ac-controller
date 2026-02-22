@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, cast
 
 from homeassistant.util import dt as dt_util
 
-from .const import CONF_ZONES
+from .const import CONF_ZONES, MANUAL_OVERRIDE_DETECTION_WINDOW
 
 if TYPE_CHECKING:
     from .coordinator import SolarACCoordinator
@@ -41,16 +41,21 @@ class ZoneManager:
             state = state_obj.state
             last_state = self.coordinator.zone_last_state.get(zone)
 
-            # Manual override detection
+            # Manual override detection.
+            # A state change is only a manual override if it occurs outside the
+            # per-zone coordinator grace window.  zone_last_changed[zone] is
+            # updated atomically every time the coordinator issues a command to
+            # that zone (add_zone / remove_zone / panic_shed / call_entity_service),
+            # so it is immune to last_action drifting to "balanced" or any other
+            # unrelated state while a slow climate entity is still catching up.
             if last_state is not None and last_state != state:
-                if not (
-                    self.coordinator.last_action
-                    and (
-                        self.coordinator.last_action.endswith(zone)
-                        or self.coordinator.last_action == "panic"
-                    )
-                ):
-                    now_ts = dt_util.utcnow().timestamp()
+                now_ts = dt_util.utcnow().timestamp()
+                last_cmd_ts = self.coordinator.zone_last_changed.get(zone, 0.0)
+                within_grace = (
+                    now_ts - last_cmd_ts
+                ) <= MANUAL_OVERRIDE_DETECTION_WINDOW
+                is_panic = self.coordinator.last_action == "panic"
+                if not within_grace and not is_panic:
                     self.coordinator.zone_manual_lock_until[zone] = (
                         now_ts + self.coordinator.manual_lock_seconds
                     )
@@ -251,7 +256,9 @@ class ZoneManager:
         elif self.coordinator.season_mode == "cool":
             return current_temp <= self.coordinator.min_temp_summer
 
-        return bool(True)  # Shouldn't reach here, but don't block by default
+        # Unknown/future season_mode: treat zone as NOT at target (conservative –
+        # keeps zones running rather than flagging everything for removal).
+        return False
 
     def is_zone_at_target_stable(self, zone: str) -> bool:
         """
@@ -274,7 +281,8 @@ class ZoneManager:
             margin = DECISION_ZONE_TEMP_MARGIN
             return ema_temp <= target + margin
 
-        return bool(True)
+        # Unknown/future season_mode: conservative fallback – not at target.
+        return False
 
     def does_zone_need_heating(self, zone: str) -> bool:
         """

@@ -37,8 +37,11 @@ async def test_async_persist_learned_values_saves_rounded_values():
     coord._last_storage_save = 0.0
     coord._storage_debounce_seconds = 5.0
 
-    # Learned power with floats and nested dict
-    coord.learned_power = {"zone1": {"default": 123.6, "heat": 200.9}, "zone2": 45.2}
+    # Learned power with proper TypedDict structure
+    coord.learned_power = {
+        "zone1": {"default": 123.6, "heat": 200.9, "cool": 150.0, "lead_delta": 0.0},
+        "zone2": {"default": 45.2, "heat": 45.2, "cool": 45.2, "lead_delta": 0.0},
+    }
     coord.samples = 7
 
     # Circuit breaker allows operation
@@ -74,7 +77,7 @@ async def test_async_persist_learned_values_saves_rounded_values():
     assert isinstance(mock_store.saved, dict)
     assert mock_store.saved["learned_power"]["zone1"]["default"] == 124
     assert mock_store.saved["learned_power"]["zone1"]["heat"] == 201
-    assert mock_store.saved["learned_power"]["zone2"] == 45
+    assert mock_store.saved["learned_power"]["zone2"]["default"] == 45
     assert mock_store.saved["samples"] == 7
     # Coordinator should clear dirty flag after successful save
     assert coord._storage_dirty is False

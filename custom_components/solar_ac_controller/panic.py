@@ -37,7 +37,7 @@ class PanicManager:
         # Use on_count from coordinator if available, else default to 2
         on_count = getattr(self.coordinator, "on_count", 2)
         return (
-            self.coordinator.ema_30s > self.coordinator.panic_threshold and on_count > 1
+            self.coordinator.ema_30s > self.coordinator.panic_threshold and on_count > 0
         )
 
     @property
@@ -100,9 +100,17 @@ class PanicManager:
                 )
 
     async def _panic_shed(self, active_zones: list[str]) -> None:
-        """Shed all but the first active zone during panic."""
+        """Shed zones during panic.
+
+        Multi-zone: keep the first zone running, remove the rest.
+        Single-zone: remove the only zone — there is nothing safe to keep on.
+        """
         start = dt_util.utcnow().timestamp()
-        for zone in active_zones[1:]:
+        # With multiple zones we preserve the first (lowest-index) zone as a
+        # minimum load.  With only one zone active there is nothing to fall back
+        # to, so that zone must be shed as well.
+        zones_to_shed = active_zones[1:] if len(active_zones) > 1 else active_zones
+        for zone in zones_to_shed:
             await self.coordinator.action_executor.call_entity_service(zone, False)
             # Notify learning session of panic removal (for contamination detection)
             await self.coordinator.controller.session.notify_zone_changed_during_learning(

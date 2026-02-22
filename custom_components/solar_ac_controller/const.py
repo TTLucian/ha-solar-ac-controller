@@ -134,6 +134,18 @@ BALANCED_LOG_INTERVAL_SECONDS = 600
 # Stale tracking data cleanup interval (seconds)
 STALE_TRACKING_CLEANUP_INTERVAL_SECONDS = 3600
 
+# Idle compressor power learning
+# When all zones are off and the compressor switch is on we sample ac_power
+# to build an EMA of the standby/idle draw (fan, control board, etc.).
+IDLE_POWER_EMA_ALPHA = 0.05  # Slow alpha – idle draw is physically stable
+IDLE_POWER_MAX_W = 50.0  # Samples above this are rejected (zone still active)
+IDLE_POWER_SETTLE_SECONDS = 120  # Wait 2 min after last zone-off before sampling
+IDLE_POWER_MIN_SAMPLES = 6  # ~1 min of data required before value is trusted
+SPINDOWN_THRESHOLD_W = 30.0  # ac_power − idle > this → compressor still spinning down
+STRAY_ZONE_THRESHOLD_W = (
+    80.0  # ac_power − idle > this with 0 zones → stray zone warning
+)
+
 # Comfort temperature targets (C) - 0.1 increment precision
 DEFAULT_MAX_TEMP_WINTER = 21.0
 DEFAULT_MIN_TEMP_SUMMER = 21.0

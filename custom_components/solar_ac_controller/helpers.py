@@ -6,8 +6,10 @@ from typing import Any, Dict, List, cast
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    IDLE_POWER_MIN_SAMPLES,
     MANUAL_OVERRIDE_DETECTION_WINDOW,
     MASTER_SWITCH_COMMAND_GRACE_PERIOD,
+    SPINDOWN_THRESHOLD_W,
 )
 
 
@@ -60,7 +62,9 @@ class MasterSwitchController:
     def __init__(self, coordinator: Any) -> None:
         self.coordinator = coordinator
 
-    async def handle_master_switch(self, solar: float, cycle_start: Any) -> None:
+    async def handle_master_switch(
+        self, solar: float, cycle_start: Any, ac_power: float | None = None
+    ) -> None:
         """Master relay control with sticky manual lock until natural solar cycle aligns."""
         ac_switch = self.coordinator.config_manager.get("ac_switch")
         if not ac_switch:
@@ -113,7 +117,6 @@ class MasterSwitchController:
             self.coordinator.master_last_state is not None
             and switch_state != self.coordinator.master_last_state
         ):
-            now = dt_util.utcnow().timestamp()
             # If no recent coordinator action (within 10s), it's a manual change
             if (
                 self.coordinator.master_last_action_time is None
@@ -180,6 +183,27 @@ class MasterSwitchController:
 
         # Turn OFF when solar is below or equal to OFF threshold
         if solar <= off_threshold and effective_state == "on":
+            # Spindown guard: if ac_power is still well above the learned idle baseline,
+            # the compressor is still spinning down from a recently stopped zone.
+            # Cutting mains power now risks damaging the compressor.  Defer the OFF
+            # command until power settles or the guard is overridden next cycle.
+            if ac_power is not None:
+                _idle = getattr(self.coordinator, "learned_idle_power", 0.0)
+                _n = getattr(self.coordinator, "idle_power_samples", 0)
+                if (
+                    _n >= IDLE_POWER_MIN_SAMPLES
+                    and _idle > 0.0
+                    and ac_power > _idle + SPINDOWN_THRESHOLD_W
+                ):
+                    await self.coordinator._log(
+                        f"[SPINDOWN_GUARD] Deferring master OFF: "
+                        f"ac_power={round(ac_power)}W is "
+                        f"{round(ac_power - _idle)}W above idle baseline "
+                        f"({round(_idle, 1)}W) – compressor still spinning down",
+                        "info",
+                    )
+                    return
+
             await self.coordinator._log(
                 f"[MASTER_OFF_TRIGGER] solar={round(solar)}W <= threshold_off={off_threshold}W, "
                 f"turning AC master switch OFF"

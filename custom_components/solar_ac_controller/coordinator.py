@@ -59,15 +59,20 @@ from .const import (
     EMA_10M_ALPHA,
     EMA_30S_ALPHA,
     EMA_RESET_AFTER_OFF_SECONDS,
+    IDLE_POWER_EMA_ALPHA,
+    IDLE_POWER_MAX_W,
+    IDLE_POWER_MIN_SAMPLES,
+    IDLE_POWER_SETTLE_SECONDS,
     LEARNING_TIMEOUT_SECONDS,
     LOGBOOK_THROTTLE_SECONDS,
     PANIC_COOLDOWN_SECONDS,
     STALE_TRACKING_CLEANUP_INTERVAL_SECONDS,
+    STRAY_ZONE_THRESHOLD_W,
     ZONE_SWAP_MIN_INTERVAL_SECONDS,
 )
 from .decisions import DecisionEngine
 from .exceptions import SensorInvalidError, SensorUnavailableError, StorageError
-from .helpers import EmaTracker, MasterSwitchController
+from .helpers import EmaTracker, MasterSwitchController, calculate_ema
 from .metrics import MetricsCollector
 from .panic import PanicManager
 from .storage_circuit_breaker import StorageCircuitBreaker
@@ -119,7 +124,9 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         "zone_current_temps",
         "zone_last_changed_type",
         "zone_last_state",
-        "zone_priorities",
+        # zone_priorities is intentionally excluded: it is keyed on short names
+        # (zone.split('.')[-1]) not full entity IDs, so it must be cleaned up
+        # separately in _cleanup_stale_tracking_data.
     ]
 
     async def async_set_integration_enabled(self, enabled: bool) -> None:
@@ -437,6 +444,10 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         self.last_add_breakdown: dict = {}
         self.last_remove_breakdown: dict = {}
 
+        # Idle compressor power learning
+        self.learned_idle_power: float = 0.0  # EMA of standby draw when no zones are on
+        self.idle_power_samples: int = 0  # Number of samples collected
+
         # Temperature stability tracking for zone swapping
         self.temp_ema_10m: dict[str, float] = {}  # zone -> 10min EMA temperature
         self.zone_last_swap_time: dict[str, float] = {}  # zone -> last swap timestamp
@@ -640,6 +651,10 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         self.learned_power: LearnedPowerData = {}
         self.samples = int(raw_samples)
 
+        # Idle compressor power (persisted across restarts)
+        self.learned_idle_power = float(stored.get("idle_power", 0.0) or 0.0)
+        self.idle_power_samples = int(stored.get("idle_power_samples", 0) or 0)
+
         # Since we're starting fresh, just ensure data matches our TypedDict
         if isinstance(raw_learned, dict):
             for zone_name, val in raw_learned.items():
@@ -783,6 +798,8 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                     self.learned_power
                 )
                 self.stored_data["samples"] = int(self.samples)
+                self.stored_data["idle_power"] = round(self.learned_idle_power, 1)
+                self.stored_data["idle_power_samples"] = int(self.idle_power_samples)
                 self._storage_dirty = True
             await self._debounced_save()
         except (asyncio.CancelledError, OSError, ValueError) as exc:
@@ -1265,20 +1282,18 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                         if self._cycle_counter % 100 == 0:
                             self._cleanup_sensor_tracking()
 
-                        # EMA updates
+                        # 2. EMA updates
                         self._update_ema(grid_raw)
 
-                        # 2. Master switch auto-control (based ONLY on solar production)
+                        # 3. Master switch auto-control (based ONLY on solar production)
                         await self.master_controller.handle_master_switch(
-                            solar, cycle_start
+                            solar, cycle_start, ac_power=ac_power
                         )
 
-                        # 3. Update zone temperatures for comfort target checking
+                        # 4. Update zone temperatures for comfort target checking
                         self._read_zone_temps()
 
-                        # 5. EMA updates
-
-                        # 6. Determine zones and detect manual overrides
+                        # 5. Determine zones and detect manual overrides
                         if (
                             not hasattr(self, "zone_manager")
                             or self.zone_manager is None
@@ -1299,7 +1314,60 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                         # Store active zones for decision engine
                         self.active_zones = active_zones
 
-                        # 7. Compute required export and confidences
+                        # 5.5 Idle power learning and stray zone detection
+                        # Runs only when no zones are active so we measure pure standby draw.
+                        if not active_zones:
+                            _ac_switch_id = self.config_manager.get(CONF_AC_SWITCH)
+                            _switch_on = False
+                            if _ac_switch_id:
+                                _sw = self.hass.states.get(_ac_switch_id)
+                                _switch_on = _sw is not None and _sw.state == "on"
+                            if _switch_on and ac_power is not None and ac_power > 0:
+                                _now_idle = dt_util.utcnow().timestamp()
+                                _last_zone_ts = (
+                                    max(self.zone_last_changed.values())
+                                    if self.zone_last_changed
+                                    else 0.0
+                                )
+                                _settled = (
+                                    _now_idle - _last_zone_ts
+                                ) >= IDLE_POWER_SETTLE_SECONDS
+                                if _settled and ac_power <= IDLE_POWER_MAX_W:
+                                    # Update the idle-power EMA
+                                    if self.idle_power_samples == 0:
+                                        self.learned_idle_power = float(ac_power)
+                                    else:
+                                        self.learned_idle_power = calculate_ema(
+                                            self.learned_idle_power,
+                                            float(ac_power),
+                                            IDLE_POWER_EMA_ALPHA,
+                                        )
+                                    self.idle_power_samples += 1
+                                    if self.idle_power_samples % 30 == 0:
+                                        await self._log(
+                                            f"[IDLE_POWER] Updated baseline: "
+                                            f"{round(self.learned_idle_power, 1)}W "
+                                            f"(n={self.idle_power_samples})",
+                                            "debug",
+                                        )
+                                # Stray zone detection: ac_power well above idle with no active zones.
+                                # Only warn once the baseline is trusted (enough samples).
+                                if (
+                                    self.idle_power_samples >= IDLE_POWER_MIN_SAMPLES
+                                    and ac_power
+                                    > self.learned_idle_power + STRAY_ZONE_THRESHOLD_W
+                                ):
+                                    await self._log(
+                                        f"[STRAY_ZONE] No zones active but "
+                                        f"ac_power={round(ac_power)}W is "
+                                        f"{round(ac_power - self.learned_idle_power)}W "
+                                        f"above idle baseline "
+                                        f"({round(self.learned_idle_power, 1)}W). "
+                                        f"A zone may have failed to turn off.",
+                                        "warning",
+                                    )
+
+                        # 6. Compute required export and confidences
                         next_zone, last_zone = (
                             await self.zone_manager.select_next_and_last_zone(
                                 active_zones
@@ -1404,7 +1472,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
 
                         now_ts = dt_util.utcnow().timestamp()
 
-                        # 8. Learning timeout
+                        # 7. Learning timeout
                         learning_zone = await self.controller.session.get_zone()
                         learning_start_time = (
                             await self.controller.session.get_start_time()
@@ -1430,13 +1498,15 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                                 )
                             return
 
-                        # 9. Panic logic
+                        # 8. Panic logic
                         if self.panic_manager.should_panic:
-                            self.note = "Panic triggered: grid import exceeded threshold with multiple zones active."
+                            self.note = (
+                                "Panic triggered: grid import exceeded threshold."
+                            )
                             await self.panic_manager.schedule_panic(active_zones)
                             return
 
-                        # 10. Panic cooldown
+                        # 9. Panic cooldown
                         if self.panic_manager.is_in_cooldown:
                             async with self._state_lock:
                                 self.last_action = "panic_cooldown"
@@ -1457,7 +1527,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                             )
                             return
 
-                        # 11. ADD zone decision
+                        # 10. ADD zone decision
                         if next_zone and await self.decision_engine.should_add_zone(
                             next_zone,
                             required_export if required_export is not None else 0.0,
@@ -1504,7 +1574,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                             )
                             return
 
-                        # 11.5. ZONE SWAP decision (only when no net add/remove needed)
+                        # 12. ZONE SWAP decision (only when no net add/remove needed)
                         # Sort active zones by reverse priority (remove lowest priority satisfied zones first)
                         for active_zone in sorted(
                             active_zones,
@@ -1520,7 +1590,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                                 await self._perform_zone_swap(active_zone, zone_to_add)
                                 return
 
-                        # 12. SYSTEM BALANCED
+                        # 13. SYSTEM BALANCED
                         async with self._state_lock:
                             self.last_action = "balanced"
                         self.note = f"No action: system balanced. ema30={round(self.ema_30s)}, ema5m={round(self.ema_5m)}, zones={on_count}, samples={self.samples}"
@@ -1558,7 +1628,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
 
                             msg = (
                                 f"[SYSTEM_BALANCED] grid={round(self.ema_30s)}W "
-                                f"solar={round(self.ema_30s + self.ema_5m)}W "
+                                f"solar={round(solar)}W "
                                 f"ema30s={round(self.ema_30s)}W ema5m={round(self.ema_5m)}W "
                                 f"active_zones={on_count} zones=[{zones_str}] "
                                 f"unified_conf={round(self.confidence,2)} "
@@ -1793,6 +1863,24 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         except (asyncio.CancelledError, AttributeError) as exc:
             _LOGGER.debug("Error while cancelling panic during freeze cleanup: %s", exc)
 
+        # Turn off all active zones – this is the primary safety action of a freeze
+        zones_to_turn_off = list(self.active_zones or [])
+        if zones_to_turn_off:
+            await self._log(
+                f"[FREEZE_CLEANUP] Turning off {len(zones_to_turn_off)} active zone(s): "
+                f"{', '.join(z.split('.')[-1] for z in zones_to_turn_off)}"
+            )
+            for zone in zones_to_turn_off:
+                try:
+                    if getattr(self, "action_executor", None) is not None:
+                        await self.action_executor.remove_zone(zone)
+                except Exception as exc:  # noqa: BLE001
+                    _LOGGER.warning(
+                        "Failed to turn off zone '%s' during freeze cleanup: %s",
+                        zone,
+                        exc,
+                    )
+
         # Reset controller learning state (safe)
         try:
             if getattr(self, "controller", None) is not None:
@@ -1822,106 +1910,20 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         """Remove tracking data for zones no longer in configuration."""
         current_zones = set(self.config.get(CONF_ZONES, []))
 
+        # All dicts in ZONE_TRACKING_DICTS are keyed on full entity IDs.
         for dict_name in self.ZONE_TRACKING_DICTS:
             tracking_dict = getattr(self, dict_name, {})
             stale = set(tracking_dict.keys()) - current_zones
             for zone in stale:
                 tracking_dict.pop(zone, None)
 
-    async def async_update_solar_allocation(self) -> None:
-        """Main solar allocation decision loop - add/remove zones based on surplus."""
-        # Calculate Net Surplus
-        # net_surplus = (current_solar - house_load_excluding_ac) - solar_buffer
-        # Using EMAs: current_solar ≈ -ema_30s (since grid = solar - load, ema_30s ≈ -solar when balanced)
-        # house_load_excluding_ac ≈ ema_5m (stable baseline)
-        # For simplicity: net_surplus = -self.ema_30s - self.ema_5m (positive = surplus)
-        net_surplus = -self.ema_30s - self.ema_5m
-
-        # Enforce the 'Ramp Lock'
-        now_ts = dt_util.utcnow().timestamp()
-        self.next_decision_allowed_at = self.compressor_recover_until
-        if self.compressor_recover_until > now_ts:
-            remaining = self.compressor_recover_until - now_ts
-            await self._log(
-                f"[RAMP_LOCK] Compressor recovery active for {round(remaining)}s, "
-                f"skipping allocation decisions"
-            )
-            return
-
-        # Get active zones
-        active_zones = self.active_zones or []
-
-        # Compute required export and confidences
-        next_zone, last_zone = await self.zone_manager.select_next_and_last_zone(
-            active_zones
-        )
-        required_export = self._compute_required_export(
-            next_zone, mode=self.season_mode
-        )
-        export = -self.ema_30s
-        import_power = self.ema_5m
-
-        # Store for sensors
-        self.next_zone = next_zone
-        self.last_zone = last_zone
-        self.required_export = required_export
-        self.export_margin = (
-            None if required_export is None else export - required_export
-        )
-
-        # Compute confidences
-        self.last_add_conf = self.decision_engine.compute_add_conf(
-            export=export,
-            required_export=required_export,
-            last_zone=last_zone,
-        )
-        self.last_remove_conf = self.decision_engine.compute_remove_conf(
-            import_power=import_power,
-            last_zone=last_zone,
-        )
-
-        # Unified confidence
-        remove_pressure = max(0.0, self.last_remove_conf)
-        self.confidence = self.last_add_conf - remove_pressure
-
-        # ADD zone decision
-        if next_zone and self.confidence >= self.unified_add_threshold:
-            # Check short cycling
-            if self.zone_manager.is_short_cycling(next_zone):
-                await self._log(
-                    f"[SHORT_CYCLE] Skipping add of {next_zone} due to short cycle protection"
-                )
-            else:
-                zone_name = next_zone.split(".")[-1]
-                reason = f"Activating zone '{zone_name}' - confidence score {round(self.confidence, 1)} meets activation threshold"
-                await self._log(reason, "info")
-                await self.action_executor.attempt_add_zone(
-                    next_zone,
-                    self.ac_power_before or 0.0,
-                    export,
-                    required_export if required_export is not None else 0.0,
-                )
-                # Set ramp lock
-                time_to_peak = self.get_time_to_peak(zone_name, self.season_mode) or 0.0
-                self.compressor_recover_until = now_ts + time_to_peak
-                return
-
-        # REMOVE zone decision
-        if last_zone and self.confidence <= self.unified_remove_threshold:
-            zone_name = last_zone.split(".")[-1]
-            # Use stabilized_delta to determine if can stay on, fallback to learned_power if not learned
-            stabilized_delta = self.get_stabilized_delta(zone_name, self.season_mode)
-            if stabilized_delta is None:
-                stabilized_delta = self.get_learned_power(zone_name, self.season_mode)
-            if stabilized_delta is not None and net_surplus < stabilized_delta:
-                reason = f"Removing zone {last_zone} - net surplus {round(net_surplus)}W < stabilized {round(stabilized_delta)}W"
-                await self._log(f"[REMOVE_ZONE] {reason}")
-                await self.action_executor.attempt_remove_zone(last_zone, import_power)
-                return
-
-        # System balanced
-        async with self._state_lock:
-            self.last_action = "balanced"
+        # zone_priorities is keyed on short names (zone.split('.')[-1]).  Rebuild
+        # it entirely from the current config so that additions, removals, and
+        # reorderings are always reflected without needing a restart.
+        zones_list = self.config.get(CONF_ZONES, [])
+        self.zone_priorities = {
+            zone.split(".")[-1]: i for i, zone in enumerate(zones_list)
+        }
 
     def _update_adaptive_interval(self) -> None:
         """Update update interval based on system state for adaptive performance."""
