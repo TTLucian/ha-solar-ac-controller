@@ -5,7 +5,7 @@ from typing import Any
 from homeassistant.components.number import NumberEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import EntityCategory
+from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DEFAULT_AGGRESSIVENESS, DOMAIN
@@ -31,6 +31,13 @@ class AggressivenessNumber(CoordinatorEntity, NumberEntity):
         self.entry = entry
         self._attr_name = "Aggressiveness"
         self._attr_unique_id = f"{entry.entry_id}_aggressiveness"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(
+            identifiers={(DOMAIN, self.entry.entry_id)},
+            name="Solar AC Controller",
+        )
 
     @property
     def native_value(self) -> float:

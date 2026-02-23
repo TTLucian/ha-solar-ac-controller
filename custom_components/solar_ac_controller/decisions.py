@@ -109,7 +109,7 @@ class DecisionEngine:
 
         base = min(
             DECISION_ADD_CONFIDENCE_BASE_MAX * bonus_scale,
-            max(0.0, export_margin / (scaled_divisor or 1.0)),
+            export_margin / (scaled_divisor or 1.0),
         )
 
         # Sample/history bonus only awarded when recent export margin is positive

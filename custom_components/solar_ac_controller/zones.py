@@ -27,7 +27,7 @@ class ZoneManager:
         active_zones: list[str] = []
 
         # Get all states once for efficient batch lookup
-        all_states = self.coordinator.hass.states.all()
+        all_states = self.coordinator.hass.states.async_all()
         state_map = {s.entity_id: s for s in all_states}
 
         for zone in self.coordinator.config.get(CONF_ZONES, []):
