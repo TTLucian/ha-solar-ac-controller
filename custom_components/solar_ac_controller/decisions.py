@@ -20,6 +20,7 @@ from .const import (
     DECISION_HEAVY_IMPORT_BONUS,
     DECISION_HEAVY_IMPORT_THRESHOLD,
     DECISION_IMPORT_BASE_OFFSET,
+    DECISION_IMPORT_TOLERANCE_MAX_W,
     DECISION_LEARN_PENALTY_MAG,
     DECISION_RAW_MAX,
     DECISION_RAW_MIN,
@@ -89,13 +90,15 @@ class DecisionEngine:
 
         now = dt_util.utcnow().timestamp()
 
-        # Basic margin (positive when export > required)
-        export_margin = export_val - required_export_val
-
         # Aggressiveness scales: higher -> more aggressive (larger bonuses, smaller penalties/divisors)
         a = self.coordinator.aggressiveness
         penalty_scale = max(0.25, 1.5 - 1.0 * float(a))
         bonus_scale = max(0.5, 0.5 + 1.5 * float(a))
+
+        # Import tolerance derived automatically from aggressiveness:
+        # 0 W at a=0 (strict), ~350 W at a=0.5 (moderate), 700 W at a=1.0 (permissive)
+        tolerance = float(a) * DECISION_IMPORT_TOLERANCE_MAX_W
+        export_margin = export_val - required_export_val + tolerance
 
         # Get dynamic divisors based on zone power
         export_div, _ = self._get_dynamic_weight(required_export_val)

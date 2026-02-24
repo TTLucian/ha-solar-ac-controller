@@ -21,7 +21,6 @@ from .const import (
     CONF_AGGRESSIVENESS,
     CONF_COMPRESSOR_RAMP_SECONDS,
     CONF_ENABLE_TEMP_MODULATION,
-    CONF_GRID_IMPORT_TOLERANCE,
     CONF_GRID_SENSOR,
     CONF_INITIAL_LEARNED_POWER,
     CONF_MANUAL_LOCK_SECONDS,
@@ -41,7 +40,6 @@ from .const import (
     DEFAULT_AGGRESSIVENESS,
     DEFAULT_COMPRESSOR_RAMP_SECONDS,
     DEFAULT_ENABLE_TEMP_MODULATION,
-    DEFAULT_GRID_IMPORT_TOLERANCE,
     DEFAULT_INITIAL_LEARNED_POWER,
     DEFAULT_MANUAL_LOCK_SECONDS,
     DEFAULT_MAX_TEMP_WINTER,
@@ -135,6 +133,11 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         await self._log(
             f"Integration {'enabled' if enabled else 'disabled'} by user.", "info"
         )
+        # When disabling: cancel any running panic task immediately so nothing
+        # keeps running in the background after the switch is turned off.
+        if not enabled:
+            if getattr(self, "panic_manager", None) is not None:
+                await self.panic_manager.cancel_panic()
         # Mutate stored_data under storage lock to avoid races when available
         if not hasattr(self, "_storage_lock"):
             self._storage_lock = asyncio.Lock()
@@ -603,11 +606,6 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         )
         self.action_delay_seconds = self.config_manager.get_int(
             CONF_ACTION_DELAY_SECONDS, DEFAULT_ACTION_DELAY_SECONDS
-        )
-
-        # Grid import tolerance used when allowing adds (positive import allowed)
-        self.grid_import_tolerance = self.config_manager.get_float(
-            CONF_GRID_IMPORT_TOLERANCE, DEFAULT_GRID_IMPORT_TOLERANCE
         )
 
         # Compressor recovery and aggressiveness tuning
@@ -1178,16 +1176,51 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
 
                     try:
                         # Integration enable/disable logic
+                        # When disabled we still read the solar sensor so we can
+                        # auto-re-enable once solar reaches SOLAR_THRESHOLD_ON.
                         if (
                             hasattr(self, "integration_enabled")
                             and not self.integration_enabled
                         ):
-                            async with self._state_lock:
-                                self.last_action = "integration_disabled"
-                            self.note = "Integration disabled by user."
-                            _LOGGER.debug("Integration disabled, skipping all logic.")
-                            self.metrics.record_cycle_end(cycle_start, success=True)
-                            return
+                            try:
+                                _solar_check = self._validate_sensor_state(
+                                    await self._get_cached_state(
+                                        self.config_manager.get(CONF_SOLAR_SENSOR)
+                                    ),
+                                    "Solar sensor",
+                                )
+                                _on_thr = self.config_manager.get_float(
+                                    CONF_SOLAR_THRESHOLD_ON, DEFAULT_SOLAR_THRESHOLD_ON
+                                )
+                                if _solar_check >= _on_thr:
+                                    await self._log(
+                                        f"[AUTO_ENABLE] solar={round(_solar_check)}W >= "
+                                        f"threshold_on={_on_thr}W, re-enabling integration",
+                                        "info",
+                                    )
+                                    self.integration_enabled = True
+                                    async with self._storage_lock:
+                                        self.stored_data["integration_enabled"] = True
+                                        self._storage_dirty = True
+                                    self._debounce_recalc()
+                                    # Fall through to run the normal cycle
+                                else:
+                                    async with self._state_lock:
+                                        self.last_action = "integration_disabled"
+                                    self.note = "Integration disabled by user."
+                                    _LOGGER.debug(
+                                        "Integration disabled, skipping all logic."
+                                    )
+                                    self.metrics.record_cycle_end(
+                                        cycle_start, success=True
+                                    )
+                                    return
+                            except (SensorUnavailableError, SensorInvalidError):
+                                # Solar unreadable while disabled – stay disabled
+                                async with self._state_lock:
+                                    self.last_action = "integration_disabled"
+                                self.metrics.record_cycle_end(cycle_start, success=True)
+                                return
 
                         # 1. Read sensors (grid, solar, ac_power)
                         grid_raw = self._validate_sensor_state(
@@ -1241,6 +1274,15 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                                 )
                                 await self._perform_freeze_cleanup()
                                 self.integration_active = False
+                                # Also turn off the integration_enabled switch so the
+                                # user can see the integration is inactive, and so it
+                                # can be auto-re-enabled when solar rises again.
+                                if self.integration_enabled:
+                                    self.integration_enabled = False
+                                    async with self._storage_lock:
+                                        self.stored_data["integration_enabled"] = False
+                                        self._storage_dirty = True
+                                    self._debounce_recalc()
                                 self.update_interval = timedelta(
                                     seconds=300
                                 )  # Check every 5 minutes

@@ -40,9 +40,6 @@ CONF_ACTION_DELAY_SECONDS = "action_delay_seconds"
 CONF_UPDATE_INTERVAL = "update_interval"
 CONF_ACTIVITY_LOGGING = "activity_logging"
 
-# Grid import tolerance (W) - how much grid import is allowed when adding a zone
-CONF_GRID_IMPORT_TOLERANCE = "grid_import_tolerance"
-
 # Compressor / hardware tuning
 CONF_COMPRESSOR_RAMP_SECONDS = "compressor_ramp_seconds"
 DEFAULT_COMPRESSOR_RAMP_SECONDS = (
@@ -86,9 +83,6 @@ DEFAULT_ACTIVITY_LOGGING = False
 
 DEFAULT_UNIFIED_ADD_THRESHOLD = 10
 DEFAULT_UNIFIED_REMOVE_THRESHOLD = -10
-
-# Default tolerance for allowing grid import when adding zones (Watts)
-DEFAULT_GRID_IMPORT_TOLERANCE = 350.0
 
 # Learning configuration
 LEARNING_TIMEOUT_SECONDS = 360
@@ -186,6 +180,9 @@ DECISION_STABILITY_DENOM_MIN = 100.0
 DECISION_SWAP_BUFFER_W = 200.0
 # Variability normalization divisor used when scaling export margin divisor
 DECISION_VARIABILITY_DIVISOR = 250.0
+# Maximum import tolerance (W) derived from aggressiveness: tolerance = a * MAX
+# At a=0.0: 0 W (strict), a=0.5: 350 W, a=1.0: 700 W
+DECISION_IMPORT_TOLERANCE_MAX_W = 700.0
 
 # Raw clamping ranges for internal confidence math
 DECISION_RAW_MIN = -100.0

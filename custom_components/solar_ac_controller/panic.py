@@ -144,6 +144,13 @@ class PanicManager:
                 _LOGGER.debug("Panic task cancelled before evaluating panic condition")
                 return
 
+            # Abort if integration was disabled while waiting for the panic delay
+            if not getattr(self.coordinator, "integration_enabled", True):
+                await self.coordinator._log(
+                    "[PANIC_ABORTED] integration disabled during panic delay"
+                )
+                return
+
             if self.coordinator.ema_30s > self.coordinator.panic_threshold:
                 await self._panic_shed(active_zones)
 
