@@ -6,6 +6,7 @@ from typing import Any, Dict, List, cast
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    IDLE_POWER_MAX_W,
     IDLE_POWER_MIN_SAMPLES,
     MANUAL_OVERRIDE_DETECTION_WINDOW,
     MASTER_SWITCH_COMMAND_GRACE_PERIOD,
@@ -183,30 +184,56 @@ class MasterSwitchController:
 
         # Turn OFF when solar is below or equal to OFF threshold
         if solar <= off_threshold and effective_state == "on":
-            # Spindown guard: if ac_power is still well above the learned idle baseline,
-            # the compressor is still spinning down from a recently stopped zone.
-            # Cutting mains power now risks damaging the compressor.  Defer the OFF
-            # command until power settles or the guard is overridden next cycle.
+            # Safety check 1: ALL zones must be at rest before cutting compressor power.
+            # Cutting mains power while a zone is active will damage the compressor.
+            zones: list[str] = self.coordinator.config_manager.get_list("zones", [])
+            active_zone_states = [
+                z
+                for z in zones
+                if (
+                    (z_st := self.coordinator.hass.states.get(z)) is not None
+                    and z_st.state not in ("off", "idle", "unavailable", "unknown")
+                )
+            ]
+            if active_zone_states:
+                await self.coordinator._log(
+                    f"[MASTER_OFF_DEFERRED] {len(active_zone_states)} zone(s) still active "
+                    f"({', '.join(z.split('.')[-1] for z in active_zone_states)}) – "
+                    f"waiting for all zones to stop before cutting compressor power",
+                    "info",
+                )
+                return
+
+            # Safety check 2: Spindown guard – compressor must be near idle before cutting
+            # mains power. Defer until ac_power settles near baseline.
             if ac_power is not None:
                 _idle = getattr(self.coordinator, "learned_idle_power", 0.0)
                 _n = getattr(self.coordinator, "idle_power_samples", 0)
-                if (
-                    _n >= IDLE_POWER_MIN_SAMPLES
-                    and _idle > 0.0
-                    and ac_power > _idle + SPINDOWN_THRESHOLD_W
-                ):
+                if _n >= IDLE_POWER_MIN_SAMPLES and _idle > 0.0:
+                    # Learned baseline available
+                    if ac_power > _idle + SPINDOWN_THRESHOLD_W:
+                        await self.coordinator._log(
+                            f"[SPINDOWN_GUARD] Deferring master OFF: "
+                            f"ac_power={round(ac_power)}W is "
+                            f"{round(ac_power - _idle)}W above idle baseline "
+                            f"({round(_idle, 1)}W) – compressor still spinning down",
+                            "info",
+                        )
+                        return
+                elif ac_power > IDLE_POWER_MAX_W:
+                    # No learned baseline yet – conservative raw threshold.
+                    # IDLE_POWER_MAX_W is the upper bound of what qualifies as idle draw.
                     await self.coordinator._log(
-                        f"[SPINDOWN_GUARD] Deferring master OFF: "
-                        f"ac_power={round(ac_power)}W is "
-                        f"{round(ac_power - _idle)}W above idle baseline "
-                        f"({round(_idle, 1)}W) – compressor still spinning down",
+                        f"[SPINDOWN_GUARD] Deferring master OFF (no baseline yet): "
+                        f"ac_power={round(ac_power)}W > {IDLE_POWER_MAX_W}W – "
+                        f"compressor may still be active",
                         "info",
                     )
                     return
 
             await self.coordinator._log(
                 f"[MASTER_OFF_TRIGGER] solar={round(solar)}W <= threshold_off={off_threshold}W, "
-                f"turning AC master switch OFF"
+                f"all zones off, power at idle – turning AC master switch OFF"
             )
             await self.coordinator.hass.services.async_call(
                 "switch",

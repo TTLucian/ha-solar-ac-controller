@@ -65,6 +65,7 @@ async def async_get_config_entry_diagnostics(
     diag_data["learned_data"] = {
         "learned_power": getattr(coordinator, "learned_power", None),
         "samples": getattr(coordinator, "samples", None),
+        "zone_action_history": getattr(coordinator, "zone_action_history", {}),
     }
 
     # 4. Zone State Map (with friendly names)
@@ -93,6 +94,14 @@ async def async_get_config_entry_diagnostics(
                 else None
             ),
             "current_temp": getattr(coordinator, "zone_current_temps", {}).get(zone),
+            # Last HA context ID issued for this zone (used for override authorship)
+            "last_context_id": (
+                getattr(coordinator, "zone_last_context_id", {}).get(zone, (None,))[0]
+            ),
+            # Most-recent action history entries for quick inspection
+            "action_history": getattr(coordinator, "zone_action_history", {}).get(
+                zone, []
+            )[-5:],
         }
     diag_data["zones"] = zone_info
 

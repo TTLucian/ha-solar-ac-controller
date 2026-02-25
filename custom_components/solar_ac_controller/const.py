@@ -122,6 +122,14 @@ STABILIZATION_READING_COUNT = 24
 # Power readings buffer limit (5 minutes at 5s intervals)
 POWER_READINGS_MAX_ENTRIES = 60
 
+# Zone action history ring buffer size (records per zone, persisted to storage)
+MAX_ZONE_HISTORY_RECORDS = 20
+
+# Grace period (seconds) for context-based authorship check.
+# If the HA context ID match fails (entity doesn't propagate context), fall back
+# to this tight window to still reject clearly-unrelated state changes.
+COMMAND_CONTEXT_GRACE_SECONDS = 30
+
 # Balanced state log interval (seconds)
 BALANCED_LOG_INTERVAL_SECONDS = 600
 

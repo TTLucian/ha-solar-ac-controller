@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, cast
 
 from homeassistant.util import dt as dt_util
 
-from .const import CONF_ZONES, MANUAL_OVERRIDE_DETECTION_WINDOW
+from .const import COMMAND_CONTEXT_GRACE_SECONDS, CONF_ZONES
 
 if TYPE_CHECKING:
     from .coordinator import SolarACCoordinator
@@ -51,13 +51,34 @@ class ZoneManager:
             if last_state is not None and last_state != state:
                 now_ts = dt_util.utcnow().timestamp()
                 last_cmd_ts = self.coordinator.zone_last_changed.get(zone, 0.0)
-                within_grace = (
-                    now_ts - last_cmd_ts
-                ) <= MANUAL_OVERRIDE_DETECTION_WINDOW
+
+                # --- Authorship detection ---
+                # Primary: compare the state-change context ID against the
+                # context ID the integration stamped when it issued the command.
+                stored_ctx_entry = self.coordinator.zone_last_context_id.get(zone)
+                authored_by_integration = False
+                if stored_ctx_entry is not None:
+                    ctx_id, _issued_ts = stored_ctx_entry
+                    authored_by_integration = (
+                        state_obj.context.id == ctx_id
+                        or getattr(state_obj.context, "parent_id", None) == ctx_id
+                    )
+
+                # Fallback: short grace window covers slow/bridged entities where
+                # context propagation may not be guaranteed (e.g. Zigbee bridges).
+                within_grace = (now_ts - last_cmd_ts) <= COMMAND_CONTEXT_GRACE_SECONDS
+
                 is_panic = self.coordinator.last_action == "panic"
-                if not within_grace and not is_panic:
+
+                if not authored_by_integration and not within_grace and not is_panic:
                     self.coordinator.zone_manual_lock_until[zone] = (
                         now_ts + self.coordinator.manual_lock_seconds
+                    )
+                    self.coordinator._record_zone_action(
+                        zone,
+                        f"manual_{state}",
+                        source="manual",
+                        reason="state changed without integration context",
                     )
                     await self.coordinator._log(
                         f"[MANUAL_OVERRIDE] zone={zone} state={state} "

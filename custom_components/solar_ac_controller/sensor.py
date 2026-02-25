@@ -12,6 +12,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.util import dt as dt_util
 
 from .const import CONF_ENABLE_DIAGNOSTICS_SENSOR, CONF_ZONES, DOMAIN, SolarACData
 from .helpers import build_diagnostics
@@ -29,15 +30,20 @@ async def async_setup_entry(
 
     entities: list[SensorEntity] = [
         SolarACActiveZonesSensor(coordinator, entry_id),
+        SolarACActiveZoneCountSensor(coordinator, entry_id),
         SolarACNextZoneSensor(coordinator, entry_id),
         SolarACLastZoneSensor(coordinator, entry_id),
         SolarACLastActionSensor(coordinator, entry_id),
+        SolarACSeasonModeSensor(coordinator, entry_id),
         SolarACEma30Sensor(coordinator, entry_id),
         SolarACEma5Sensor(coordinator, entry_id),
         SolarACConfidenceSensor(coordinator, entry_id),
         SolarACConfidenceThresholdSensor(coordinator, entry_id),
         SolarACRequiredExportSensor(coordinator, entry_id),
+        SolarACRequiredExportSourceSensor(coordinator, entry_id),
         SolarACExportMarginSensor(coordinator, entry_id),
+        SolarACLearnedIdlePowerSensor(coordinator, entry_id),
+        SolarACCompressorRecoverySensor(coordinator, entry_id),
         SolarACPanicCooldownSensor(coordinator, entry_id),
         SolarACSamplesSensor(coordinator, entry_id),
     ]
@@ -49,10 +55,18 @@ async def async_setup_entry(
     ):
         entities.append(SolarACAddBreakdownSensor(coordinator, entry_id))
         entities.append(SolarACRemoveBreakdownSensor(coordinator, entry_id))
+        for zone in coordinator.config.get(CONF_ZONES, []):
+            zone_name = zone.split(".")[-1]
+            entities.append(
+                SolarACZonePeakDeltaSensor(coordinator, entry_id, zone_name)
+            )
 
     for zone in coordinator.config.get(CONF_ZONES, []):
         zone_name = zone.split(".")[-1]
         entities.append(SolarACLearnedPowerSensor(coordinator, entry_id, zone_name))
+        entities.append(
+            SolarACZoneLockRemainingSensor(coordinator, entry_id, zone_name, zone)
+        )
 
     if entry.options.get(
         CONF_ENABLE_DIAGNOSTICS_SENSOR,
@@ -438,3 +452,169 @@ class SolarACDiagnosticEntity(_BaseSolarACSensor):
             return build_diagnostics(self.coordinator)
         except (AttributeError, TypeError, ValueError, KeyError) as exc:
             return {"diagnostics_error": str(exc)}
+
+
+# ---------------------------------------------------------------------------
+# NEW SENSORS
+# ---------------------------------------------------------------------------
+
+
+class SolarACActiveZoneCountSensor(_BaseSolarACSensor):
+    """Number of currently active (running) zones — useful for automations."""
+
+    _attr_name = "Active Zone Count"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "zones"
+    _attr_icon = "mdi:counter"
+
+    @property
+    def unique_id(self) -> str:
+        return f"{self._entry_id}_active_zone_count"
+
+    @property
+    def native_value(self) -> int:
+        return sum(
+            1
+            for z in self.coordinator.config.get(CONF_ZONES, [])
+            if (st := self.coordinator.hass.states.get(z))
+            and st.state in ("heat", "cool", "on")
+        )
+
+
+class SolarACSeasonModeSensor(_BaseSolarACSensor):
+    """Current season mode (heat / cool / unknown) set on the select entity."""
+
+    _attr_name = "Season Mode"
+    _attr_icon = "mdi:sun-snowflake"
+
+    @property
+    def unique_id(self) -> str:
+        return f"{self._entry_id}_season_mode"
+
+    @property
+    def state(self) -> str:
+        return getattr(self.coordinator, "season_mode", "unknown") or "unknown"
+
+
+class SolarACLearnedIdlePowerSensor(_NumericSolarACSensor):
+    """Learned idle draw of the AC compressor while running but no zones active.
+
+    Used by the master-switch spindown guard — lower than this means the
+    compressor has wound down and the relay can be safely cut.
+    """
+
+    _attr_name = "Learned Idle Power"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    @property
+    def unique_id(self) -> str:
+        return f"{self._entry_id}_learned_idle_power"
+
+    @property
+    def native_value(self) -> float:
+        return round(getattr(self.coordinator, "learned_idle_power", 0.0), 1)
+
+
+class SolarACRequiredExportSourceSensor(_BaseSolarACSensor):
+    """Human-readable reason why required_export has its current value.
+
+    Possible values: Learned Power, Peak Delta, Manual Power Override,
+    Panic Recovery, Integration Disabled, Solar Freeze, Initializing.
+    """
+
+    _attr_name = "Required Export Source"
+    _attr_icon = "mdi:information-outline"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    @property
+    def unique_id(self) -> str:
+        return f"{self._entry_id}_required_export_source"
+
+    @property
+    def state(self) -> str:
+        return (
+            getattr(self.coordinator, "required_export_source", "Initializing")
+            or "Initializing"
+        )
+
+
+class SolarACCompressorRecoverySensor(_BaseSolarACSensor):
+    """Seconds remaining on the compressor recovery guard (0 = clear to add zones).
+
+    After a zone is added and the compressor ramps up, this counts down from
+    compressor_ramp_seconds to zero, suppressing further zone additions with a
+    decaying confidence penalty during that window.
+    """
+
+    _attr_name = "Compressor Recovery Remaining"
+    _attr_device_class = SensorDeviceClass.DURATION
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "s"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:timer-sand"
+
+    @property
+    def unique_id(self) -> str:
+        return f"{self._entry_id}_compressor_recovery"
+
+    @property
+    def native_value(self) -> float:
+        recover_until = (
+            getattr(self.coordinator, "compressor_recover_until", 0.0) or 0.0
+        )
+        remaining = recover_until - dt_util.utcnow().timestamp()
+        return round(max(0.0, remaining), 1)
+
+
+class SolarACZoneLockRemainingSensor(_BaseSolarACSensor):
+    """Seconds until a zone's manual-override lock expires (0 = unlocked).
+
+    When a zone is manually turned on/off outside of integration control the
+    system locks it for manual_lock_seconds to avoid fighting the user.
+    """
+
+    _attr_device_class = SensorDeviceClass.DURATION
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "s"
+    _attr_icon = "mdi:lock-clock"
+
+    def __init__(
+        self, coordinator: Any, entry_id: str, zone_name: str, zone_id: str
+    ) -> None:
+        super().__init__(coordinator, entry_id)
+        self._zone_name = zone_name
+        self._zone_id = zone_id
+        self._attr_name = f"Zone Lock Remaining {zone_name}"
+        self._attr_unique_id = f"{entry_id}_zone_lock_remaining_{zone_name}"
+
+    @property
+    def native_value(self) -> float:
+        until = self.coordinator.zone_manual_lock_until.get(self._zone_id, 0.0) or 0.0
+        remaining = until - dt_util.utcnow().timestamp()
+        return round(max(0.0, remaining), 0)
+
+
+class SolarACZonePeakDeltaSensor(_NumericSolarACSensor):
+    """Learned compressor startup surge for a zone (peak delta, in watts).
+
+    This is the power spike measured during the first ~60 s after a zone is
+    added.  The add-decision uses this value (not steady-state learned power)
+    as the required_export bar once it has been measured.
+    Only shown when diagnostics sensor is enabled.
+    """
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: Any, entry_id: str, zone_name: str) -> None:
+        super().__init__(coordinator, entry_id)
+        self._zone_name = zone_name
+        self._attr_name = f"Peak Delta {zone_name}"
+        self._attr_unique_id = f"{entry_id}_peak_delta_{zone_name}"
+
+    @property
+    def native_value(self) -> float | None:
+        val = self.coordinator.get_peak_delta(
+            self._zone_name,
+            mode=getattr(self.coordinator, "season_mode", None),
+        )
+        return round(val, 0) if val is not None else None

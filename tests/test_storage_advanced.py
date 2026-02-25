@@ -1,14 +1,10 @@
 import asyncio
-from types import SimpleNamespace
-from typing import cast
+import logging
 
 import pytest
 from homeassistant.util import dt as dt_util
 
 from custom_components.solar_ac_controller.coordinator import SolarACCoordinator
-from custom_components.solar_ac_controller.storage_circuit_breaker import (
-    StorageCircuitBreaker,
-)
 
 
 class FakeHass:
@@ -26,6 +22,7 @@ class MockStore:
 
 @pytest.mark.asyncio
 async def test_concurrent_debounced_saves_end_with_latest_value():
+    """Multiple rapid _debounced_save calls collapse into a single write of the latest value."""
     coord = object.__new__(SolarACCoordinator)
     coord.hass = FakeHass()
     coord._storage_lock = asyncio.Lock()
@@ -33,16 +30,6 @@ async def test_concurrent_debounced_saves_end_with_latest_value():
     coord._last_storage_save = dt_util.utcnow().timestamp()
     coord._storage_debounce_seconds = 0.12
     coord._storage_dirty = True
-
-    coord.storage_circuit_breaker = cast(
-        StorageCircuitBreaker,
-        SimpleNamespace(
-            should_attempt_operation=lambda: asyncio.sleep(0, result=True),
-            record_success=lambda: asyncio.sleep(0, result=None),
-            record_failure=lambda: asyncio.sleep(0, result=None),
-            call_with_timeout=lambda coro, timeout=10.0: coro,
-        ),
-    )
 
     store = MockStore()
     coord.store = store
@@ -53,11 +40,8 @@ async def test_concurrent_debounced_saves_end_with_latest_value():
         coord._storage_dirty = True
         await coord._debounced_save()
 
-    # Schedule several workers that call _debounced_save at staggered times
     tasks = [asyncio.create_task(worker(i, i * 0.02)) for i in range(5)]
     await asyncio.gather(*tasks)
-
-    # Wait long enough for final debounced save to execute
     await asyncio.sleep(0.5)
 
     assert store.saved == {"v": 4}
@@ -65,35 +49,14 @@ async def test_concurrent_debounced_saves_end_with_latest_value():
 
 @pytest.mark.asyncio
 async def test_flush_pending_storage_save_cancels_and_saves_immediately():
+    """_flush_pending_storage_save cancels the debounce timer and saves immediately."""
     coord = object.__new__(SolarACCoordinator)
     coord.hass = FakeHass()
     coord._storage_lock = asyncio.Lock()
     coord._storage_debounce_task = None
     coord._last_storage_save = dt_util.utcnow().timestamp()
-    coord._storage_debounce_seconds = 1.0  # long debounce to allow scheduling
+    coord._storage_debounce_seconds = 1.0  # long debounce so flush is meaningful
     coord._storage_dirty = True
-
-    async def _should_attempt():
-        return True
-
-    async def _record_success():
-        return None
-
-    async def _record_failure():
-        return None
-
-    async def _call_with_timeout(coro, timeout=10.0):
-        return await coro
-
-    coord.storage_circuit_breaker = cast(
-        StorageCircuitBreaker,
-        SimpleNamespace(
-            should_attempt_operation=_should_attempt,
-            record_success=_record_success,
-            record_failure=_record_failure,
-            call_with_timeout=_call_with_timeout,
-        ),
-    )
 
     class SlowStore:
         def __init__(self):
@@ -108,71 +71,30 @@ async def test_flush_pending_storage_save_cancels_and_saves_immediately():
 
     coord.stored_data = {"x": 1}
     coord._storage_dirty = True
-    # Schedule a debounced delayed save
-    await coord._debounced_save()
+    await coord._debounced_save()  # schedules a delayed save (1 s from now)
 
-    # Now mutate and flush pending save which should cancel delayed task and save immediately
     coord.stored_data = {"x": 2}
     coord._storage_dirty = True
-    await coord._flush_pending_storage_save()
+    await coord._flush_pending_storage_save()  # should cancel and save immediately
 
-    # Wait a bit for immediate save to complete
     await asyncio.sleep(0.1)
-
     assert store.saved == {"x": 2}
 
 
 @pytest.mark.asyncio
-async def test_circuit_breaker_half_open_recovery_with_real_saves():
-    fake_log = SimpleNamespace(messages=[])
-
-    async def log_fn(message, level="info"):
-        fake_log.messages.append((level, message))
-
-    fake_log._log = log_fn
-
-    cb = StorageCircuitBreaker(max_failures=2, reset_timeout=1, coordinator=fake_log)
-
+async def test_perform_storage_save_logs_oserror_and_keeps_dirty(caplog):
+    """An OSError during save is logged; _storage_dirty stays True so the next cycle retries."""
+    caplog.set_level(logging.ERROR)
     coord = object.__new__(SolarACCoordinator)
-    coord.hass = FakeHass()
-    coord._storage_lock = asyncio.Lock()
     coord.stored_data = {"k": 1}
     coord._storage_dirty = True
-    coord.storage_circuit_breaker = cb
 
-    class FlakyStore:
-        def __init__(self):
-            self.calls = 0
-
+    class FailingStore:
         async def async_save(self, data):
-            self.calls += 1
-            if self.calls <= 2:
-                raise OSError("io error")
-            return None
+            raise OSError("disk full")
 
-    store = FlakyStore()
-    coord.store = store
-
-    # Two failures to open the circuit
-    await coord._perform_storage_save()
+    coord.store = FailingStore()
     await coord._perform_storage_save()
 
-    assert cb.failure_count >= 2
-    assert await cb.should_attempt_operation() is False
-
-    # Wait for reset timeout to allow half-open
-    await asyncio.sleep(1.1)
-
-    # Now attempt save again; FlakyStore will succeed on third call
-    await coord._perform_storage_save()
-
-    # Circuit breaker should have reset (failure_count 0)
-    assert cb.failure_count == 0
-    # And we should have seen log entries indicating state changes
-    assert any(
-        "disabled" in m[1]
-        or "entering recovery" in m[1]
-        or "re-enabled" in m[1]
-        or "recovered" in m[1]
-        for m in fake_log.messages
-    )
+    assert coord._storage_dirty is True
+    assert any("Error saving to storage" in r.message for r in caplog.records)

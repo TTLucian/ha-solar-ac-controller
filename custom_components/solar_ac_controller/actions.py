@@ -6,6 +6,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
+from homeassistant.core import Context
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util import dt as dt_util
 
@@ -42,14 +43,6 @@ class ActionExecutor:
 
         if self.coordinator.last_action == f"add_{next_zone}":
             return
-
-        await self.coordinator._log(
-            f"Activating zone '{next_zone.split('.')[-1]}' - "
-            f"confidence score {round(self.coordinator.confidence, 1)} meets activation threshold, "
-            f"solar export {round(export)}W available, "
-            f"requires {round(required_export)}W, "
-            f"based on {self.coordinator.samples} power samples"
-        )
 
         async with self._action_lock:
             await self.add_zone(next_zone, ac_power_before)
@@ -129,9 +122,9 @@ class ActionExecutor:
         await asyncio.sleep(self.coordinator.action_delay_seconds)
 
         await self.coordinator._log(
-            f"Learning power consumption for zone '{zone.split('.')[-1]}' - "
-            f"AC power before activation: {round(ac_power_before)}W, "
-            f"will measure power increase to determine zone requirements"
+            f"[ADD_ZONE_MEASURING] zone='{zone.split('.')[-1]}' "
+            f"ac_before={round(ac_power_before)}W - "
+            f"measuring power increase to determine zone requirements"
         )
 
     async def add_zone_without_learning(
@@ -219,10 +212,43 @@ class ActionExecutor:
             f"grid import now {round(self.coordinator.ema_5m)}W"
         )
 
-    async def call_entity_service(self, entity_id: str, turn_on: bool) -> None:
-        """Call turn_on/turn_off service for the entity's domain, with climate fallback."""
+    async def call_entity_service(
+        self,
+        entity_id: str,
+        turn_on: bool,
+        reason: str = "",
+        confidence: float | None = None,
+        export_margin: float | None = None,
+    ) -> None:
+        """Call turn_on/turn_off service for the entity's domain, with climate fallback.
+
+        A fresh :class:`homeassistant.core.Context` is created for every call so
+        that subsequent state-change events carry a known context-ID.  The ID is
+        stored on the coordinator and used by the override-detection logic in
+        zones.py to distinguish integration-issued commands from manual changes.
+        """
         domain = entity_id.split(".")[0]
         service = "turn_on" if turn_on else "turn_off"
+        action_label = "on" if turn_on else "off"
+
+        # One context for the entire operation (primary + optional hvac_mode follow-up).
+        ctx = Context()
+        issued_ts = dt_util.utcnow().timestamp()
+
+        def _store_context() -> None:
+            """Record issued context on coordinator for authorship tracking."""
+            self.coordinator.zone_last_context_id[entity_id] = (ctx.id, issued_ts)
+
+        def _record() -> None:
+            """Append an integration-sourced action to the zone history ring buffer."""
+            self.coordinator._record_zone_action(
+                entity_id,
+                action_label,
+                source="integration",
+                reason=reason,
+                confidence=confidence,
+                export_margin=export_margin,
+            )
 
         # Primary: attempt domain.turn_on/turn_off first
         try:
@@ -231,6 +257,7 @@ class ActionExecutor:
                 service,
                 {"entity_id": entity_id},
                 blocking=True,
+                context=ctx,
             )
 
             # If we turned on a climate entity, verify hvac_mode and set it only if needed
@@ -255,6 +282,7 @@ class ActionExecutor:
                                     "hvac_mode": self.coordinator.season_mode,
                                 },
                                 blocking=True,
+                                context=ctx,
                             )
                             _LOGGER.debug(
                                 "Set HVAC mode to '%s' for %s after turning on",
@@ -273,6 +301,8 @@ class ActionExecutor:
                 ) as e:  # defensive - don't break main flow for unexpected state issues
                     _LOGGER.debug("Could not verify hvac_mode for %s: %s", entity_id, e)
 
+            _store_context()
+            _record()
             return
         except (ValueError, TypeError, AttributeError, KeyError) as e:
             _LOGGER.debug(
@@ -290,6 +320,7 @@ class ActionExecutor:
                 service,
                 {"entity_id": entity_id},
                 blocking=True,
+                context=ctx,
             )
             _LOGGER.warning(
                 "Primary service %s.%s failed for %s — used climate.%s as fallback",
@@ -298,6 +329,8 @@ class ActionExecutor:
                 entity_id,
                 service,
             )
+            _store_context()
+            _record()
             return
         except (ValueError, TypeError, AttributeError, KeyError) as e:
             _LOGGER.exception(
