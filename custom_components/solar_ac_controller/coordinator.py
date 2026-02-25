@@ -715,10 +715,10 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             return None
         target_key = mode if mode in ["heat", "cool"] else "default"
         for key in (f"peak_delta_{target_key}", "peak_delta_default"):
-            val = entry.get(key)  # type: ignore[call-overload]
+            val = entry.get(key)
             if val is not None:
                 try:
-                    return float(val)
+                    return float(val)  # type: ignore[arg-type]
                 except (TypeError, ValueError):
                     pass
         return None
@@ -734,10 +734,10 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             return None
         target_key = mode if mode in ["heat", "cool"] else "default"
         for key in (f"stabilized_delta_{target_key}", "stabilized_delta_default"):
-            val = entry.get(key)  # type: ignore[call-overload]
+            val = entry.get(key)
             if val is not None:
                 try:
-                    return float(val)
+                    return float(val)  # type: ignore[arg-type]
                 except (TypeError, ValueError):
                     pass
         return None
@@ -753,10 +753,10 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             return None
         target_key = mode if mode in ["heat", "cool"] else "default"
         for key in (f"time_to_peak_{target_key}", "time_to_peak_default"):
-            val = entry.get(key)  # type: ignore[call-overload]
+            val = entry.get(key)
             if val is not None:
                 try:
-                    return float(val)
+                    return float(val)  # type: ignore[arg-type]
                 except (TypeError, ValueError):
                     pass
         return None
@@ -795,7 +795,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         if time_to_peak is not None:
             entry[f"time_to_peak_{target_key}"] = float(time_to_peak)  # type: ignore[literal-required]
         if category is not None:
-            entry["category"] = category  # type: ignore[literal-required]
+            entry["category"] = category  # type: ignore[typeddict-unknown-key]
 
         self._storage_dirty = True
         _LOGGER.debug(

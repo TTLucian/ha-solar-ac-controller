@@ -563,7 +563,7 @@ class SolarACCompressorRecoverySensor(_BaseSolarACSensor):
             getattr(self.coordinator, "compressor_recover_until", 0.0) or 0.0
         )
         remaining = recover_until - dt_util.utcnow().timestamp()
-        return round(max(0.0, remaining), 1)
+        return float(round(max(0.0, remaining), 1))
 
 
 class SolarACZoneLockRemainingSensor(_BaseSolarACSensor):
@@ -591,7 +591,7 @@ class SolarACZoneLockRemainingSensor(_BaseSolarACSensor):
     def native_value(self) -> float:
         until = self.coordinator.zone_manual_lock_until.get(self._zone_id, 0.0) or 0.0
         remaining = until - dt_util.utcnow().timestamp()
-        return round(max(0.0, remaining), 0)
+        return float(round(max(0.0, remaining), 0))
 
 
 class SolarACZonePeakDeltaSensor(_NumericSolarACSensor):
