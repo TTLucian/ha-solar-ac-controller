@@ -213,7 +213,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     def _round_map(val: Any) -> Any:
         if isinstance(val, dict):
             return {k: _round_map(v) for k, v in val.items()}
-        return int(round(float(val)))
+        if isinstance(val, (int, float)):
+            return int(round(float(val)))
+        return val
 
     stored_data["learned_power"] = _round_map(stored_data.get("learned_power", {}))
 

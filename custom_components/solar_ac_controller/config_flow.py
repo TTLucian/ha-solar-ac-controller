@@ -14,7 +14,6 @@ from .const import (
     CONF_AC_POWER_SENSOR,
     CONF_AC_SWITCH,
     CONF_ACTION_DELAY_SECONDS,
-    CONF_AGGRESSIVENESS,
     CONF_COMPRESSOR_RAMP_SECONDS,
     CONF_ENABLE_DIAGNOSTICS_SENSOR,
     CONF_ENABLE_TEMP_MODULATION,
@@ -35,7 +34,6 @@ from .const import (
     CONF_ZONE_TEMP_SENSORS,
     CONF_ZONES,
     DEFAULT_ACTION_DELAY_SECONDS,
-    DEFAULT_AGGRESSIVENESS,
     DEFAULT_COMPRESSOR_RAMP_SECONDS,
     DEFAULT_ENABLE_TEMP_MODULATION,
     DEFAULT_INITIAL_LEARNED_POWER,
@@ -174,16 +172,6 @@ def schema_user(defaults: dict[str, Any]) -> Any:
                     defaults.get(CONF_SOLAR_THRESHOLD_OFF, DEFAULT_SOLAR_THRESHOLD_OFF)
                 ),
             ): int,
-            vol.Optional(
-                CONF_AGGRESSIVENESS,
-                default=float(
-                    defaults.get(CONF_AGGRESSIVENESS, DEFAULT_AGGRESSIVENESS)
-                ),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=0.0, max=1.0, mode=NumberSelectorMode.SLIDER, step=0.01
-                )
-            ),
             vol.Optional(
                 CONF_INITIAL_LEARNED_POWER,
                 default=int(
