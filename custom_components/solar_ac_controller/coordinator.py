@@ -220,7 +220,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
 
         # Recalc debouncing for service calls
         self._pending_recalc = False
-        self._debounce_task = None
+        self._debounce_task: asyncio.TimerHandle | None = None
 
         # State lookup cache for performance
         self._state_cache: Dict[str, Any] = {}
@@ -1953,7 +1953,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         2. Climate entity's current_temperature attribute (if zone is climate)
         3. None (temperature unavailable)
         """
-        self.zone_current_temps: dict[str, float | None] = {}
+        self.zone_current_temps = {}
 
         for zone_id, temp_sensor_id in self.zone_temp_sensors.items():
             # Try external sensor first
