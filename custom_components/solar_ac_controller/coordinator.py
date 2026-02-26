@@ -445,6 +445,12 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         # Temperature stability tracking for zone swapping
         self.temp_ema_10m: dict[str, float] = {}  # zone -> 10min EMA temperature
         self.zone_last_swap_time: dict[str, float] = {}  # zone -> last swap timestamp
+        # Current zone temperatures (updated each cycle by _read_zone_temps)
+        self.zone_current_temps: dict[str, float | None] = {}
+
+        # Logbook throttle state – initialised here to avoid lazy-init in hot path
+        self._last_logbook_emit: dict[str, float] = {}
+        self._logbook_throttle_seconds = LOGBOOK_THROTTLE_SECONDS
 
         # Defensive initialization
         self.required_export_source = "Initializing"
@@ -931,11 +937,6 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             # Activity logging (only when enabled) - emit to logbook but throttle repeated messages
             if getattr(self, "activity_logging_enabled", False):
                 try:
-                    # Lazy-init throttle settings
-                    if not hasattr(self, "_logbook_throttle_seconds"):
-                        self._logbook_throttle_seconds = LOGBOOK_THROTTLE_SECONDS
-                    if not hasattr(self, "_last_logbook_emit"):
-                        self._last_logbook_emit: dict[str, float] = {}
 
                     # Resolve the actual diagnostics entity id via the entity registry
                     # to ensure logbook entries are associated with the correct entity.
@@ -1029,16 +1030,11 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
 
                         # Schedule new save
                         delay = self._storage_debounce_seconds - time_since_last_save
-                        # Schedule delayed save on Home Assistant's loop (use safe wrapper)
-                        try:
-                            self._storage_debounce_task = self.create_task(
-                                self._delayed_save(delay)
-                            )
-                        except Exception:
-                            # Fallback: create task without exception handling if create_task fails
-                            self._storage_debounce_task = self.hass.async_create_task(
-                                self._delayed_save(delay)
-                            )
+                        # Use create_background_task so the debounce sleep does not
+                        # register with HA's bootstrap tracker and delay startup.
+                        self._storage_debounce_task = self.create_background_task(
+                            self._delayed_save(delay)
+                        )
                         return
 
                     # Save immediately if enough time has passed
@@ -1071,8 +1067,9 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             except asyncio.CancelledError:
                 pass
             finally:
-                self._storage_debounce_task = None  # Clean up reference
-            # Perform immediate save
+                self._storage_debounce_task = None
+        # Always flush if dirty, regardless of whether a task was pending
+        if self._storage_dirty:
             async with self._storage_lock:
                 await self._perform_storage_save()
                 self._last_storage_save = dt_util.utcnow().timestamp()
@@ -1184,16 +1181,30 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
     def create_background_task(
         self, coro: Coroutine[Any, Any, Any]
     ) -> Optional[asyncio.Task[Any]]:
-        """Create a background task with proper error handling and fallback."""
+        """Create a fire-and-forget task that does NOT block HA bootstrap/shutdown.
+
+        Uses the raw asyncio event loop (not hass.async_create_task) so that HA's
+        internal task-tracker does not include this task in its bootstrap-phase
+        waiting set.  Long-running tasks such as the panic delay runner would
+        otherwise cause the ``Setup timed out for bootstrap`` warning.
+        """
         try:
-            return self.create_task(coro)
-        except Exception:
-            try:
-                task: asyncio.Task[Any] = self.hass.async_create_task(coro)
-                return task
-            except Exception as e:
-                _LOGGER.warning("Failed to create background task: %s", e)
-                return None
+            loop = getattr(self.hass, "loop", None) or asyncio.get_event_loop()
+            task: asyncio.Task[Any] = loop.create_task(coro)
+
+            def _done_callback(t: asyncio.Task) -> None:
+                try:
+                    exc = t.exception()
+                    if exc:
+                        _LOGGER.exception("Background task exception: %s", exc)
+                except asyncio.CancelledError:
+                    pass
+
+            task.add_done_callback(_done_callback)
+            return task
+        except Exception as e:
+            _LOGGER.warning("Failed to create background task: %s", e)
+            return None
 
     def _validate_configuration_basic(self) -> None:
         """Validate basic configuration requirements on startup."""
@@ -2129,6 +2140,13 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
 
     async def _async_cleanup_tasks(self) -> None:
         """Clean up running tasks during shutdown."""
+        # Cancel the recalc debounce call_later handle before shutting down the
+        # coordinator – otherwise it fires after teardown and calls
+        # async_update_listeners on a dead coordinator.
+        if self._debounce_task is not None:
+            self._debounce_task.cancel()
+            self._debounce_task = None
+
         # Cancel the coordinator's refresh task
         await self.async_shutdown()
 
@@ -2136,13 +2154,6 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         if getattr(self, "panic_manager", None) is not None:
             await self.panic_manager.cancel_panic()
 
-        # Cancel any pending storage save
+        # Flush any pending / dirty storage save (handles both debounced tasks and
+        # unflushed dirty state that has no scheduled task yet).
         await self._flush_pending_storage_save()
-
-        # Cancel any debounced storage task
-        if self._storage_debounce_task and not self._storage_debounce_task.done():
-            self._storage_debounce_task.cancel()
-            try:
-                await self._storage_debounce_task
-            except asyncio.CancelledError:
-                pass

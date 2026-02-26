@@ -26,6 +26,10 @@ async def test_log_emits_logbook_when_enabled_and_system_log_level(caplog):
     coord.hass = MockHass()
     coord.config_entry = SimpleNamespace(entry_id="test_entry")
     coord.metrics = cast(MetricsCollector, SimpleNamespace(cycle_count=2))
+    coord._last_logbook_emit: dict[str, float] = {}
+    from custom_components.solar_ac_controller.const import LOGBOOK_THROTTLE_SECONDS
+
+    coord._logbook_throttle_seconds = LOGBOOK_THROTTLE_SECONDS
 
     # Capture logs at DEBUG so all levels are visible
     caplog.set_level("DEBUG")
