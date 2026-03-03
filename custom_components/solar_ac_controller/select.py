@@ -28,7 +28,9 @@ async def async_setup_entry(
     async_add_entities([SeasonModeSelect(coordinator, entry)])
 
 
-class SeasonModeSelect(CoordinatorEntity, SelectEntity):  # type: ignore[misc]
+class SeasonModeSelect(  # pyright: ignore[reportIncompatibleVariableOverride]
+    CoordinatorEntity, SelectEntity
+):
     coordinator: "SolarACCoordinator"
     _attr_entity_category = EntityCategory.CONFIG
     _attr_should_poll: bool = False

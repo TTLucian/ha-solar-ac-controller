@@ -23,7 +23,9 @@ async def async_setup_entry(
     async_add_entities([AggressivenessNumber(coordinator, entry)])
 
 
-class AggressivenessNumber(CoordinatorEntity, NumberEntity):  # type: ignore[misc]
+class AggressivenessNumber(  # pyright: ignore[reportIncompatibleVariableOverride]
+    CoordinatorEntity, NumberEntity
+):
     coordinator: "SolarACCoordinator"
     _attr_entity_category = EntityCategory.CONFIG
     _attr_has_entity_name = True

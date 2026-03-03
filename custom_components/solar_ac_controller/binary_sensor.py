@@ -47,7 +47,9 @@ async def async_setup_entry(
 
 
 # --- BASE CLASS ---
-class _BaseSolarACBinary(CoordinatorEntity, BinarySensorEntity):  # type: ignore[misc]
+class _BaseSolarACBinary(  # pyright: ignore[reportIncompatibleVariableOverride]
+    CoordinatorEntity, BinarySensorEntity
+):
     coordinator: "SolarACCoordinator"
     """
     Base class for all Solar AC Controller binary sensors.
