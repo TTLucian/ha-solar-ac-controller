@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from homeassistant.util import dt as dt_util
 
@@ -251,7 +251,7 @@ class ZoneManager:
         else:
             threshold = self.coordinator.short_cycle_off_seconds
 
-        return cast(bool, (now - last) < threshold)
+        return bool((now - last) < threshold)
 
     def is_zone_at_target(self, zone: str) -> bool:
         """
@@ -329,4 +329,4 @@ class ZoneManager:
         state_obj = self.coordinator.hass.states.get(zone)
         if not state_obj:
             return False
-        return cast(str, state_obj.state) != "unavailable"
+        return bool(state_obj.state != "unavailable")

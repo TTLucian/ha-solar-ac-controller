@@ -1,7 +1,7 @@
 # custom_components/solar_ac_controller/diagnostics.py
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any
 
 from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.config_entries import ConfigEntry
@@ -35,11 +35,8 @@ async def async_get_config_entry_diagnostics(
         if not ts:
             return None
         try:
-            return cast(
-                str,
-                dt_util.utc_from_timestamp(float(ts))
-                .replace(microsecond=0)
-                .isoformat(),
+            return str(
+                dt_util.utc_from_timestamp(float(ts)).replace(microsecond=0).isoformat()
             )
         except (ValueError, TypeError, OSError):
             return None

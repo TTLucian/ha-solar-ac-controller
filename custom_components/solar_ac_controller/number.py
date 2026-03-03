@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.number import NumberEntity
 from homeassistant.config_entries import ConfigEntry
@@ -9,6 +9,9 @@ from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DEFAULT_AGGRESSIVENESS, DOMAIN
+
+if TYPE_CHECKING:
+    from .coordinator import SolarACCoordinator
 
 
 async def async_setup_entry(
@@ -20,6 +23,7 @@ async def async_setup_entry(
 
 
 class AggressivenessNumber(CoordinatorEntity, NumberEntity):
+    coordinator: "SolarACCoordinator"
     _attr_entity_category = EntityCategory.CONFIG
     _attr_has_entity_name = True
     _attr_should_poll = False

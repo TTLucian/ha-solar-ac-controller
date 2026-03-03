@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
@@ -15,6 +15,9 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
 from .const import CONF_AC_SWITCH, CONF_ZONES, DOMAIN, SolarACData
+
+if TYPE_CHECKING:
+    from .coordinator import SolarACCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -44,6 +47,7 @@ async def async_setup_entry(
 
 # --- BASE CLASS ---
 class _BaseSolarACBinary(CoordinatorEntity, BinarySensorEntity):
+    coordinator: "SolarACCoordinator"
     """
     Base class for all Solar AC Controller binary sensors.
     Inherits from CoordinatorEntity for automatic listener management.
@@ -105,7 +109,7 @@ class SolarACPanicCooldownBinarySensor(_BaseSolarACBinary):
     @property
     def is_on(self) -> bool:
         # Note: This will only update when the coordinator updates.
-        return cast(bool, self.coordinator.panic_manager.is_in_cooldown)
+        return self.coordinator.panic_manager.is_in_cooldown
 
 
 class SolarACShortCycleBinarySensor(_BaseSolarACBinary):
@@ -198,4 +202,4 @@ class SolarACMasterBinarySensor(_BaseSolarACBinary):
             return False
         if state.state in ("unavailable", "unknown"):
             return False
-        return cast(bool, state.state == "on")
+        return bool(state.state == "on")

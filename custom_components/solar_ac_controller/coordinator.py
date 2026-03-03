@@ -349,6 +349,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                 CONF_AGGRESSIVENESS: float(self.aggressiveness),
             }
             # Use hass.config_entries to update options asynchronously
+            assert self.config_entry is not None
             self.hass.config_entries.async_update_entry(
                 self.config_entry, options=new_options
             )
@@ -599,6 +600,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
 
     def _init_zone_mappings(self) -> None:
         """Initialize zone-related mappings."""
+        assert self.config_entry is not None
         zones_list = self.config_manager.get_list(CONF_ZONES, [])
         self.zone_temp_sensors = ZoneConfigParser.parse_temp_sensors(
             self.config_entry, zones_list
@@ -945,6 +947,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                         try:
                             from homeassistant.helpers import entity_registry as er
 
+                            assert self.config_entry is not None
                             registry = er.async_get(self.hass)
                             unique_id = f"{self.config_entry.entry_id}_diagnostics"
                             reg_entry = registry.async_get_entity_id(

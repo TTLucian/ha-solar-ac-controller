@@ -1,7 +1,7 @@
 # custom_components/solar_ac_controller/helpers.py
 from __future__ import annotations
 
-from typing import Any, Dict, List, cast
+from typing import Any, Dict, List
 
 from homeassistant.util import dt as dt_util
 
@@ -292,7 +292,7 @@ def _iso_ts(ts: float | None) -> str | None:
     try:
         dt = dt_util.utc_from_timestamp(float(ts))
         # Use seconds precision to avoid noisy fractions
-        return cast(str, dt.replace(microsecond=0).isoformat())
+        return str(dt.replace(microsecond=0).isoformat())
     except (ValueError, TypeError, OSError):
         return None
 

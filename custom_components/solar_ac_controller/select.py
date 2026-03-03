@@ -28,6 +28,7 @@ async def async_setup_entry(
 
 
 class SeasonModeSelect(CoordinatorEntity, SelectEntity):
+    coordinator: "SolarACCoordinator"
     _attr_entity_category = EntityCategory.CONFIG
     _attr_should_poll: bool = False
     _attr_has_entity_name: bool = True

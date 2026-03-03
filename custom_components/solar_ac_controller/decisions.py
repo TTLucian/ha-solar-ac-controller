@@ -340,7 +340,7 @@ class DecisionEngine:
         else:
             threshold = self.coordinator.short_cycle_off_seconds
 
-        return cast(bool, (now - last) < threshold)
+        return bool((now - last) < threshold)
 
     def _is_short_cycling_for_remove(self, zone: str | None) -> bool:
         """Check if zone is short-cycling (for remove penalty)."""

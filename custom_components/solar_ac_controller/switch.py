@@ -2,13 +2,16 @@
 Switch entities for the Solar AC Controller integration.
 """
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN, SolarACData
+
+if TYPE_CHECKING:
+    from .coordinator import SolarACCoordinator
 
 INTEGRATION_ENABLE_SWITCH = "integration_enable"
 ACTIVITY_LOGGING_SWITCH = "activity_logging"
@@ -26,6 +29,8 @@ async def async_setup_entry(hass: Any, entry: Any, async_add_entities: Any) -> N
 
 
 class IntegrationEnableSwitch(CoordinatorEntity, SwitchEntity):
+    coordinator: "SolarACCoordinator"
+
     @property
     def device_info(self) -> DeviceInfo:
         return DeviceInfo(
@@ -62,6 +67,7 @@ class IntegrationEnableSwitch(CoordinatorEntity, SwitchEntity):
 
 
 class ActivityLoggingSwitch(CoordinatorEntity, SwitchEntity):
+    coordinator: "SolarACCoordinator"
     _attr_entity_category = EntityCategory.CONFIG
 
     @property
