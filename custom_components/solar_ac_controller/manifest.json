@@ -1,15 +1,15 @@
 {
   "domain": "solar_ac_controller",
   "name": "Solar AC Controller",
-  "version": "1.0.0",
-  "documentation": "https://github.com/TTLucian/ha-solar-ac-controller",
-  "issue_tracker": "https://github.com/TTLucian/ha-solar-ac-controller/issues",
-  "requirements": [],
+  "after_dependencies": ["logbook"],
   "codeowners": ["@TTLucian"],
   "config_flow": true,
   "dependencies": [],
-  "iot_class": "local_polling",
+  "documentation": "https://github.com/TTLucian/ha-solar-ac-controller",
   "integration_type": "service",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/TTLucian/ha-solar-ac-controller/issues",
   "loggers": ["custom_components.solar_ac_controller"],
-  "after_dependencies": ["logbook"]
+  "requirements": [],
+  "version": "1.0.0"
 }
