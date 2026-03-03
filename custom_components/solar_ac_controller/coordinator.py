@@ -194,6 +194,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             logger=_LOGGER,
             name=DOMAIN,
             update_interval=timedelta(seconds=update_interval_seconds),
+            config_entry=config_entry,
         )
         self.store = store
         self.stored_data = stored or {}
@@ -640,7 +641,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                 if isinstance(val, dict):
                     # Try to use the data if it looks valid
                     try:
-                        normalized = {}
+                        normalized: dict[str, float | str] = {}
                         for k, vv in val.items():
                             if isinstance(vv, (int, float)):
                                 normalized[k.lower()] = float(vv)
@@ -938,7 +939,9 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                     # Resolve the diagnostics entity id once and cache it.
                     # The entity registry is queried only on the first log call;
                     # subsequent calls reuse the cached value.
-                    if self._diagnostics_entity_id_cached is None:
+                    # Use getattr() to guard against cases where __init__ was not
+                    # called (e.g. object.__new__() in tests or future migrations).
+                    if getattr(self, "_diagnostics_entity_id_cached", None) is None:
                         try:
                             from homeassistant.helpers import entity_registry as er
 
@@ -1230,7 +1233,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
     # Main update loop
     # -------------------------------------------------------------------------
 
-    async def _async_update_data(self) -> None:
+    async def _async_update_data(self) -> None:  # type: ignore[override]
         """Main loop executed every 5 seconds."""
         try:
             async with asyncio.timeout(5):  # 5-second timeout to prevent deadlocks
@@ -1342,7 +1345,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                             if solar >= on_threshold:
                                 # Unfreeze: solar has reached on_threshold
                                 self.integration_active = True
-                                self.update_interval = timedelta(
+                                self.update_interval = timedelta(  # type: ignore[misc]
                                     seconds=self.config_manager.get_int(
                                         CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL
                                     )
@@ -1352,7 +1355,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                                 )
                             else:
                                 # Still frozen: check less frequently
-                                self.update_interval = timedelta(
+                                self.update_interval = timedelta(  # type: ignore[misc]
                                     seconds=300
                                 )  # Check every 5 minutes
                                 async with self._state_lock:
@@ -1398,7 +1401,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                                         self.stored_data["integration_enabled"] = False
                                         self._storage_dirty = True
                                     self._debounce_recalc()
-                                self.update_interval = timedelta(
+                                self.update_interval = timedelta(  # type: ignore[misc]
                                     seconds=300
                                 )  # Check every 5 minutes
                                 async with self._state_lock:
@@ -2160,7 +2163,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         if current_interval is not None:
             current_seconds = current_interval.total_seconds()
             if new_interval != current_seconds:
-                self.update_interval = timedelta(seconds=new_interval)
+                self.update_interval = timedelta(seconds=new_interval)  # type: ignore[misc]
                 _LOGGER.debug(f"Adaptive update interval changed to {new_interval}s")
 
     async def _async_cleanup_tasks(self) -> None:

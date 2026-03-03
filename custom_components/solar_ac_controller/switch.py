@@ -5,7 +5,7 @@ Switch entities for the Solar AC Controller integration.
 from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
-from homeassistant.helpers.entity import EntityCategory
+from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN, SolarACData
@@ -27,11 +27,11 @@ async def async_setup_entry(hass: Any, entry: Any, async_add_entities: Any) -> N
 
 class IntegrationEnableSwitch(CoordinatorEntity, SwitchEntity):
     @property
-    def device_info(self) -> dict[str, Any]:
-        return {
-            "identifiers": {(DOMAIN, self.entry.entry_id)},
-            "name": "Solar AC Controller",
-        }
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(
+            identifiers={(DOMAIN, self.entry.entry_id)},
+            name="Solar AC Controller",
+        )
 
     _attr_should_poll = False
     _attr_has_entity_name = True
@@ -65,11 +65,11 @@ class ActivityLoggingSwitch(CoordinatorEntity, SwitchEntity):
     _attr_entity_category = EntityCategory.CONFIG
 
     @property
-    def device_info(self) -> dict[str, Any]:
-        return {
-            "identifiers": {(DOMAIN, self.entry.entry_id)},
-            "name": "Solar AC Controller",
-        }
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(
+            identifiers={(DOMAIN, self.entry.entry_id)},
+            name="Solar AC Controller",
+        )
 
     _attr_should_poll = False
     _attr_has_entity_name = True

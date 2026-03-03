@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, cast
+from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
@@ -193,7 +193,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
 
     # 2. Storage Setup (manual migration because Store no longer accepts migrate_fn)
-    store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
+    store: Store[dict[str, Any]] = Store(hass, STORAGE_VERSION, STORAGE_KEY)
 
     try:
         stored_data = await store.async_load()
@@ -336,4 +336,4 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Optional: remove the service flag too
         hass.data[DOMAIN].pop("__svc_force_relearn_registered", None)
 
-    return cast(bool, unload_ok)
+    return bool(unload_ok)

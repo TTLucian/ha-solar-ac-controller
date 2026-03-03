@@ -327,7 +327,7 @@ async def _validate_zone_temp_sensors(
     return None
 
 
-class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg]
+class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Solar AC Controller."""
 
     VERSION = 1

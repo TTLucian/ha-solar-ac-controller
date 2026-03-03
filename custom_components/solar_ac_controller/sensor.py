@@ -198,7 +198,7 @@ class _ZoneStateSensor(_BaseSolarACSensor):
     zone_attr = ""
 
     @property
-    def state(self) -> str:
+    def native_value(self) -> str:
         return getattr(self.coordinator, self.zone_attr, "none")
 
 
@@ -211,7 +211,7 @@ class SolarACNextZoneSensor(_ZoneStateSensor):
         return f"{self._entry_id}_next_zone"
 
     @property
-    def state(self) -> str:
+    def native_value(self) -> str:
         return self.coordinator.next_zone or "none"
 
 
@@ -232,7 +232,7 @@ class SolarACLastActionSensor(_BaseSolarACSensor):
         return f"{self._entry_id}_last_action"
 
     @property
-    def state(self) -> str:
+    def native_value(self) -> str:
         return self.coordinator.last_action or "none"
 
 
@@ -290,7 +290,7 @@ class SolarACConfidenceThresholdSensor(_BaseSolarACSensor):
         return f"{self._entry_id}_conf_thresholds"
 
     @property
-    def state(self) -> str:
+    def native_value(self) -> str:
         return "ok"
 
     @property
@@ -338,7 +338,7 @@ class SolarACPanicCooldownSensor(_BaseSolarACSensor):
         return f"{self._entry_id}_panic_cooldown"
 
     @property
-    def state(self) -> str:
+    def native_value(self) -> str:
         return "yes" if self.coordinator.panic_manager.is_in_cooldown else "no"
 
 
@@ -377,7 +377,7 @@ class SolarACAddBreakdownSensor(_BaseSolarACSensor):
         return f"{self._entry_id}_add_conf_breakdown"
 
     @property
-    def state(self) -> str:
+    def native_value(self) -> str:
         return "ok"
 
     @property
@@ -394,7 +394,7 @@ class SolarACRemoveBreakdownSensor(_BaseSolarACSensor):
         return f"{self._entry_id}_remove_conf_breakdown"
 
     @property
-    def state(self) -> str:
+    def native_value(self) -> str:
         return "ok"
 
     @property
@@ -499,7 +499,7 @@ class SolarACSeasonModeSensor(_BaseSolarACSensor):
         return f"{self._entry_id}_season_mode"
 
     @property
-    def state(self) -> str:
+    def native_value(self) -> str:
         return getattr(self.coordinator, "season_mode", "unknown") or "unknown"
 
 
@@ -538,7 +538,7 @@ class SolarACRequiredExportSourceSensor(_BaseSolarACSensor):
         return f"{self._entry_id}_required_export_source"
 
     @property
-    def state(self) -> str:
+    def native_value(self) -> str:
         return (
             getattr(self.coordinator, "required_export_source", "Initializing")
             or "Initializing"

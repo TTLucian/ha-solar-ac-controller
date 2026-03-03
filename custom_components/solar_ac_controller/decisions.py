@@ -145,7 +145,8 @@ class DecisionEngine:
             if ramp > 0 and recover_until > now:
                 frac = max(0.0, min(1.0, (recover_until - now) / ramp))
                 comp_penalty = -DECISION_COMP_PENALTY_MAG * frac * penalty_scale
-        except Exception:
+        except Exception as exc:  # pragma: no cover
+            _LOGGER.debug("comp_penalty calculation failed: %s", exc)
             comp_penalty = 0.0
 
         # Learning active: strongly suppress adds while learning is active
@@ -153,7 +154,8 @@ class DecisionEngine:
         try:
             if getattr(self.coordinator, "learning_active_cached", False):
                 learn_penalty = -DECISION_LEARN_PENALTY_MAG
-        except Exception:
+        except Exception as exc:  # pragma: no cover
+            _LOGGER.debug("learn_penalty calculation failed: %s", exc)
             learn_penalty = 0.0
 
         # AC-power stability early-allow: grant a modest bonus when EMA shows stable, substantial export
@@ -165,7 +167,8 @@ class DecisionEngine:
                 and abs(ema_slow) > DECISION_AC_STABILITY_THRESHOLD_W
             ):
                 ac_stability_bonus = DECISION_AC_STABILITY_BONUS * bonus_scale
-        except Exception:
+        except Exception as exc:  # pragma: no cover
+            _LOGGER.debug("ac_stability_bonus calculation failed: %s", exc)
             ac_stability_bonus = 0.0
 
         raw = (
@@ -210,8 +213,8 @@ class DecisionEngine:
                 "learn_penalty": round(learn_penalty, 2),
                 "raw": round(raw, 2),
             }
-        except Exception:
-            pass
+        except Exception as exc:  # pragma: no cover
+            _LOGGER.debug("Failed to store add breakdown: %s", exc)
         return cast(float, max(DECISION_FINAL_MIN, min(DECISION_FINAL_MAX, raw)))
 
     def compute_remove_conf(
@@ -269,8 +272,8 @@ class DecisionEngine:
                 "short_cycle_penalty": round(short_cycle_penalty, 2),
                 "raw": round(raw, 2),
             }
-        except Exception:
-            pass
+        except Exception as exc:  # pragma: no cover
+            _LOGGER.debug("Failed to store remove breakdown: %s", exc)
         try:
             _LOGGER.debug(
                 "[REM_CONF] zone=%s import=%s base=%s heavy=%s sc_pen=%s raw=%s",

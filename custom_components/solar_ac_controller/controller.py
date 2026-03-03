@@ -541,15 +541,17 @@ class SolarACController:
             category = "extension"  # Compressor was already ON
 
         if category is None:
+            # Ambiguous baseline (50–150 W): compressor may be in standby or low-load.
+            # Treat conservatively as "lead" so the delta is still persisted rather
+            # than silently discarded. The caller gets a warning in the log.
             _LOGGER.warning(
-                "Skipping learning save: ac_before=%sW falls in unclassifiable range "
-                "(50–150 W) — neither 'lead' nor 'extension'; check compressor standby draw",
-                ac_before,
+                "ac_before=%sW falls in ambiguous range (50\u2013150 W) for zone %s; "
+                "classifying as 'lead' and using measured delta (%sW) as fallback.",
+                round(ac_before, 1),
+                zone,
+                round(delta, 1),
             )
-            await self._reset_learning_state_async()
-            return LearningResult(
-                False, error_message=f"Baseline power {ac_before}W not classifiable"
-            )
+            category = "lead"
 
         # time_to_peak was already snapshotted from session state under the lock above.
         set_lp = getattr(self.coordinator, "set_learned_power", None)
