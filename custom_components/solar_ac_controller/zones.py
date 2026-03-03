@@ -26,12 +26,10 @@ class ZoneManager:
         """Update zone states, detect manual overrides, and return active zones."""
         active_zones: list[str] = []
 
-        # Get all states once for efficient batch lookup
-        all_states = self.coordinator.hass.states.async_all()
-        state_map = {s.entity_id: s for s in all_states}
-
         for zone in self.coordinator.config.get(CONF_ZONES, []):
-            state_obj = state_map.get(zone)
+            # Look up each configured zone directly instead of scanning all HA entities.
+            # async_all() is O(n_all_entities); direct get() is O(1) per zone.
+            state_obj = self.coordinator.hass.states.get(zone)
             if not state_obj:
                 _LOGGER.warning(
                     f"Configured zone entity '{zone}' is missing in Home Assistant. Check for typos or missing entities."

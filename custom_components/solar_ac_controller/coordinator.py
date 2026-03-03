@@ -141,9 +141,6 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         if not enabled:
             if getattr(self, "panic_manager", None) is not None:
                 await self.panic_manager.cancel_panic()
-        # Mutate stored_data under storage lock to avoid races when available
-        if not hasattr(self, "_storage_lock"):
-            self._storage_lock = asyncio.Lock()
         async with self._storage_lock:
             self.stored_data["integration_enabled"] = enabled
             self._storage_dirty = True  # Mark as dirty
@@ -162,9 +159,6 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         await self._log(
             f"Activity logging {'enabled' if enabled else 'disabled'} by user.", "info"
         )
-        # Mutate stored_data under storage lock to avoid races when available
-        if not hasattr(self, "_storage_lock"):
-            self._storage_lock = asyncio.Lock()
         async with self._storage_lock:
             self.stored_data["activity_logging_enabled"] = enabled
             self._storage_dirty = True  # Mark as dirty
@@ -330,9 +324,6 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
     async def async_set_season_mode(self, value: str) -> None:
         """Set season mode and persist state."""
         self.season_mode = value
-        # Mutate stored_data under storage lock to avoid races when available
-        if not hasattr(self, "_storage_lock"):
-            self._storage_lock = asyncio.Lock()
         async with self._storage_lock:
             self.stored_data["season_mode"] = value
             self._storage_dirty = True  # Mark as dirty
@@ -371,6 +362,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         # Zone management state
         self.next_zone: str | None = None
         self.last_zone: str | None = None
+        self.active_zones: list[str] = []
 
         # Performance optimization counters
         self._cycle_counter = 0
@@ -451,6 +443,8 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         # Logbook throttle state – initialised here to avoid lazy-init in hot path
         self._last_logbook_emit: dict[str, float] = {}
         self._logbook_throttle_seconds = LOGBOOK_THROTTLE_SECONDS
+        # Cached diagnostics entity ID (resolved once, reused for every log entry)
+        self._diagnostics_entity_id_cached: str | None = None
 
         # Defensive initialization
         self.required_export_source = "Initializing"
@@ -650,6 +644,9 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                         for k, vv in val.items():
                             if isinstance(vv, (int, float)):
                                 normalized[k.lower()] = float(vv)
+                            elif isinstance(vv, str):
+                                # Preserve string metadata fields (e.g. "category")
+                                normalized[k.lower()] = vv
 
                         # Ensure required fields exist
                         if "default" not in normalized:
@@ -938,25 +935,27 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             if getattr(self, "activity_logging_enabled", False):
                 try:
 
-                    # Resolve the actual diagnostics entity id via the entity registry
-                    # to ensure logbook entries are associated with the correct entity.
-                    diagnostics_entity_id = None
-                    try:
-                        from homeassistant.helpers import entity_registry as er
+                    # Resolve the diagnostics entity id once and cache it.
+                    # The entity registry is queried only on the first log call;
+                    # subsequent calls reuse the cached value.
+                    if self._diagnostics_entity_id_cached is None:
+                        try:
+                            from homeassistant.helpers import entity_registry as er
 
-                        registry = er.async_get(self.hass)
-                        # Unique id expected to match '<entry_id>_diagnostics'
-                        unique_id = f"{self.config_entry.entry_id}_diagnostics"
-                        reg_entry = registry.async_get_entity_id(
-                            "sensor", DOMAIN, unique_id
-                        )
-                        if reg_entry:
-                            diagnostics_entity_id = reg_entry
-                    except Exception:
-                        # Fall back to constructed id if registry lookup fails
-                        diagnostics_entity_id = (
-                            f"sensor.{self.config_entry.entry_id}_diagnostics"
-                        )
+                            registry = er.async_get(self.hass)
+                            unique_id = f"{self.config_entry.entry_id}_diagnostics"
+                            reg_entry = registry.async_get_entity_id(
+                                "sensor", DOMAIN, unique_id
+                            )
+                            self._diagnostics_entity_id_cached = (
+                                reg_entry
+                                or f"sensor.{self.config_entry.entry_id}_diagnostics"
+                            )
+                        except Exception:
+                            self._diagnostics_entity_id_cached = (
+                                f"sensor.{self.config_entry.entry_id}_diagnostics"
+                            )
+                    diagnostics_entity_id = self._diagnostics_entity_id_cached
 
                     # Map level to logbook level string
                     level_map = {
@@ -1667,6 +1666,12 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                             self.learning_active_cached = bool(learning_zone)
                         except Exception:
                             self.learning_active_cached = False
+
+                        # Feed current ac_power into the learning session every cycle
+                        # so phase detection (peak tracking, stabilization) works correctly.
+                        if learning_zone:
+                            await self.controller.session.add_power_reading(ac_power)
+
                         if (
                             learning_zone
                             and learning_start_time
@@ -1861,7 +1866,9 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                         AttributeError,
                     ) as e:
                         self.note = f"Unexpected error in update cycle: {e}"
-                        _LOGGER.exception("Unexpected error in _async_update_data")
+                        _LOGGER.exception(
+                            "Unexpected error in _async_update_data: %s", e
+                        )
                         self.metrics.record_cycle_end(cycle_start, success=False)
         except asyncio.TimeoutError:
             self.note = "Update lock acquisition timed out - possible deadlock!"
@@ -1995,6 +2002,26 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             if now_ts - last_swap < ZONE_SWAP_MIN_INTERVAL_SECONDS:  # 5 minutes
                 return
 
+            # Read sensor and compute required_export BEFORE removing the zone.
+            # If either step fails we must abort — removing a zone without adding
+            # the replacement would lose an active zone.
+            try:
+                ac_power = self._validate_sensor_state(
+                    self.hass.states.get(self.config_manager.get(CONF_AC_POWER_SENSOR)),
+                    "AC power sensor",
+                )
+            except (SensorUnavailableError, SensorInvalidError) as e:
+                _LOGGER.warning(
+                    "Zone swap aborted — AC power sensor unavailable: %s", e
+                )
+                return
+
+            required_export = self._compute_required_export(
+                zone_to_add, mode=self.season_mode
+            )
+            if required_export is None:
+                return
+
             # Log the swap
             remove_name = zone_to_remove.split(".")[-1]
             add_name = zone_to_add.split(".")[-1]
@@ -2006,16 +2033,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             # Remove the satisfied zone
             await self.action_executor.attempt_remove_zone(zone_to_remove, self.ema_5m)
 
-            # Add the needy zone (use current power readings)
-            ac_power = self._validate_sensor_state(
-                self.hass.states.get(self.config_manager.get(CONF_AC_POWER_SENSOR)),
-                "AC power sensor",
-            )
-            required_export = self._compute_required_export(
-                zone_to_add, mode=self.season_mode
-            )
-            if required_export is None:
-                return
+            # Add the needy zone using the readings captured before removal
             await self.action_executor.attempt_add_zone(
                 zone_to_add,
                 ac_power,
@@ -2028,7 +2046,14 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             async with self._state_lock:
                 self.last_action = "zone_swap"
 
-        except (ValueError, TypeError, AttributeError, KeyError) as e:
+        except (
+            SensorUnavailableError,
+            SensorInvalidError,
+            ValueError,
+            TypeError,
+            AttributeError,
+            KeyError,
+        ) as e:
             _LOGGER.exception(f"Failed to perform zone swap: {e}")
 
     async def _perform_freeze_cleanup(self) -> None:

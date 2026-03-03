@@ -14,7 +14,13 @@ from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
-from .const import CONF_ENABLE_DIAGNOSTICS_SENSOR, CONF_ZONES, DOMAIN, SolarACData
+from .const import (
+    CONF_ENABLE_DIAGNOSTICS_SENSOR,
+    CONF_ZONES,
+    DECISION_IMPORT_TOLERANCE_MAX_W,
+    DOMAIN,
+    SolarACData,
+)
 from .helpers import build_diagnostics
 
 
@@ -44,6 +50,7 @@ async def async_setup_entry(
         SolarACExportMarginSensor(coordinator, entry_id),
         SolarACLearnedIdlePowerSensor(coordinator, entry_id),
         SolarACCompressorRecoverySensor(coordinator, entry_id),
+        SolarACGridImportToleranceSensor(coordinator, entry_id),
         SolarACPanicCooldownSensor(coordinator, entry_id),
         SolarACSamplesSensor(coordinator, entry_id),
     ]
@@ -109,15 +116,15 @@ class _BaseSolarACSensor(SensorEntity):
         current_state = self.state
         current_attributes = self.extra_state_attributes or {}
 
-        # Compare state
+        # Compare state first (fast path)
         if current_state != self._previous_state:
             return True
 
-        # Compare key attributes (not all attributes for performance)
-        key_attrs = {"unit_of_measurement", "device_class", "icon"}
-        for attr in key_attrs:
-            if current_attributes.get(attr) != self._previous_attributes.get(attr):
-                return True
+        # Compare full attributes — sensors like breakdown sensors have a static
+        # state of "ok" but carry all their data in extra_state_attributes, so
+        # we must check the whole dict (not just a fixed subset of metadata keys).
+        if current_attributes != self._previous_attributes:
+            return True
 
         return False
 
@@ -564,6 +571,28 @@ class SolarACCompressorRecoverySensor(_BaseSolarACSensor):
         )
         remaining = recover_until - dt_util.utcnow().timestamp()
         return float(round(max(0.0, remaining), 1))
+
+
+class SolarACGridImportToleranceSensor(_NumericSolarACSensor):
+    """Current grid import tolerance derived from the Aggressiveness slider.
+
+    Computed as: aggressiveness × 700 W.  Shows how many watts of grid import
+    the controller will accept while still allowing a zone to be added.
+    Updates live whenever the aggressiveness number entity is changed.
+    """
+
+    _attr_name = "Grid Import Tolerance"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:transmission-tower-import"
+
+    @property
+    def unique_id(self) -> str:
+        return f"{self._entry_id}_grid_import_tolerance"
+
+    @property
+    def native_value(self) -> float:
+        a = float(getattr(self.coordinator, "aggressiveness", 0.5))
+        return round(a * DECISION_IMPORT_TOLERANCE_MAX_W, 1)
 
 
 class SolarACZoneLockRemainingSensor(_BaseSolarACSensor):

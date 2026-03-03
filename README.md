@@ -8,7 +8,7 @@
   <a href="https://buymeacoffee.com/ttlucian"><img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-Donate-yellow?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black" alt="Buy Me a Coffee" /></a>
 </p>
 
-A smart and adaptive Home Assistant integration that manages multi-zone (milti-split) AC systems based on real-time solar production, grid import/export, and learned compressor behavior.
+A smart and adaptive Home Assistant integration that manages multi-zone (multi-split) AC systems based on real-time solar production, grid import/export, and learned compressor behavior.
 
 This integration automatically:
 
@@ -87,18 +87,28 @@ Exposes **20+ sensors and binary sensors** showing EMAs, confidence scores, zone
 ### **Sensors** (Power values in Watts)
 
 - **Active Zones** — Comma-separated list of currently running zones
+- **Active Zone Count** — Number of currently active zones (useful for automations)
 - **Next Zone** — The zone that will be added next if conditions allow
 - **Last Zone** — The most recently active zone
 - **Last Action** — Most recent controller action (e.g., `added_zone`, `removed_zone`, `panic`, `no_action`)
+- **Season Mode** — Current season mode (`heat` / `cool`)
 - **EMA 30s** — 30-second exponential moving average of grid power
 - **EMA 5m** — 5-minute exponential moving average of grid power
 - **Confidence** — Current decision confidence score (points)
 - **Confidence Thresholds** — Shows unified add/remove confidence thresholds as attributes
 - **Required Export** — Minimum export needed to add the next zone
+- **Required Export Source** — Human-readable reason for the current required export value
 - **Export Margin** — Current export headroom above required export
-- **Import Power** — Current import power (mirrors EMA 5m)
+- **Learned Idle Power** — Learned compressor draw while running with no active zones
+- **Grid Import Tolerance** — Current import tolerance in W, live-updated from the Aggressiveness slider (`aggressiveness × 700 W`)
+- **Compressor Recovery Remaining** — Seconds left on the post-add compressor ramp-up guard
 - **Panic Cooldown Active** — Status of panic cooldown timer ("yes"/"no")
+- **Samples** — Number of learning samples collected
 - **Learned Power [zone]** — Per-zone learned power consumption (one sensor per configured zone)
+- **Zone Lock Remaining [zone]** — Seconds until a zone's manual-override lock expires (one per zone)
+- **Add Confidence Breakdown** (optional diagnostic) — Per-factor breakdown of the add confidence score
+- **Remove Confidence Breakdown** (optional diagnostic) — Per-factor breakdown of the remove confidence score
+- **Peak Delta [zone]** (optional diagnostic) — Learned compressor startup surge per zone
 - **Diagnostics** (optional) — JSON snapshot of complete controller state
 
 ### **Binary Sensors**
@@ -120,12 +130,10 @@ The Solar AC Controller provides a unified diagnostics system designed to help w
 
 You can enable an always‑on diagnostics sensor that exposes the controller’s full internal state as JSON attributes.
 
-How to enable
-Go to Settings → Devices & Services → Solar AC Controller → Configure
-
-Toggle Enable Diagnostics Sensor
-
-Submit the form
+**How to enable:**
+1. Go to **Settings → Devices & Services → Solar AC Controller → Configure**
+2. Toggle **Enable Diagnostics Sensor**
+3. Submit the form
 
 When enabled, Home Assistant will create:
 
@@ -220,14 +228,12 @@ Add the integration via:
 - **Short cycle ON seconds** (default: 1200s) — Minimum ON time before allowing OFF
 - **Short cycle OFF seconds** (default: 20s) — Minimum OFF time before allowing ON
 - **Action delay seconds** (default: 3s) — Delay between consecutive service calls
-- **Unified add threshold** (default: 20 points) — Add zones when unified confidence >= this value
-- **Unified remove threshold** (default: 10 points) — Remove zones when unified confidence <= this value
 - **Initial learned power** (default: 1000W) — Bootstrap estimate before learning completes
 - **Max temperature winter** (default: 21C) — Comfort target for zones in heat mode
 - **Min temperature summer** (default: 21C) — Comfort target for zones in cool mode
 - **Zone temperature sensors** (optional) — Per-zone indoor temperature sensor entities for comfort-aware removal blocking
 - **Enable diagnostics sensor** (default: disabled) — Optional JSON diagnostics sensor
-- **Grid import tolerance** (default: 350W) — How much grid import the controller will tolerate when adding a zone. A positive value here allows the controller to briefly draw from the grid (e.g., 300–400W) while the compressor settles.
+- **Aggressiveness** (default: 0.5) — Controls how eagerly zones are activated; see the [Aggressiveness Slider](#️-aggressiveness-slider) section for details
 
 ---
 
@@ -252,10 +258,8 @@ When launched via Reconfigure, the form now pre-fills with your existing data+op
 
 ### Decision Engine Parameters
 
-- **`unified_add_threshold`** — Add zones when unified confidence >= this value (default: 20 points)
-- **`unified_remove_threshold`** — Remove zones when unified confidence <= this value (default: 10 points)
 - **`initial_learned_power`** — Bootstrap estimate before learning completes (default: 1000W)
-- **`grid_import_tolerance`** — Allow up to this many watts of grid import when adding a zone (default: 350W). Increase to tolerate transient import during large zone activations; decrease to be stricter about only adding when fully exporting.
+- **`aggressiveness`** — Zone activation eagerness from 0.0 (conservative) to 1.0 (aggressive); drives add/remove thresholds and import tolerance simultaneously (default: 0.5)
 
 ### Diagnostics
 
@@ -265,9 +269,52 @@ When launched via Reconfigure, the form now pre-fills with your existing data+op
 
 ---
 
-## 🔁 Migration note
+## 🎚️ Aggressiveness Slider
 
-Version 0.10.17 introduced the `grid_import_tolerance` runtime option. Existing installations will default to the previous behavior (350W). No manual migration steps are required — the option is available in the integration Options flow if you want to tune it.
+The **Aggressiveness** slider (range 0.0 – 1.0) is the primary tuning knob for how eagerly the controller activates and keeps zones running. Moving it drives **four interconnected parameters simultaneously**, so you never need to manually edit confidence thresholds or import tolerance to change the overall behaviour.
+
+### Parameters driven by aggressiveness
+
+| Parameter | Formula | Conservative (0.0) → Aggressive (1.0) |
+|---|---|---|
+| **Add threshold** | `80 − 60 × a` | 80 pts → 20 pts |
+| **Remove threshold** | `−70 + 50 × a` *(clamped for 50-pt deadband)* | −70 pts → −30 pts |
+| **Grid import tolerance** | `a × 700 W` | 0 W → 700 W |
+| **Deadband** *(add − remove)* | 150 − 100 × a *(≥ 50 pts)* | 150 pts → 50 pts |
+
+**What each parameter does:**
+
+- **Add threshold** — Minimum confidence score the controller must reach before switching a zone on. Lower means easier to turn on.
+- **Remove threshold** — Confidence score must fall below this (negative) value before the controller turns a zone off. Less negative means easier to turn off.
+- **Grid import tolerance** — Watts of grid import the controller accepts while still allowing zone activation. Lets the system be optimistic during short demand spikes at the moment a compressor starts.
+- **Deadband** — Gap between the add and remove thresholds. A wide deadband resists oscillation; a narrow one reacts faster to changing conditions.
+
+### Settings reference table
+
+| Aggressiveness | Add threshold (pts) | Remove threshold (pts) | Grid tolerance (W) | Deadband (pts) | Behaviour summary |
+|:-:|:-:|:-:|:-:|:-:|:--|
+| **0.0** | 80 | −70 | 0 | 150 | Maximum caution — zones only activate during strong, sustained export; no grid import tolerated at all |
+| **0.1** | 74 | −65 | 70 | 139 | Very conservative; tiny transient import (70 W) tolerated |
+| **0.2** | 68 | −60 | 140 | 128 | Conservative; requires reliable export before activating |
+| **0.3** | 62 | −55 | 210 | 117 | Slightly cautious; small 210 W import margin accepted |
+| **0.4** | 56 | −50 | 280 | 106 | Below default; suits smaller solar arrays or shared inverters |
+| **0.5** | 50 | −45 | 350 | 95 | **Default** — balanced; tolerates ~350 W transient import during compressor ramp-up |
+| **0.6** | 44 | −40 | 420 | 84 | Slightly aggressive; zones activate more readily on moderate export |
+| **0.7** | 38 | −35 | 490 | 73 | Aggressive; accepts up to 490 W of import |
+| **0.8** | 32 | −30 | 560 | 62 | Very aggressive; turns on with modest export |
+| **0.9** | 26 | −25 | 630 | 51 | Near-maximum; minimal solar surplus needed to trigger activation |
+| **1.0** | 20 | −30 ¹ | 700 | 50 | Maximum — activates on any measurable surplus; 50-pt minimum deadband enforced |
+
+> ¹ At aggressiveness 1.0 the raw remove threshold (−20) would reduce the deadband below 50 points, so it is clamped to −30 to preserve stability and prevent rapid cycling.
+
+### Choosing a value
+
+| Situation | Recommended range |
+|---|---|
+| Cloudy / unreliable generation or shared inverter | 0.2 – 0.4 |
+| Typical rooftop solar system | **0.5 (default)** |
+| Large array, modest AC loads | 0.6 – 0.7 |
+| Maximise self-consumption, large array | 0.8 – 1.0 |
 
 ---
 
@@ -294,30 +341,6 @@ service: solar_ac_controller.force_relearn
 data:
   zone: climate.living_room
 ```
-
-## 🧪 Recommended Tests
-
-Add tests/ with coverage for:
-
-Coordinator
-Add/no‑add logic
-
-Remove/no‑remove logic
-
-Panic path
-
-Learning timeout
-
-Master‑off behavior
-
-Panic cooldown
-
-Controller
-Bootstrap learning
-
-EMA updates
-
-Abort conditions (manual lock, missing sensors, invalid values)
 
 ## 🙌 Credits
 

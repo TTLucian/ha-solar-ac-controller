@@ -112,6 +112,10 @@ class PanicManager:
         zones_to_shed = active_zones[1:] if len(active_zones) > 1 else active_zones
         for zone in zones_to_shed:
             await self.coordinator.action_executor.call_entity_service(zone, False)
+            # Update short-cycle tracking so protection kicks in after panic cooldown
+            now_ts = dt_util.utcnow().timestamp()
+            self.coordinator.zone_last_changed[zone] = now_ts
+            self.coordinator.zone_last_changed_type[zone] = "off"
             # Notify learning session of panic removal (for contamination detection)
             await self.coordinator.controller.session.notify_zone_changed_during_learning(
                 zone, "panic"
@@ -129,6 +133,12 @@ class PanicManager:
                 if self._cancel_requested:
                     _LOGGER.debug("Panic task cancelled during delay before shedding")
                     return
+
+                # Re-read active zones after the delay — they may have changed while
+                # we were waiting (e.g. manual override, freeze, another panic cycle).
+                refreshed = list(getattr(self.coordinator, "active_zones", None) or [])
+                if refreshed:
+                    active_zones = refreshed
 
             # If master turned off during delay, abort
             ac_switch = self.coordinator.config.get(CONF_AC_SWITCH)

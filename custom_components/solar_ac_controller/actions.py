@@ -76,6 +76,7 @@ class ActionExecutor:
 
         async with self._action_lock:
             await self.remove_zone(last_zone)
+        async with self.coordinator._state_lock:
             self.coordinator.last_action = f"remove_{last_zone}"
 
     async def add_zone(self, zone: str, ac_power_before: float) -> None:
@@ -304,9 +305,15 @@ class ActionExecutor:
             _store_context()
             _record()
             return
-        except (ValueError, TypeError, AttributeError, KeyError) as e:
+        except (
+            ValueError,
+            TypeError,
+            AttributeError,
+            KeyError,
+            HomeAssistantError,
+        ) as e:
             _LOGGER.debug(
-                "Primary service %s.%s failed for %s: %s",
+                "Primary service %s.%s failed for %s: %s — attempting climate fallback",
                 domain,
                 service,
                 entity_id,
@@ -332,7 +339,13 @@ class ActionExecutor:
             _store_context()
             _record()
             return
-        except (ValueError, TypeError, AttributeError, KeyError) as e:
+        except (
+            ValueError,
+            TypeError,
+            AttributeError,
+            KeyError,
+            HomeAssistantError,
+        ) as e:
             _LOGGER.exception(
                 "Fallback climate.%s failed for %s: %s", service, entity_id, e
             )

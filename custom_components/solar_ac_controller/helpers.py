@@ -249,8 +249,6 @@ class MasterSwitchController:
             self.coordinator.master_last_command_time = dt_util.utcnow().timestamp()
             # mark master_off_since for EMA reset logic
             self.coordinator.master_off_since = dt_util.utcnow().timestamp()
-            # Record cycle end since we're returning early
-            self.coordinator.metrics.record_cycle_end(cycle_start, success=True)
             return
 
 

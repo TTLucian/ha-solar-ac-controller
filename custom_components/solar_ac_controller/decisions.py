@@ -309,13 +309,6 @@ class DecisionEngine:
         if self.coordinator.confidence > self.coordinator.unified_remove_threshold:
             return False
 
-        # Allow removal during panic (emergency override)
-        if (
-            self.coordinator.panic_manager
-            and self.coordinator.panic_manager.is_panicking
-        ):
-            return True
-
         # Remove based on confidence alone - no comfort target check
         return True
 

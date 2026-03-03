@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import deque
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, List, Optional, Tuple, cast
+from typing import Any, Awaitable, Callable, Deque, List, Optional, Tuple, cast
 
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
@@ -33,8 +34,9 @@ class LearningSession:
         self._samples = 0
 
         # Smart phase detection
-        self._power_readings: List[Tuple[float, float]] = (
-            []
+        # Use a bounded deque so old readings are dropped automatically (O(1) trim).
+        self._power_readings: Deque[Tuple[float, float]] = deque(
+            maxlen=POWER_READINGS_MAX_ENTRIES
         )  # [(timestamp, power), ...]
         self._peak_power = 0.0
         self._peak_detected = False
@@ -58,8 +60,20 @@ class LearningSession:
             self._active = True
             self._zone = zone
             self._start_time = start_time
-            # Reset contamination tracking for new session
+            # Reset ALL phase-detection and contamination state for a fresh session.
+            # Without this, stale data from a previous (possibly failed) session is
+            # inherited: e.g. _peak_detected=True from the last run causes the new
+            # session to skip peak tracking entirely.
+            self._power_readings.clear()
+            self._peak_power = 0.0
+            self._peak_detected = False
+            self._stabilized_power = 0.0
+            self._stabilized_detected = False
+            self._peak_detection_timestamp = None
+            self._stabilization_timestamp = None
+            self._time_to_peak = None
             self._learning_contaminated = False
+            self._contamination_timestamp = None
             self._zones_changed_during_learning = []
 
     async def end_session(self) -> None:
@@ -67,12 +81,19 @@ class LearningSession:
             self._active = False
             self._zone = None
             self._start_time = None
+            # Reset all phase-detection state so no data leaks into the next session
+            self._power_readings.clear()
+            self._peak_power = 0.0
+            self._peak_detected = False
+            self._stabilized_power = 0.0
+            self._stabilized_detected = False
+            self._peak_detection_timestamp = None
+            self._stabilization_timestamp = None
+            self._time_to_peak = None
             # Reset contamination tracking
             self._learning_contaminated = False
             self._contamination_timestamp = None
             self._zones_changed_during_learning = []
-            self._peak_detection_timestamp = None
-            self._time_to_peak = None
 
     async def get_zone(self) -> Optional[str]:
         async with self._lock:
@@ -150,13 +171,7 @@ class LearningSession:
                 return
 
             now = dt_util.utcnow().timestamp()
-            self._power_readings.append((now, power))
-
-            # Limit readings to last 60 entries (5 minutes at 5s intervals)
-            if len(self._power_readings) > POWER_READINGS_MAX_ENTRIES:
-                self._power_readings = self._power_readings[
-                    -POWER_READINGS_MAX_ENTRIES:
-                ]
+            self._power_readings.append((now, power))  # deque auto-trims at maxlen
 
             # Update peak tracking
             if power > self._peak_power:
@@ -165,7 +180,12 @@ class LearningSession:
 
             # Detect peak (power started declining)
             elif self._peak_detected and len(self._power_readings) >= 3:
-                recent = self._power_readings[-3:]
+                # deque does not support slicing; index directly
+                recent = [
+                    self._power_readings[-3],
+                    self._power_readings[-2],
+                    self._power_readings[-1],
+                ]
                 if (
                     recent[0][1] > recent[1][1] > recent[2][1]  # Declining trend
                     and recent[1][1] < self._peak_power * 0.9
@@ -180,13 +200,18 @@ class LearningSession:
             if (
                 len(self._power_readings) >= STABILIZATION_READING_COUNT
             ):  # 2 minutes at 5s intervals
+                # deque does not support slicing; convert tail to list
                 recent_readings = [
-                    p for _, p in self._power_readings[-STABILIZATION_READING_COUNT:]
+                    p
+                    for _, p in list(self._power_readings)[
+                        -STABILIZATION_READING_COUNT:
+                    ]
                 ]
                 avg_power = sum(recent_readings) / len(recent_readings)
                 max_variation = max(recent_readings) - min(recent_readings)
 
-                if max_variation / avg_power < 0.05:  # <5% variation
+                # Guard against zero avg_power (all readings near 0 at cold startup)
+                if avg_power > 0 and max_variation / avg_power < 0.05:  # <5% variation
                     self._stabilized_power = avg_power
                     self._stabilized_detected = True
                     # Record when stabilization was first detected
@@ -516,8 +541,9 @@ class SolarACController:
             category = "extension"  # Compressor was already ON
 
         if category is None:
-            _LOGGER.debug(
-                "Skipping learning save: ac_before=%sW not in classification range",
+            _LOGGER.warning(
+                "Skipping learning save: ac_before=%sW falls in unclassifiable range "
+                "(50–150 W) — neither 'lead' nor 'extension'; check compressor standby draw",
                 ac_before,
             )
             await self._reset_learning_state_async()

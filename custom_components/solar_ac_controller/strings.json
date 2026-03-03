@@ -12,9 +12,7 @@
           "grid_sensor": "Grid Import/Export Sensor*",
           "ac_power_sensor": "AC Power Sensor*",
           "solar_threshold_on": "Solar ON Threshold* (W). Default 1200W",
-          "solar_threshold_off": "Solar OFF Threshold* (W).  Default 500W",
-          "unified_add_threshold": "Add Confidence Threshold* (points)",
-          "unified_remove_threshold": "Remove Confidence Threshold* (points)",
+          "solar_threshold_off": "Solar OFF Threshold* (W). Default 500W",
           "initial_learned_power": "Initial Learned Power* (W)",
           "enable_temperature_modulation": "Enable Comfort-Based Zone Control",
           "enable_diagnostics_sensor": "Diagnostics Sensor (full state)"
@@ -27,8 +25,6 @@
           "ac_power_sensor": "Entity that measures your AC power consumption.",
           "solar_threshold_on": "Solar power must exceed this to enable the AC master switch.",
           "solar_threshold_off": "Solar power must fall below this to disable the master switch.",
-          "unified_add_threshold": "Score threshold at which the controller will add a zone. Higher = more conservative.",
-          "unified_remove_threshold": "Score threshold at which the controller will remove a zone. Lower = more conservative.",
           "initial_learned_power": "Starting estimate of zone power before learning.",
           "enable_temperature_modulation": "Enable zone swapping based on comfort targets. When system is balanced, automatically swaps satisfied zones with higher-priority zones that need heating/cooling.",
           "enable_diagnostics_sensor": "Creates a sensor exposing full state for troubleshooting."
@@ -88,9 +84,7 @@
           "grid_sensor": "Grid Import/Export Sensor*",
           "ac_power_sensor": "AC Power Sensor*",
           "solar_threshold_on": "Solar ON Threshold* (W). Default 1200W",
-          "solar_threshold_off": "Solar OFF Threshold* (W).  Default 500W",
-          "unified_add_threshold": "Add Confidence Threshold* (points)",
-          "unified_remove_threshold": "Remove Confidence Threshold* (points)",
+          "solar_threshold_off": "Solar OFF Threshold* (W). Default 500W",
           "initial_learned_power": "Initial Learned Power* (W)",
           "enable_temperature_modulation": "Enable Comfort-Based Zone Control",
           "enable_diagnostics_sensor": "Diagnostics Sensor (full state)"
@@ -103,16 +97,10 @@
           "ac_power_sensor": "Entity that measures your AC power consumption.",
           "solar_threshold_on": "Solar power must exceed this to enable the AC master switch.",
           "solar_threshold_off": "Solar power must fall below this to disable the master switch.",
-          "unified_add_threshold": "Score threshold at which the controller will add a zone. Higher = more conservative.",
-          "unified_remove_threshold": "Score threshold at which the controller will remove a zone. Lower = more conservative.",
           "initial_learned_power": "Starting estimate of zone power before learning.",
           "enable_temperature_modulation": "Enable zone swapping based on comfort targets. When system is balanced, automatically swaps satisfied zones with higher-priority zones that need heating/cooling.",
           "enable_diagnostics_sensor": "Creates a sensor exposing full state for troubleshooting."
         }
-      },
-      "states": {
-        "integration_disabled_quiet": "Integration disabled (no logbook entries)",
-        "activity_logging_disabled": "Activity logging disabled"
       },
       "timing": {
         "title": "Timing & Protection",
@@ -124,7 +112,8 @@
           "short_cycle_off_seconds": "Short Cycle OFF Protection (seconds)",
           "panic_threshold": "Panic Threshold (W)",
           "panic_delay": "Panic Delay (seconds)",
-          "update_interval": "Update Interval (seconds)"
+          "update_interval": "Update Interval (seconds)",
+          "compressor_ramp_seconds": "Compressor Ramp (seconds)"
         },
         "data_description": {
           "action_delay_seconds": "Minimum delay between consecutive zone commands (including heat/cool mode changes) to avoid rapid sequencing.",
@@ -133,7 +122,8 @@
           "short_cycle_off_seconds": "Minimum time a zone must stay OFF before controller can turn it ON (prevents rapid cycling).",
           "panic_threshold": "If grid import exceeds this for panic_delay seconds with multiple zones active, zones are shed sequentially.",
           "panic_delay": "Seconds of sustained high import before panic shedding begins.",
-          "update_interval": "How often the controller checks sensors and makes decisions. Lower values = faster response, higher values = less CPU usage. Recommended: 10 seconds."
+          "update_interval": "How often the controller checks sensors and makes decisions. Lower values = faster response, higher values = less CPU usage. Recommended: 10 seconds.",
+          "compressor_ramp_seconds": "Wait this many seconds after a zone removal before considering new adds to allow the AC compressor to recover (helpful for multisplit systems)."
         }
       },
       "comfort": {
@@ -173,6 +163,10 @@
       "remove_confidence_breakdown": {
         "name": "Remove Confidence Breakdown",
         "description": "Diagnostic sensor exposing component breakdown of the computed remove confidence as attributes."
+      },
+      "grid_import_tolerance": {
+        "name": "Grid Import Tolerance",
+        "description": "Current grid import tolerance in watts, derived from the Aggressiveness slider (aggressiveness × 700 W). Shows how much import the controller accepts when adding a zone."
       },
       "diagnostics": {
         "name": "Diagnostics",
