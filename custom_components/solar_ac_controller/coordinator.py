@@ -944,10 +944,10 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                     # Use getattr() to guard against cases where __init__ was not
                     # called (e.g. object.__new__() in tests or future migrations).
                     if getattr(self, "_diagnostics_entity_id_cached", None) is None:
+                        assert self.config_entry is not None
                         try:
                             from homeassistant.helpers import entity_registry as er
 
-                            assert self.config_entry is not None
                             registry = er.async_get(self.hass)
                             unique_id = f"{self.config_entry.entry_id}_diagnostics"
                             reg_entry = registry.async_get_entity_id(
