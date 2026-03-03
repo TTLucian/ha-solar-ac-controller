@@ -157,20 +157,16 @@
   "entity": {
     "sensor": {
       "add_confidence_breakdown": {
-        "name": "Add Confidence Breakdown",
-        "description": "Diagnostic sensor exposing component breakdown of the computed add confidence as attributes."
+        "name": "Add Confidence Breakdown"
       },
       "remove_confidence_breakdown": {
-        "name": "Remove Confidence Breakdown",
-        "description": "Diagnostic sensor exposing component breakdown of the computed remove confidence as attributes."
+        "name": "Remove Confidence Breakdown"
       },
       "grid_import_tolerance": {
-        "name": "Grid Import Tolerance",
-        "description": "Current grid import tolerance in watts, derived from the Aggressiveness slider (aggressiveness × 700 W). Shows how much import the controller accepts when adding a zone."
+        "name": "Grid Import Tolerance"
       },
       "diagnostics": {
-        "name": "Diagnostics",
-        "description": "Aggregated diagnostics snapshot of the controller for troubleshooting."
+        "name": "Diagnostics"
       }
     }
   }

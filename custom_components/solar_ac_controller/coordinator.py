@@ -1348,19 +1348,24 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                             if solar >= on_threshold:
                                 # Unfreeze: solar has reached on_threshold
                                 self.integration_active = True
-                                self.update_interval = timedelta(  # type: ignore[misc]
-                                    seconds=self.config_manager.get_int(
-                                        CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL
-                                    )
+                                object.__setattr__(
+                                    self,
+                                    "update_interval",
+                                    timedelta(
+                                        seconds=self.config_manager.get_int(
+                                            CONF_UPDATE_INTERVAL,
+                                            DEFAULT_UPDATE_INTERVAL,
+                                        )
+                                    ),
                                 )
                                 await self._log(
                                     f"[INTEGRATION_UNFROZEN] solar={round(solar)}W >= on_threshold={on_threshold}W, starting calculations"
                                 )
                             else:
                                 # Still frozen: check less frequently
-                                self.update_interval = timedelta(  # type: ignore[misc]
-                                    seconds=300
-                                )  # Check every 5 minutes
+                                object.__setattr__(
+                                    self, "update_interval", timedelta(seconds=300)
+                                )  # check every 5 min
                                 async with self._state_lock:
                                     self.last_action = "integration_frozen"
                                 self.note = f"Integration frozen: solar {round(solar)}W < on_threshold {on_threshold}W"
@@ -1404,9 +1409,9 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                                         self.stored_data["integration_enabled"] = False
                                         self._storage_dirty = True
                                     self._debounce_recalc()
-                                self.update_interval = timedelta(  # type: ignore[misc]
-                                    seconds=300
-                                )  # Check every 5 minutes
+                                object.__setattr__(
+                                    self, "update_interval", timedelta(seconds=300)
+                                )  # check every 5 min
                                 async with self._state_lock:
                                     self.last_action = "integration_frozen"
                                 self.note = f"Integration frozen: solar {round(solar)}W <= off_threshold {off_threshold}W"
@@ -2166,7 +2171,9 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         if current_interval is not None:
             current_seconds = current_interval.total_seconds()
             if new_interval != current_seconds:
-                self.update_interval = timedelta(seconds=new_interval)  # type: ignore[misc]
+                object.__setattr__(
+                    self, "update_interval", timedelta(seconds=new_interval)
+                )
                 _LOGGER.debug(f"Adaptive update interval changed to {new_interval}s")
 
     async def _async_cleanup_tasks(self) -> None:
