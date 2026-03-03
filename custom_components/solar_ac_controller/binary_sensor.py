@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.binary_sensor import (
@@ -46,7 +47,7 @@ async def async_setup_entry(
 
 
 # --- BASE CLASS ---
-class _BaseSolarACBinary(CoordinatorEntity, BinarySensorEntity):
+class _BaseSolarACBinary(CoordinatorEntity, BinarySensorEntity):  # type: ignore[misc]
     coordinator: "SolarACCoordinator"
     """
     Base class for all Solar AC Controller binary sensors.
@@ -60,7 +61,7 @@ class _BaseSolarACBinary(CoordinatorEntity, BinarySensorEntity):
         super().__init__(coordinator)
         self._entry_id: str = entry_id
 
-    @property
+    @cached_property
     def device_info(self) -> DeviceInfo:
         """Link to the 'Solar AC Controller' device."""
         return DeviceInfo(
@@ -73,11 +74,11 @@ class _BaseSolarACBinary(CoordinatorEntity, BinarySensorEntity):
 class SolarACLearningBinarySensor(_BaseSolarACBinary):
     _attr_name = "Learning Active"
 
-    @property
+    @cached_property
     def unique_id(self) -> str:
         return f"{self._entry_id}_learning_active"
 
-    @property
+    @cached_property
     def is_on(self) -> bool:
         return bool(getattr(self.coordinator, "learning_active_cached", False))
 
@@ -87,11 +88,11 @@ class SolarACPanicBinarySensor(_BaseSolarACBinary):
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
     _attr_name = "Panic State"
 
-    @property
+    @cached_property
     def unique_id(self) -> str:
         return f"{self._entry_id}_panic_state"
 
-    @property
+    @cached_property
     def is_on(self) -> bool:
         return getattr(self.coordinator, "last_action", None) == "panic"
 
@@ -102,11 +103,11 @@ class SolarACPanicCooldownBinarySensor(_BaseSolarACBinary):
     _attr_name = "Panic Cooldown"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    @property
+    @cached_property
     def unique_id(self) -> str:
         return f"{self._entry_id}_panic_cooldown_bin"
 
-    @property
+    @cached_property
     def is_on(self) -> bool:
         # Note: This will only update when the coordinator updates.
         return self.coordinator.panic_manager.is_in_cooldown
@@ -117,11 +118,11 @@ class SolarACShortCycleBinarySensor(_BaseSolarACBinary):
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
     _attr_name = "Short Cycling"
 
-    @property
+    @cached_property
     def unique_id(self) -> str:
         return f"{self._entry_id}_short_cycling"
 
-    @property
+    @cached_property
     def is_on(self) -> bool:
         # Note: This will only update when the coordinator updates.
         now = dt_util.utcnow().timestamp()
@@ -142,11 +143,11 @@ class SolarACLockedBinarySensor(_BaseSolarACBinary):
     _attr_device_class = BinarySensorDeviceClass.LOCK
     _attr_name = "Manual Lock Active"
 
-    @property
+    @cached_property
     def unique_id(self) -> str:
         return f"{self._entry_id}_manual_lock"
 
-    @property
+    @cached_property
     def is_on(self) -> bool:
         now = dt_util.utcnow().timestamp()
         return any(
@@ -160,11 +161,11 @@ class SolarACExportingBinarySensor(_BaseSolarACBinary):
     _attr_device_class = BinarySensorDeviceClass.POWER
     _attr_name = "Exporting"
 
-    @property
+    @cached_property
     def unique_id(self) -> str:
         return f"{self._entry_id}_exporting"
 
-    @property
+    @cached_property
     def is_on(self) -> bool:
         return bool(getattr(self.coordinator, "ema_30s", 0) < 0)
 
@@ -174,11 +175,11 @@ class SolarACImportingBinarySensor(_BaseSolarACBinary):
     _attr_device_class = BinarySensorDeviceClass.POWER
     _attr_name = "Importing"
 
-    @property
+    @cached_property
     def unique_id(self) -> str:
         return f"{self._entry_id}_importing"
 
-    @property
+    @cached_property
     def is_on(self) -> bool:
         return bool(getattr(self.coordinator, "ema_30s", 0) > 0)
 
@@ -187,11 +188,11 @@ class SolarACMasterBinarySensor(_BaseSolarACBinary):
     _attr_device_class = BinarySensorDeviceClass.RUNNING
     _attr_name = "Master Switch"
 
-    @property
+    @cached_property
     def unique_id(self) -> str:
         return f"{self._entry_id}_master_switch"
 
-    @property
+    @cached_property
     def is_on(self) -> bool:
         ac_switch = self.coordinator.config.get(CONF_AC_SWITCH)
         if not ac_switch:

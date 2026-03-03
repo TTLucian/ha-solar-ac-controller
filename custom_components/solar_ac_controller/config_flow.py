@@ -332,9 +332,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
-    @classmethod
+    @staticmethod
     def async_get_options_flow(
-        cls, config_entry: ConfigEntry
+        config_entry: ConfigEntry,
     ) -> SolarACOptionsFlowHandler:
         """Get the options flow for this handler."""
         return SolarACOptionsFlowHandler(config_entry)

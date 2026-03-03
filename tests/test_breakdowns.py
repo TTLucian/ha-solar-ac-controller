@@ -26,7 +26,7 @@ class DummyCoordinator(SolarACCoordinator):
         self.confidence = 0.0
         self.initial_learned_power = 1000.0
 
-    def get_learned_power(self, zone, season):
+    def get_learned_power(self, zone_name: str, mode: str | None = None, band: str | None = None) -> float:  # type: ignore[override]
         return 1000.0
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.number import NumberEntity
@@ -22,7 +23,7 @@ async def async_setup_entry(
     async_add_entities([AggressivenessNumber(coordinator, entry)])
 
 
-class AggressivenessNumber(CoordinatorEntity, NumberEntity):
+class AggressivenessNumber(CoordinatorEntity, NumberEntity):  # type: ignore[misc]
     coordinator: "SolarACCoordinator"
     _attr_entity_category = EntityCategory.CONFIG
     _attr_has_entity_name = True
@@ -36,28 +37,28 @@ class AggressivenessNumber(CoordinatorEntity, NumberEntity):
         self._attr_name = "Aggressiveness"
         self._attr_unique_id = f"{entry.entry_id}_aggressiveness"
 
-    @property
+    @cached_property
     def device_info(self) -> DeviceInfo:
         return DeviceInfo(
             identifiers={(DOMAIN, self.entry.entry_id)},
             name="Solar AC Controller",
         )
 
-    @property
+    @cached_property
     def native_value(self) -> float:
         return float(
             getattr(self.coordinator, "aggressiveness", DEFAULT_AGGRESSIVENESS)
         )
 
-    @property
+    @cached_property
     def native_min_value(self) -> float:
         return 0.0
 
-    @property
+    @cached_property
     def native_max_value(self) -> float:
         return 1.0
 
-    @property
+    @cached_property
     def native_step(self) -> float:
         return 0.01
 

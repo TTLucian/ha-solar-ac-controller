@@ -2,6 +2,7 @@
 Select entity for manual season mode (heat/cool) for Solar AC Controller.
 """
 
+from functools import cached_property
 from typing import TYPE_CHECKING, cast
 
 from homeassistant.components.select import SelectEntity
@@ -27,16 +28,16 @@ async def async_setup_entry(
     async_add_entities([SeasonModeSelect(coordinator, entry)])
 
 
-class SeasonModeSelect(CoordinatorEntity, SelectEntity):
+class SeasonModeSelect(CoordinatorEntity, SelectEntity):  # type: ignore[misc]
     coordinator: "SolarACCoordinator"
     _attr_entity_category = EntityCategory.CONFIG
     _attr_should_poll: bool = False
     _attr_has_entity_name: bool = True
-    _attr_name: str = "Season Mode"
-    _attr_icon: str = "mdi:weather-partly-snowy-rainy"
+    _attr_name = "Season Mode"
+    _attr_icon = "mdi:weather-partly-snowy-rainy"
     _attr_options: list[str] = SEASON_OPTIONS
 
-    @property
+    @cached_property
     def device_info(self) -> DeviceInfo:
         return DeviceInfo(
             identifiers={(DOMAIN, self.entry.entry_id)},
@@ -49,7 +50,7 @@ class SeasonModeSelect(CoordinatorEntity, SelectEntity):
         self.entry = entry
         self._attr_unique_id = f"{entry.entry_id}_season_mode"
 
-    @property
+    @cached_property
     def current_option(self) -> str | None:
         return cast(str, getattr(self.coordinator, "season_mode", "cool"))
 

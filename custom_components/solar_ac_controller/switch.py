@@ -2,6 +2,7 @@
 Switch entities for the Solar AC Controller integration.
 """
 
+from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.switch import SwitchEntity
@@ -28,10 +29,10 @@ async def async_setup_entry(hass: Any, entry: Any, async_add_entities: Any) -> N
     )
 
 
-class IntegrationEnableSwitch(CoordinatorEntity, SwitchEntity):
+class IntegrationEnableSwitch(CoordinatorEntity, SwitchEntity):  # type: ignore[misc]
     coordinator: "SolarACCoordinator"
 
-    @property
+    @cached_property
     def device_info(self) -> DeviceInfo:
         return DeviceInfo(
             identifiers={(DOMAIN, self.entry.entry_id)},
@@ -49,7 +50,7 @@ class IntegrationEnableSwitch(CoordinatorEntity, SwitchEntity):
         self.entry = entry
         self._attr_unique_id = f"{entry.entry_id}_integration_enable"
 
-    @property
+    @cached_property
     def is_on(self) -> bool:
         return getattr(self.coordinator, "integration_enabled", True)
 
@@ -66,11 +67,11 @@ class IntegrationEnableSwitch(CoordinatorEntity, SwitchEntity):
         )
 
 
-class ActivityLoggingSwitch(CoordinatorEntity, SwitchEntity):
+class ActivityLoggingSwitch(CoordinatorEntity, SwitchEntity):  # type: ignore[misc]
     coordinator: "SolarACCoordinator"
     _attr_entity_category = EntityCategory.CONFIG
 
-    @property
+    @cached_property
     def device_info(self) -> DeviceInfo:
         return DeviceInfo(
             identifiers={(DOMAIN, self.entry.entry_id)},
@@ -88,7 +89,7 @@ class ActivityLoggingSwitch(CoordinatorEntity, SwitchEntity):
         self.entry = entry
         self._attr_unique_id = f"{entry.entry_id}_activity_logging"
 
-    @property
+    @cached_property
     def is_on(self) -> bool:
         return getattr(self.coordinator, "activity_logging_enabled", False)
 
