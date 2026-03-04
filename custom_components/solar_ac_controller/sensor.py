@@ -185,7 +185,9 @@ class SolarACActiveZonesSensor(_BaseSolarACSensor):
         return f"{self._entry_id}_active_zones"
 
     @property
-    def native_value(self) -> str: # pyright: ignore[reportIncompatibleVariableOverride]
+    def native_value(  # pyright: ignore[reportIncompatibleVariableOverride]
+        self,
+    ) -> str:
         zones = [
             z
             for z in self.coordinator.config.get(CONF_ZONES, [])
@@ -199,7 +201,9 @@ class _ZoneStateSensor(_BaseSolarACSensor):
     zone_attr = ""
 
     @property
-    def native_value(self) -> str: # pyright: ignore[reportIncompatibleVariableOverride]
+    def native_value(  # pyright: ignore[reportIncompatibleVariableOverride]
+        self,
+    ) -> str:
         return getattr(self.coordinator, self.zone_attr, "none")
 
 
@@ -212,7 +216,9 @@ class SolarACNextZoneSensor(_ZoneStateSensor):
         return f"{self._entry_id}_next_zone"
 
     @property
-    def native_value(self) -> str: # pyright: ignore[reportIncompatibleVariableOverride]
+    def native_value(  # pyright: ignore[reportIncompatibleVariableOverride]
+        self,
+    ) -> str:
         return self.coordinator.next_zone or "none"
 
 
@@ -233,7 +239,9 @@ class SolarACLastActionSensor(_BaseSolarACSensor):
         return f"{self._entry_id}_last_action"
 
     @property
-    def native_value(self) -> str: # pyright: ignore[reportIncompatibleVariableOverride]
+    def native_value(  # pyright: ignore[reportIncompatibleVariableOverride]
+        self,
+    ) -> str:
         return self.coordinator.last_action or "none"
 
 
@@ -251,7 +259,9 @@ class SolarACEma30Sensor(_NumericSolarACSensor):
         return f"{self._entry_id}_ema_30s"
 
     @property
-    def native_value(self) -> float: # pyright: ignore[reportIncompatibleVariableOverride]
+    def native_value(  # pyright: ignore[reportIncompatibleVariableOverride]
+        self,
+    ) -> float:
         return round(getattr(self.coordinator, "ema_30s", 0.0), 2)
 
 
@@ -263,7 +273,9 @@ class SolarACEma5Sensor(_NumericSolarACSensor):
         return f"{self._entry_id}_ema_5m"
 
     @property
-    def native_value(self) -> float: # pyright: ignore[reportIncompatibleVariableOverride]
+    def native_value(  # pyright: ignore[reportIncompatibleVariableOverride]
+        self,
+    ) -> float:
         return round(getattr(self.coordinator, "ema_5m", 0.0), 2)
 
 
@@ -278,7 +290,9 @@ class SolarACConfidenceSensor(_BaseSolarACSensor):
         return f"{self._entry_id}_confidence"
 
     @property
-    def native_value(self) -> float: # pyright: ignore[reportIncompatibleVariableOverride]
+    def native_value(  # pyright: ignore[reportIncompatibleVariableOverride]
+        self,
+    ) -> float:
         return round(getattr(self.coordinator, "confidence", 0.0), 2)
 
 
@@ -291,11 +305,15 @@ class SolarACConfidenceThresholdSensor(_BaseSolarACSensor):
         return f"{self._entry_id}_conf_thresholds"
 
     @property
-    def native_value(self) -> str: # pyright: ignore[reportIncompatibleVariableOverride]
+    def native_value(  # pyright: ignore[reportIncompatibleVariableOverride]
+        self,
+    ) -> str:
         return "ok"
 
     @property  # pyright: ignore[reportIncompatibleVariableOverride]
-    def extra_state_attributes(self) -> dict: # pyright: ignore[reportIncompatibleVariableOverride]
+    def extra_state_attributes(  # pyright: ignore[reportIncompatibleVariableOverride]
+        self,
+    ) -> dict:
         return {
             "add_threshold": getattr(self.coordinator, "unified_add_threshold", None),
             "remove_threshold": getattr(
@@ -312,7 +330,9 @@ class SolarACRequiredExportSensor(_NumericSolarACSensor):
         return f"{self._entry_id}_required_export"
 
     @property
-    def native_value(self) -> float | None: # pyright: ignore[reportIncompatibleVariableOverride]
+    def native_value(  # pyright: ignore[reportIncompatibleVariableOverride]
+        self,
+    ) -> float | None:
         val = getattr(self.coordinator, "required_export", None)
         return round(val, 2) if val is not None else None
 
@@ -325,7 +345,9 @@ class SolarACExportMarginSensor(_NumericSolarACSensor):
         return f"{self._entry_id}_export_margin"
 
     @property
-    def native_value(self) -> float | None: # pyright: ignore[reportIncompatibleVariableOverride]
+    def native_value(  # pyright: ignore[reportIncompatibleVariableOverride]
+        self,
+    ) -> float | None:
         val = getattr(self.coordinator, "export_margin", None)
         return round(val, 2) if val is not None else None
 
@@ -339,7 +361,9 @@ class SolarACPanicCooldownSensor(_BaseSolarACSensor):
         return f"{self._entry_id}_panic_cooldown"
 
     @property
-    def native_value(self) -> str: # pyright: ignore[reportIncompatibleVariableOverride]
+    def native_value(  # pyright: ignore[reportIncompatibleVariableOverride]
+        self,
+    ) -> str:
         return "yes" if self.coordinator.panic_manager.is_in_cooldown else "no"
 
 
@@ -353,7 +377,9 @@ class SolarACSamplesSensor(_BaseSolarACSensor):
         return f"{self._entry_id}_samples"
 
     @property
-    def native_value(self) -> int: # pyright: ignore[reportIncompatibleVariableOverride]
+    def native_value(  # pyright: ignore[reportIncompatibleVariableOverride]
+        self,
+    ) -> int:
         return getattr(self.coordinator, "samples", 0)
 
 
@@ -365,7 +391,9 @@ class SolarACLearnedPowerSensor(_NumericSolarACSensor):
         self._attr_unique_id = f"{self._entry_id}_learned_power_{zone_name}"
 
     @property
-    def native_value(self) -> float: # pyright: ignore[reportIncompatibleVariableOverride]
+    def native_value(  # pyright: ignore[reportIncompatibleVariableOverride]
+        self,
+    ) -> float:
         return cast(float, self.coordinator.get_learned_power(self.zone_name))
 
 
@@ -378,11 +406,15 @@ class SolarACAddBreakdownSensor(_BaseSolarACSensor):
         return f"{self._entry_id}_add_conf_breakdown"
 
     @property
-    def native_value(self) -> str: # pyright: ignore[reportIncompatibleVariableOverride]
+    def native_value(  # pyright: ignore[reportIncompatibleVariableOverride]
+        self,
+    ) -> str:
         return "ok"
 
     @property  # pyright: ignore[reportIncompatibleVariableOverride]
-    def extra_state_attributes(self) -> dict[str, object]: # pyright: ignore[reportIncompatibleVariableOverride]
+    def extra_state_attributes(  # pyright: ignore[reportIncompatibleVariableOverride]
+        self,
+    ) -> dict[str, object]:
         return getattr(self.coordinator, "last_add_breakdown", {}) or {}
 
 
@@ -395,11 +427,15 @@ class SolarACRemoveBreakdownSensor(_BaseSolarACSensor):
         return f"{self._entry_id}_remove_conf_breakdown"
 
     @property
-    def native_value(self) -> str: # pyright: ignore[reportIncompatibleVariableOverride]
+    def native_value(  # pyright: ignore[reportIncompatibleVariableOverride]
+        self,
+    ) -> str:
         return "ok"
 
     @property  # pyright: ignore[reportIncompatibleVariableOverride]
-    def extra_state_attributes(self) -> dict[str, object]: # pyright: ignore[reportIncompatibleVariableOverride]
+    def extra_state_attributes(  # pyright: ignore[reportIncompatibleVariableOverride]
+        self,
+    ) -> dict[str, object]:
         return getattr(self.coordinator, "last_remove_breakdown", {}) or {}
 
 
@@ -413,7 +449,9 @@ class SolarACDiagnosticEntity(_BaseSolarACSensor):
         return f"{self._entry_id}_diagnostics"
 
     @property
-    def native_value(self) -> str: # pyright: ignore[reportIncompatibleVariableOverride]
+    def native_value(  # pyright: ignore[reportIncompatibleVariableOverride]
+        self,
+    ) -> str:
         """Show meaningful state changes for logbook when activity logging is enabled, avoid noise from fluctuating values."""
         # If integration is disabled, don't log to avoid logbook entries
         if not getattr(self.coordinator, "integration_enabled", True):
@@ -451,7 +489,9 @@ class SolarACDiagnosticEntity(_BaseSolarACSensor):
         return last_action
 
     @property  # pyright: ignore[reportIncompatibleVariableOverride]
-    def extra_state_attributes(self) -> dict[str, object]: # pyright: ignore[reportIncompatibleVariableOverride]
+    def extra_state_attributes(  # pyright: ignore[reportIncompatibleVariableOverride]
+        self,
+    ) -> dict[str, object]:
         """
         Expose a JSON snapshot of the controller's internal state for diagnostics.
         Includes error field if diagnostics collection fails.
@@ -480,7 +520,9 @@ class SolarACActiveZoneCountSensor(_BaseSolarACSensor):
         return f"{self._entry_id}_active_zone_count"
 
     @property
-    def native_value(self) -> int: # pyright: ignore[reportIncompatibleVariableOverride]
+    def native_value(  # pyright: ignore[reportIncompatibleVariableOverride]
+        self,
+    ) -> int:
         return sum(
             1
             for z in self.coordinator.config.get(CONF_ZONES, [])
@@ -500,7 +542,9 @@ class SolarACSeasonModeSensor(_BaseSolarACSensor):
         return f"{self._entry_id}_season_mode"
 
     @property
-    def native_value(self) -> str: # pyright: ignore[reportIncompatibleVariableOverride]
+    def native_value(  # pyright: ignore[reportIncompatibleVariableOverride]
+        self,
+    ) -> str:
         return getattr(self.coordinator, "season_mode", "unknown") or "unknown"
 
 
@@ -519,7 +563,9 @@ class SolarACLearnedIdlePowerSensor(_NumericSolarACSensor):
         return f"{self._entry_id}_learned_idle_power"
 
     @property
-    def native_value(self) -> float: # pyright: ignore[reportIncompatibleVariableOverride]
+    def native_value(  # pyright: ignore[reportIncompatibleVariableOverride]
+        self,
+    ) -> float:
         return round(getattr(self.coordinator, "learned_idle_power", 0.0), 1)
 
 
@@ -539,7 +585,9 @@ class SolarACRequiredExportSourceSensor(_BaseSolarACSensor):
         return f"{self._entry_id}_required_export_source"
 
     @property
-    def native_value(self) -> str: # pyright: ignore[reportIncompatibleVariableOverride]
+    def native_value(  # pyright: ignore[reportIncompatibleVariableOverride]
+        self,
+    ) -> str:
         return (
             getattr(self.coordinator, "required_export_source", "Initializing")
             or "Initializing"
@@ -566,7 +614,9 @@ class SolarACCompressorRecoverySensor(_BaseSolarACSensor):
         return f"{self._entry_id}_compressor_recovery"
 
     @property
-    def native_value(self) -> float: # pyright: ignore[reportIncompatibleVariableOverride]
+    def native_value(  # pyright: ignore[reportIncompatibleVariableOverride]
+        self,
+    ) -> float:
         recover_until = (
             getattr(self.coordinator, "compressor_recover_until", 0.0) or 0.0
         )
@@ -591,7 +641,9 @@ class SolarACGridImportToleranceSensor(_NumericSolarACSensor):
         return f"{self._entry_id}_grid_import_tolerance"
 
     @property
-    def native_value(self) -> float: # pyright: ignore[reportIncompatibleVariableOverride]
+    def native_value(  # pyright: ignore[reportIncompatibleVariableOverride]
+        self,
+    ) -> float:
         a = float(getattr(self.coordinator, "aggressiveness", 0.5))
         return round(a * DECISION_IMPORT_TOLERANCE_MAX_W, 1)
 
@@ -618,7 +670,9 @@ class SolarACZoneLockRemainingSensor(_BaseSolarACSensor):
         self._attr_unique_id = f"{entry_id}_zone_lock_remaining_{zone_name}"
 
     @property
-    def native_value(self) -> float: # pyright: ignore[reportIncompatibleVariableOverride]
+    def native_value(  # pyright: ignore[reportIncompatibleVariableOverride]
+        self,
+    ) -> float:
         until = self.coordinator.zone_manual_lock_until.get(self._zone_id, 0.0) or 0.0
         remaining = until - dt_util.utcnow().timestamp()
         return float(round(max(0.0, remaining), 0))
@@ -642,7 +696,9 @@ class SolarACZonePeakDeltaSensor(_NumericSolarACSensor):
         self._attr_unique_id = f"{entry_id}_peak_delta_{zone_name}"
 
     @property
-    def native_value(self) -> float | None: # pyright: ignore[reportIncompatibleVariableOverride]
+    def native_value(  # pyright: ignore[reportIncompatibleVariableOverride]
+        self,
+    ) -> float | None:
         val = self.coordinator.get_peak_delta(
             self._zone_name,
             mode=getattr(self.coordinator, "season_mode", None),

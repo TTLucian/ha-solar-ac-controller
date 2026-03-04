@@ -53,7 +53,9 @@ class SeasonModeSelect(  # pyright: ignore[reportIncompatibleVariableOverride]
         self._attr_unique_id = f"{entry.entry_id}_season_mode"
 
     @property
-    def current_option(self) -> str | None: # pyright: ignore[reportIncompatibleVariableOverride]
+    def current_option(  # pyright: ignore[reportIncompatibleVariableOverride]
+        self,
+    ) -> str | None:
         return cast(str, getattr(self.coordinator, "season_mode", "cool"))
 
     async def async_select_option(self, option: str) -> None:

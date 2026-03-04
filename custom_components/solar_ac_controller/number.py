@@ -47,7 +47,9 @@ class AggressivenessNumber(  # pyright: ignore[reportIncompatibleVariableOverrid
         )
 
     @property
-    def native_value(self) -> float: # pyright: ignore[reportIncompatibleVariableOverride]
+    def native_value(  # pyright: ignore[reportIncompatibleVariableOverride]
+        self,
+    ) -> float:
         return float(
             getattr(self.coordinator, "aggressiveness", DEFAULT_AGGRESSIVENESS)
         )
