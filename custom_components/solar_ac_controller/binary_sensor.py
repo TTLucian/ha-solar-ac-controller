@@ -80,8 +80,8 @@ class SolarACLearningBinarySensor(_BaseSolarACBinary):
     def unique_id(self) -> str:
         return f"{self._entry_id}_learning_active"
 
-    @cached_property
-    def is_on(self) -> bool:
+    @property
+    def is_on(self) -> bool: # pyright: ignore[reportIncompatibleVariableOverride]
         return bool(getattr(self.coordinator, "learning_active_cached", False))
 
 
@@ -94,8 +94,8 @@ class SolarACPanicBinarySensor(_BaseSolarACBinary):
     def unique_id(self) -> str:
         return f"{self._entry_id}_panic_state"
 
-    @cached_property
-    def is_on(self) -> bool:
+    @property
+    def is_on(self) -> bool: # pyright: ignore[reportIncompatibleVariableOverride]
         return getattr(self.coordinator, "last_action", None) == "panic"
 
 
@@ -109,9 +109,8 @@ class SolarACPanicCooldownBinarySensor(_BaseSolarACBinary):
     def unique_id(self) -> str:
         return f"{self._entry_id}_panic_cooldown_bin"
 
-    @cached_property
-    def is_on(self) -> bool:
-        # Note: This will only update when the coordinator updates.
+    @property
+    def is_on(self) -> bool: # pyright: ignore[reportIncompatibleVariableOverride]
         return self.coordinator.panic_manager.is_in_cooldown
 
 
@@ -124,9 +123,8 @@ class SolarACShortCycleBinarySensor(_BaseSolarACBinary):
     def unique_id(self) -> str:
         return f"{self._entry_id}_short_cycling"
 
-    @cached_property
-    def is_on(self) -> bool:
-        # Note: This will only update when the coordinator updates.
+    @property
+    def is_on(self) -> bool: # pyright: ignore[reportIncompatibleVariableOverride]
         now = dt_util.utcnow().timestamp()
         for z in self.coordinator.config.get(CONF_ZONES, []):
             if last := self.coordinator.zone_last_changed.get(z):
@@ -149,8 +147,8 @@ class SolarACLockedBinarySensor(_BaseSolarACBinary):
     def unique_id(self) -> str:
         return f"{self._entry_id}_manual_lock"
 
-    @cached_property
-    def is_on(self) -> bool:
+    @property
+    def is_on(self) -> bool: # pyright: ignore[reportIncompatibleVariableOverride]
         now = dt_util.utcnow().timestamp()
         return any(
             until and until > now
@@ -167,8 +165,8 @@ class SolarACExportingBinarySensor(_BaseSolarACBinary):
     def unique_id(self) -> str:
         return f"{self._entry_id}_exporting"
 
-    @cached_property
-    def is_on(self) -> bool:
+    @property
+    def is_on(self) -> bool: # pyright: ignore[reportIncompatibleVariableOverride]
         return bool(getattr(self.coordinator, "ema_30s", 0) < 0)
 
 
@@ -181,8 +179,8 @@ class SolarACImportingBinarySensor(_BaseSolarACBinary):
     def unique_id(self) -> str:
         return f"{self._entry_id}_importing"
 
-    @cached_property
-    def is_on(self) -> bool:
+    @property
+    def is_on(self) -> bool: # pyright: ignore[reportIncompatibleVariableOverride]
         return bool(getattr(self.coordinator, "ema_30s", 0) > 0)
 
 
@@ -194,8 +192,8 @@ class SolarACMasterBinarySensor(_BaseSolarACBinary):
     def unique_id(self) -> str:
         return f"{self._entry_id}_master_switch"
 
-    @cached_property
-    def is_on(self) -> bool:
+    @property
+    def is_on(self) -> bool: # pyright: ignore[reportIncompatibleVariableOverride]
         ac_switch = self.coordinator.config.get(CONF_AC_SWITCH)
         if not ac_switch:
             return True

@@ -52,8 +52,8 @@ class IntegrationEnableSwitch(  # pyright: ignore[reportIncompatibleVariableOver
         self.entry = entry
         self._attr_unique_id = f"{entry.entry_id}_integration_enable"
 
-    @cached_property
-    def is_on(self) -> bool:
+    @property
+    def is_on(self) -> bool: # pyright: ignore[reportIncompatibleVariableOverride]
         return getattr(self.coordinator, "integration_enabled", True)
 
     async def async_turn_on(self, **kwargs: Any) -> None:
@@ -93,8 +93,8 @@ class ActivityLoggingSwitch(  # pyright: ignore[reportIncompatibleVariableOverri
         self.entry = entry
         self._attr_unique_id = f"{entry.entry_id}_activity_logging"
 
-    @cached_property
-    def is_on(self) -> bool:
+    @property
+    def is_on(self) -> bool: # pyright: ignore[reportIncompatibleVariableOverride]
         return getattr(self.coordinator, "activity_logging_enabled", False)
 
     async def async_turn_on(self, **kwargs: Any) -> None:

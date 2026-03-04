@@ -46,8 +46,8 @@ class AggressivenessNumber(  # pyright: ignore[reportIncompatibleVariableOverrid
             name="Solar AC Controller",
         )
 
-    @cached_property
-    def native_value(self) -> float:
+    @property
+    def native_value(self) -> float: # pyright: ignore[reportIncompatibleVariableOverride]
         return float(
             getattr(self.coordinator, "aggressiveness", DEFAULT_AGGRESSIVENESS)
         )
