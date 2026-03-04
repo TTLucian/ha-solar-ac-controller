@@ -185,11 +185,12 @@ class DecisionEngine:
         # Debug: log component breakdown to help tuning
         try:
             _LOGGER.debug(
-                "[ADD_CONF] zone=%s base=%s sample=%s ema=%s sc_pen=%s comp_pen=%s learn_pen=%s raw=%s",
+                "[ADD_CONF] zone=%s base=%s sample=%s ema=%s stab=%s sc_pen=%s comp_pen=%s learn_pen=%s raw=%s",
                 last_zone,
                 round(base, 2),
                 round(sample_bonus, 2),
                 round(ema_bonus, 2),
+                round(ac_stability_bonus, 2),
                 round(short_cycle_penalty, 2),
                 round(comp_penalty, 2),
                 round(learn_penalty, 2),
@@ -354,9 +355,22 @@ class DecisionEngine:
 
         Only active when comfort-based zone control is enabled.
         Returns the zone to add, or None if no swap needed.
+
+        Two swap triggers:
+        1. Comfort swap: active zone reached its target temperature (10min EMA stable).
+           Any higher-priority needy zone can replace it.
+        2. Priority-inversion swap: a higher-priority zone needs heating but isn't active,
+           while a lower-priority zone is running. Swap them regardless of whether the
+           active zone has reached comfort — ensures high-priority zones are not
+           permanently locked out when solar surplus is insufficient for a full add.
         """
         # Only swap when comfort-based control is enabled
         if not self.coordinator.enable_temp_modulation:
+            return None
+
+        # Never swap while a power-learning session is in progress — adding or
+        # removing a zone would contaminate the measurement and force a discard.
+        if getattr(self.coordinator, "learning_active_cached", False):
             return None
 
         # Only swap when confidence is in balanced range (won't add or remove zones)
@@ -368,11 +382,6 @@ class DecisionEngine:
         ):
             return None
 
-        # Check if satisfied zone actually reached target (using 10min EMA)
-        if not self.coordinator.zone_manager.is_zone_at_target_stable(satisfied_zone):
-            return None
-
-        # Find highest priority zone that needs heating but isn't active
         active_zones = self.coordinator.active_zones
         available_zones = [
             z
@@ -381,13 +390,41 @@ class DecisionEngine:
             and not await self.coordinator.zone_manager.is_locked(z)
         ]
 
+        satisfied_zone_priority = self.coordinator.zone_priorities.get(
+            satisfied_zone.split(".")[-1], 999
+        )
+
+        # Trigger 1: comfort swap — satisfied_zone has reached its target temperature.
+        satisfied_at_target = self.coordinator.zone_manager.is_zone_at_target_stable(
+            satisfied_zone
+        )
+        if satisfied_at_target:
+            for zone in sorted(
+                available_zones,
+                key=lambda z: self.coordinator.zone_priorities.get(
+                    z.split(".")[-1], 999
+                ),
+            ):
+                if self.coordinator.zone_manager.does_zone_need_heating(
+                    zone
+                ) and self._power_compatible_for_swap(zone):
+                    return cast(str, zone)
+
+        # Trigger 2: priority-inversion swap — a higher-priority zone needs heating
+        # and the current active zone has lower priority.  Swap them so the more
+        # important zone gets runtime even without a solar surplus.
         for zone in sorted(
             available_zones,
             key=lambda z: self.coordinator.zone_priorities.get(z.split(".")[-1], 999),
         ):
-            if self.coordinator.zone_manager.does_zone_need_heating(
-                zone
-            ) and self._power_compatible_for_swap(zone):
+            zone_priority = self.coordinator.zone_priorities.get(
+                zone.split(".")[-1], 999
+            )
+            if (
+                zone_priority < satisfied_zone_priority
+                and self.coordinator.zone_manager.does_zone_need_heating(zone)
+                and self._power_compatible_for_swap(zone)
+            ):
                 return cast(str, zone)
 
         return None

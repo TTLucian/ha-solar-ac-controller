@@ -1239,7 +1239,12 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
     async def _async_update_data(self) -> None:  # type: ignore[override]
         """Main loop executed every 5 seconds."""
         try:
-            async with asyncio.timeout(5):  # 5-second timeout to prevent deadlocks
+            # Timeout must cover a full zone swap: remove sleep + add sleep + HA service
+            # call overhead.  A swap holds the lock for ~2 * action_delay_seconds, so
+            # 5 s (the previous value) was shorter than the 6 s default swap and
+            # triggered the "possible deadlock" warning on every swap.
+            _lock_timeout = max(30, 2 * self.action_delay_seconds + 15)
+            async with asyncio.timeout(_lock_timeout):
                 async with self._update_lock:
                     cycle_start = self.metrics.record_cycle_start()
 
@@ -1595,6 +1600,18 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
 
                         await self._log(f"[ZONE_CALC] {zone_info}", "debug")
 
+                        # Refresh learning_active_cached BEFORE computing confidence so
+                        # the -100pt learn_penalty fires in the same cycle that learning
+                        # starts.  Previously this update only happened in step 7 (after
+                        # confidence was already computed), allowing a second zone to be
+                        # added in the same or next cycle despite living learning being active.
+                        try:
+                            self.learning_active_cached = bool(
+                                await self.controller.session.get_zone()
+                            )
+                        except Exception:
+                            self.learning_active_cached = False
+
                         self.last_add_conf = self.decision_engine.compute_add_conf(
                             export=export,
                             required_export=required_export,
@@ -1886,6 +1903,16 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                             "Unexpected error in _async_update_data: %s", e
                         )
                         self.metrics.record_cycle_end(cycle_start, success=False)
+                    except Exception as e:  # pylint: disable=broad-except
+                        # Catch HA-specific exceptions (HomeAssistantError,
+                        # ServiceNotFound, ServiceValidationError, etc.) so they are
+                        # logged cleanly rather than escaping to the HA coordinator
+                        # framework and marking the integration as failed.
+                        self.note = f"Unexpected error in update cycle: {e}"
+                        _LOGGER.exception(
+                            "Unexpected error in _async_update_data: %s", e
+                        )
+                        self.metrics.record_cycle_end(cycle_start, success=False)
         except asyncio.TimeoutError:
             self.note = "Update lock acquisition timed out - possible deadlock!"
             _LOGGER.error("Update lock acquisition timed out - possible deadlock!")
@@ -2041,8 +2068,13 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             # Log the swap
             remove_name = zone_to_remove.split(".")[-1]
             add_name = zone_to_add.split(".")[-1]
+            remove_reason = (
+                "comfort target reached"
+                if self.zone_manager.is_zone_at_target_stable(zone_to_remove)
+                else "lower priority than needy zone"
+            )
             await self._log(
-                f"Zone optimization: deactivating '{remove_name}' (comfort target reached), "
+                f"Zone optimization: deactivating '{remove_name}' ({remove_reason}), "
                 f"activating '{add_name}' (needs cooling/heating)"
             )
 
