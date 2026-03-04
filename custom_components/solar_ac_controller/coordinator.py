@@ -1869,8 +1869,13 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                         self.note = f"Sensor error: {e}"
                         _LOGGER.warning("Sensor error in update cycle: %s", e)
                         self.metrics.record_cycle_end(cycle_start, success=False)
+                    except asyncio.CancelledError:
+                        # CancelledError must be re-raised; it signals the event
+                        # loop that this coroutine should terminate.  Record the
+                        # incomplete cycle before propagating.
+                        self.metrics.record_cycle_end(cycle_start, success=False)
+                        raise
                     except (
-                        asyncio.CancelledError,
                         OSError,
                         ValueError,
                         TypeError,
@@ -2044,10 +2049,34 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             # Remove the satisfied zone
             await self.action_executor.attempt_remove_zone(zone_to_remove, self.ema_5m)
 
-            # Add the needy zone using the readings captured before removal
+            # Correct the learning baseline for the incoming zone.
+            # ac_power was read while zone_to_remove was still running, so it
+            # includes that zone's power draw.  Subtract it so the learning
+            # session starts from the post-removal baseline (idle + any other
+            # zones still active), which is what the new zone will actually be
+            # measured against.
+            removed_zone_name = zone_to_remove.split(".")[-1]
+            removed_zone_power = self.get_learned_power(
+                removed_zone_name, self.season_mode
+            )
+            ac_before_corrected = max(
+                self.learned_idle_power,
+                ac_power - removed_zone_power,
+            )
+            _LOGGER.debug(
+                "[ZONE_SWAP] ac_before correction: ac_power=%.1fW "
+                "removed_zone_power=%.1fW (zone=%s) idle=%.1fW → ac_before=%.1fW",
+                ac_power,
+                removed_zone_power,
+                removed_zone_name,
+                self.learned_idle_power,
+                ac_before_corrected,
+            )
+
+            # Add the needy zone using the corrected baseline
             await self.action_executor.attempt_add_zone(
                 zone_to_add,
-                ac_power,
+                ac_before_corrected,
                 -self.ema_30s,  # export
                 required_export,
             )
