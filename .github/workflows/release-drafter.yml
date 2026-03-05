@@ -6,25 +6,44 @@ on:
       - main
 
 jobs:
-  release-drafter:
+  update_release_draft:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      pull-requests: write
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Extract version from manifest.json
-        id: manifest
+      - name: Get version from manifest.json
+        id: get_version
         run: |
           VERSION=$(jq -r '.version' custom_components/solar_ac_controller/manifest.json)
           echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version found: $VERSION"
 
-      - name: Update Release Draft
-        uses: release-drafter/release-drafter@v6
-        with:
-          config-name: release-drafter.yml
-          version: ${{ steps.manifest.outputs.version }}
+      - name: Create draft release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.get_version.outputs.version }}
+        run: |
+          # Never touch an already-published release
+          EXISTING_PUBLISHED=$(gh release list --json tagName,isDraft \
+            --jq ".[] | select(.tagName == \"v${VERSION}\" and .isDraft == false) | .tagName")
+          if [ -n "$EXISTING_PUBLISHED" ]; then
+            echo "Published release v${VERSION} already exists. Skipping."
+            exit 0
+          fi
+
+          # Skip if a draft already exists
+          EXISTING_DRAFT=$(gh release list --json tagName,isDraft \
+            --jq ".[] | select(.tagName == \"v${VERSION}\" and .isDraft == true) | .tagName")
+          if [ -n "$EXISTING_DRAFT" ]; then
+            echo "Draft release v${VERSION} already exists. Nothing to do."
+            exit 0
+          fi
+
+          echo "Creating draft release v${VERSION}"
+          gh release create "v${VERSION}" \
+            --draft \
+            --title "v${VERSION}" \
+            --notes ""
