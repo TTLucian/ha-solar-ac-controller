@@ -4,7 +4,7 @@
   <a href="https://github.com/TTLucian/ha-solar-ac-controller/releases/latest"><img src="https://img.shields.io/github/v/release/TTLucian/ha-solar-ac-controller?style=for-the-badge" /></a>
   <a href="https://raw.githubusercontent.com/TTLucian/ha-solar-ac-controller/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green?style=for-the-badge" /></a>
   <img src="https://img.shields.io/badge/HACS-Custom-orange.svg?style=for-the-badge" />
-  <img src="https://img.shields.io/github/actions/workflow/status/TTLucian/ha-solar-ac-controller/ci.yml?style=for-the-badge" />
+  <a href="https://github.com/TTLucian/ha-solar-ac-controller/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/TTLucian/ha-solar-ac-controller/ci.yml?style=for-the-badge" /></a>
   <a href="https://buymeacoffee.com/ttlucian"><img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-Donate-yellow?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black" alt="Buy Me a Coffee" /></a>
 </p>
 
