@@ -149,8 +149,10 @@ class SolarACLockedBinarySensor(_BaseSolarACBinary):
 
     @property
     def is_on(self) -> bool:  # pyright: ignore[reportIncompatibleVariableOverride]
+        # LOCK device class: is_on=True → "Unlocked", is_on=False → "Locked".
+        # Return True (unlocked) when no zones are locked; False (locked) when any are.
         now = dt_util.utcnow().timestamp()
-        return any(
+        return not any(
             until and until > now
             for until in self.coordinator.zone_manual_lock_until.values()
         )

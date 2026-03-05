@@ -109,7 +109,14 @@ class PanicManager:
         # to, so that zone must be shed as well.
         zones_to_shed = active_zones[1:] if len(active_zones) > 1 else active_zones
         for zone in zones_to_shed:
-            await self.coordinator.action_executor.call_entity_service(zone, False)
+            try:
+                await self.coordinator.action_executor.call_entity_service(zone, False)
+            except Exception as e:  # pylint: disable=broad-except
+                _LOGGER.exception(
+                    "[PANIC_SHED] Failed to turn off zone %s: %s — continuing with remaining zones",
+                    zone,
+                    e,
+                )
             # Update short-cycle tracking so protection kicks in after panic cooldown
             now_ts = dt_util.utcnow().timestamp()
             self.coordinator.zone_last_changed[zone] = now_ts
@@ -185,6 +192,12 @@ class PanicManager:
             _LOGGER.debug("Panic task cancelled")
         except (ValueError, TypeError, AttributeError, KeyError) as e:
             _LOGGER.exception("Error in panic task: %s", e)
+        except Exception as e:  # pylint: disable=broad-except
+            # Catch HA-specific exceptions (HomeAssistantError, ServiceNotFound, etc.)
+            # that are raised when call_entity_service fails both primary and fallback.
+            # Without this, they propagate as unhandled task exceptions, the shed
+            # silently never runs, and _panic_active is cleared by `finally` anyway.
+            _LOGGER.exception("Unexpected error in panic task: %s", e)
         finally:
             async with self.coordinator._state_lock:
                 self.coordinator._panic_task = None
