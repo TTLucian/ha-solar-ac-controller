@@ -1655,8 +1655,14 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                         # appear in the activity logbook without requiring debug filtering.
                         # The very first cycle (None → any) is suppressed to avoid noise
                         # on startup.
+                        # Skip state tracking while panic is active: the panic task is
+                        # already handling the overload and any REMOVE_READY transition
+                        # logged here would be spurious (nothing can act on it) and
+                        # would leave _last_decision_state stale after the shed.
                         prev_decision_state = self._last_decision_state
-                        if decision_state != prev_decision_state:
+                        if decision_state != prev_decision_state and not getattr(
+                            self, "_panic_active", False
+                        ):
                             self._last_decision_state = decision_state
                             if prev_decision_state is not None:
                                 transition_detail = (

@@ -394,7 +394,12 @@ class SolarACLearnedPowerSensor(_NumericSolarACSensor):
     def native_value(  # pyright: ignore[reportIncompatibleVariableOverride]
         self,
     ) -> float:
-        return cast(float, self.coordinator.get_learned_power(self.zone_name))
+        return cast(
+            float,
+            self.coordinator.get_learned_power(
+                self.zone_name, self.coordinator.season_mode
+            ),
+        )
 
 
 class SolarACAddBreakdownSensor(_BaseSolarACSensor):
