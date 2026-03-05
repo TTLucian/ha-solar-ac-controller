@@ -11,5 +11,5 @@
   "issue_tracker": "https://github.com/TTLucian/ha-solar-ac-controller/issues",
   "loggers": ["custom_components.solar_ac_controller"],
   "requirements": [],
-  "version": "1.0.4"
+  "version": "1.0.5"
 }
