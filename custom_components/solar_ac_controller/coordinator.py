@@ -782,7 +782,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         if not entry:
             return None
         target_key = mode if mode in ["heat", "cool"] else "default"
-        val = entry.get(f"lead_{target_key}")  # type: ignore[literal-required]
+        val = entry.get(f"lead_{target_key}")
         if val is not None and isinstance(val, (int, float)):
             return float(val)
         return None
@@ -801,7 +801,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         if not entry:
             return None
         target_key = mode if mode in ["heat", "cool"] else "default"
-        val = entry.get(f"lead_peak_delta_{target_key}")  # type: ignore[literal-required]
+        val = entry.get(f"lead_peak_delta_{target_key}")
         if val is not None and isinstance(val, (int, float)):
             return float(val)
         return None
