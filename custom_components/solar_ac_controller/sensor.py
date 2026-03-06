@@ -41,7 +41,6 @@ async def async_setup_entry(
         SolarACNextZoneSensor(coordinator, entry_id),
         SolarACLastZoneSensor(coordinator, entry_id),
         SolarACLastActionSensor(coordinator, entry_id),
-        SolarACSeasonModeSensor(coordinator, entry_id),
         SolarACEma30Sensor(coordinator, entry_id),
         SolarACEma5Sensor(coordinator, entry_id),
         SolarACConfidenceSensor(coordinator, entry_id),
@@ -52,8 +51,8 @@ async def async_setup_entry(
         SolarACLearnedIdlePowerSensor(coordinator, entry_id),
         SolarACCompressorRecoverySensor(coordinator, entry_id),
         SolarACGridImportToleranceSensor(coordinator, entry_id),
-        SolarACPanicCooldownSensor(coordinator, entry_id),
         SolarACSamplesSensor(coordinator, entry_id),
+        SolarACLastRelearn(coordinator, entry_id),
     ]
 
     # Add per-decision breakdown diagnostic sensors when diagnostics enabled
@@ -352,21 +351,6 @@ class SolarACExportMarginSensor(_NumericSolarACSensor):
         return round(val, 2) if val is not None else None
 
 
-class SolarACPanicCooldownSensor(_BaseSolarACSensor):
-    _attr_name = "Panic Cooldown Active"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-
-    @cached_property
-    def unique_id(self) -> str:
-        return f"{self._entry_id}_panic_cooldown"
-
-    @property
-    def native_value(  # pyright: ignore[reportIncompatibleVariableOverride]
-        self,
-    ) -> str:
-        return "yes" if self.coordinator.panic_manager.is_in_cooldown else "no"
-
-
 class SolarACSamplesSensor(_BaseSolarACSensor):
     _attr_name = "Samples"
     _attr_state_class = SensorStateClass.MEASUREMENT
@@ -381,6 +365,36 @@ class SolarACSamplesSensor(_BaseSolarACSensor):
         self,
     ) -> int:
         return getattr(self.coordinator, "samples", 0)
+
+
+class SolarACLastRelearn(_BaseSolarACSensor):
+    """Timestamp of the most recent force_relearn service call.
+
+    The ``target`` extra attribute contains the zone that was reset
+    (``"all"`` when every zone was cleared).
+    """
+
+    _attr_name = "Last Relearn"
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:brain-freeze-outline"
+
+    @cached_property
+    def unique_id(self) -> str:
+        return f"{self._entry_id}_last_relearn"
+
+    @property
+    def native_value(  # pyright: ignore[reportIncompatibleVariableOverride]
+        self,
+    ) -> Any:
+        return getattr(self.coordinator, "last_relearn_at", None)
+
+    @property  # pyright: ignore[reportIncompatibleVariableOverride]
+    def extra_state_attributes(  # pyright: ignore[reportIncompatibleVariableOverride]
+        self,
+    ) -> dict[str, object]:
+        target = getattr(self.coordinator, "last_relearn_target", "")
+        return {"target": target} if target else {}
 
 
 class SolarACLearnedPowerSensor(_NumericSolarACSensor):
@@ -536,23 +550,6 @@ class SolarACActiveZoneCountSensor(_BaseSolarACSensor):
         )
 
 
-class SolarACSeasonModeSensor(_BaseSolarACSensor):
-    """Current season mode (heat / cool / unknown) set on the select entity."""
-
-    _attr_name = "Season Mode"
-    _attr_icon = "mdi:sun-snowflake"
-
-    @cached_property
-    def unique_id(self) -> str:
-        return f"{self._entry_id}_season_mode"
-
-    @property
-    def native_value(  # pyright: ignore[reportIncompatibleVariableOverride]
-        self,
-    ) -> str:
-        return getattr(self.coordinator, "season_mode", "unknown") or "unknown"
-
-
 class SolarACLearnedIdlePowerSensor(_NumericSolarACSensor):
     """Learned idle draw of the AC compressor while running but no zones active.
 
@@ -575,15 +572,25 @@ class SolarACLearnedIdlePowerSensor(_NumericSolarACSensor):
 
 
 class SolarACRequiredExportSourceSensor(_BaseSolarACSensor):
-    """Human-readable reason why required_export has its current value.
+    """Reason code for why required_export has its current value (ENUM sensor).
 
-    Possible values: Learned Power, Peak Delta, Manual Power Override,
-    Panic Recovery, Integration Disabled, Solar Freeze, Initializing.
+    Possible state keys: learned_power, manual_power_override, panic_recovery,
+    integration_disabled, solar_freeze, initializing.
     """
 
     _attr_name = "Required Export Source"
     _attr_icon = "mdi:information-outline"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_translation_key = "required_export_source"
+    _attr_options = [
+        "learned_power",
+        "manual_power_override",
+        "panic_recovery",
+        "integration_disabled",
+        "solar_freeze",
+        "initializing",
+    ]
 
     @cached_property
     def unique_id(self) -> str:
@@ -594,8 +601,8 @@ class SolarACRequiredExportSourceSensor(_BaseSolarACSensor):
         self,
     ) -> str:
         return (
-            getattr(self.coordinator, "required_export_source", "Initializing")
-            or "Initializing"
+            getattr(self.coordinator, "required_export_source", "initializing")
+            or "initializing"
         )
 
 

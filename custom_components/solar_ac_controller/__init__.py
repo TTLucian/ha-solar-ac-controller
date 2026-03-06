@@ -8,6 +8,7 @@ from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.storage import Store
+from homeassistant.util import dt as dt_util
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.loader import async_get_integration
 
@@ -155,6 +156,13 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                         _LOGGER.info(
                             "Force relearn: reset all learned power and samples"
                         )
+            # Feedback: expose timestamp and target for the Last Relearn sensor
+            assert (
+                coordinator is not None
+            )  # narrowed above by `if not coordinator: continue`
+            coordinator.last_relearn_at = dt_util.utcnow()
+            coordinator.last_relearn_target = zone or "all"
+            coordinator.async_update_listeners()
 
         hass.services.async_register(DOMAIN, "force_relearn", handle_force_relearn)
         domain_data[_svc_flag] = True

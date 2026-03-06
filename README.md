@@ -16,7 +16,7 @@ A smart and adaptive Home Assistant integration that manages multi-zone (multi-s
 This integration automatically:
 
 - **Dynamically controls AC zones** based on available solar export and grid conditions
-- **Learns each zone's power consumption** using an adaptive EMA (Exponential Moving Average) algorithm
+- **Learns each zone's power consumption** using an adaptive EMA (Exponential Moving Average) algorithm, storing separate *lead* and *extension* values so cold-start estimates are never overwritten by concurrent-zone measurements
 - **Prevents short-cycling** with configurable delays for both ON and OFF transitions
 - **Detects manual overrides** and locks zones to respect user control
 - **Performs panic shedding** when grid import exceeds configurable thresholds
@@ -24,6 +24,7 @@ This integration automatically:
 - **Comfort-aware zone control** with per-zone temperature sensors for intelligent removal prioritization
 - **Exposes comprehensive diagnostics** through sensors and JSON export
 - **Provides runtime reconfiguration** via Options Flow without restart
+- **Runtime control entities** — pause the control loop, toggle activity logging, and adjust aggressiveness live without entering the config flow
 
 Designed as a Home Assistant **service integration** for high-performance, solar-aware HVAC automation.
 
@@ -67,13 +68,15 @@ Zones activate **in priority order** (based on config order) using real-time sol
 
 Each zone's power consumption is learned using a **per-mode (heat/cool) EMA model** with bootstrap initialization. The system tracks samples and continuously refines estimates as zones operate, improving accuracy over time.
 
+The engine distinguishes **lead** from **extension** measurements. The first time a zone turns on (cold-start, from no active zones) the observed power draw is stored separately as the *lead* value. Subsequent extension turn-ons (while other zones are already running) are stored under the regular key and never overwrite the lead value. When estimating whether there is enough solar to start from zero the controller prefers the lead value, preventing systematic under-estimation caused by zone interactions.
+
 ### 🔒 Manual override detection
 
 When a zone state changes outside the controller's actions, a **configurable lock** (default 20 minutes) prevents the controller from modifying that zone, respecting user intent.
 
 ### 🆘 Panic shedding
 
-When grid import exceeds a configured threshold **and persists for the panic delay**, the controller **sequentially sheds zones** (with configurable inter-action delays) to protect the inverter from overload.
+When grid import exceeds a configured threshold **and persists for the panic delay**, the controller **sequentially sheds zones** (with configurable inter-action delays) to protect the inverter from overload. The **highest-priority zone is intentionally kept running** during the first shed pass — it is only removed if a second panic fires while the cooldown is still active.
 
 ### 🔌 Optional master switch control
 
@@ -81,37 +84,36 @@ If configured, the controller can automatically turn the master AC switch ON whe
 
 ### 📊 Full observability
 
-Exposes **20+ sensors and binary sensors** showing EMAs, confidence scores, zone states, panic status, learning activity, and more. Optional diagnostics sensor provides complete internal state as JSON attributes.
+Exposes **20+ sensors and binary sensors** showing EMAs, confidence scores, zone states, panic status, learning activity, and more. **Three runtime control entities** (Aggressiveness number, Season Mode select, Integration Enable switch) allow hands-on tuning without opening the config flow. Optional diagnostics sensor provides complete internal state as JSON attributes.
 
 ---
 
 ## 📡 Exposed Entities
 
-### **Sensors** (Power values in Watts)
+### **Sensors**
 
 - **Active Zones** — Comma-separated list of currently running zones
 - **Active Zone Count** — Number of currently active zones (useful for automations)
 - **Next Zone** — The zone that will be added next if conditions allow
 - **Last Zone** — The most recently active zone
 - **Last Action** — Most recent controller action (e.g., `added_zone`, `removed_zone`, `panic`, `no_action`)
-- **Season Mode** — Current season mode (`heat` / `cool`)
 - **EMA 30s** — 30-second exponential moving average of grid power
 - **EMA 5m** — 5-minute exponential moving average of grid power
 - **Confidence** — Current decision confidence score (points)
 - **Confidence Thresholds** — Shows unified add/remove confidence thresholds as attributes
 - **Required Export** — Minimum export needed to add the next zone
-- **Required Export Source** — Human-readable reason for the current required export value
+- **Required Export Source** — Reason code for the current required export value (translated ENUM: `Learned Power`, `Manual Power Override`, `Panic Recovery`, `Integration Disabled`, `Solar Freeze`, `Initializing`)
 - **Export Margin** — Current export headroom above required export
 - **Learned Idle Power** — Learned compressor draw while running with no active zones
 - **Grid Import Tolerance** — Current import tolerance in W, live-updated from the Aggressiveness slider (`aggressiveness × 700 W`)
 - **Compressor Recovery Remaining** — Seconds left on the post-add compressor ramp-up guard
-- **Panic Cooldown Active** — Status of panic cooldown timer ("yes"/"no")
 - **Samples** — Number of learning samples collected
-- **Learned Power [zone]** — Per-zone learned power consumption (one sensor per configured zone)
+- **Last Relearn** (diagnostic) — Timestamp of the most recent `force_relearn` call; the `target` attribute contains the zone that was reset (`"all"` when every zone was cleared)
+- **Learned Power [zone]** — Per-zone learned power consumption (one sensor per configured zone); reflects the *extension* learned value — use `Peak Delta` to understand the cold-start lead draw
 - **Zone Lock Remaining [zone]** — Seconds until a zone's manual-override lock expires (one per zone)
 - **Add Confidence Breakdown** (optional diagnostic) — Per-factor breakdown of the add confidence score
 - **Remove Confidence Breakdown** (optional diagnostic) — Per-factor breakdown of the remove confidence score
-- **Peak Delta [zone]** (optional diagnostic) — Learned compressor startup surge per zone
+- **Peak Delta [zone]** (optional diagnostic) — Learned compressor startup surge per zone (lead − extension draw)
 - **Diagnostics** (optional) — JSON snapshot of complete controller state
 
 ### **Binary Sensors**
@@ -124,6 +126,15 @@ Exposes **20+ sensors and binary sensors** showing EMAs, confidence scores, zone
 - **Exporting** — Grid export active (EMA 30s < 0)
 - **Importing** — Grid import active (EMA 30s > 0)
 - **Master Switch** — State of the optional master AC switch
+
+### **Controls**
+
+- **Aggressiveness** (number, 0.0–1.0) — Live slider to tune activation eagerness; see [Aggressiveness Slider](#️-aggressiveness-slider). Persisted across restarts.
+- **Season Mode** (select, `heat`/`cool`) — Change the operating season without entering the config flow. Takes effect immediately.
+- **Integration Enable** (switch) — Pause the entire control loop without unloading the integration. Useful during manual maintenance or testing.
+- **Activity Logging** (switch, config category) — Toggle verbose logbook entries for zone adds, removes, panic events, and learning cycles.
+
+---
 
 ## 🔍 Diagnostics
 
@@ -224,7 +235,7 @@ Add the integration via:
 
 - **Master AC switch** — Optional switch entity to control entire AC system
 - **Solar ON threshold** (default: 1200W) — Solar production required to enable master switch
-- **Solar OFF threshold** (default: 800W) — Solar production below which master switch turns off
+- **Solar OFF threshold** (default: 500W) — Solar production below which master switch turns off
 - **Panic threshold** (default: 2000W) — Grid import level triggering panic shedding
 - **Panic delay** (default: 60s) — How long panic condition must persist
 - **Manual lock seconds** (default: 1200s) — Duration zones are locked after manual changes
@@ -235,6 +246,10 @@ Add the integration via:
 - **Max temperature winter** (default: 21C) — Comfort target for zones in heat mode
 - **Min temperature summer** (default: 21C) — Comfort target for zones in cool mode
 - **Zone temperature sensors** (optional) — Per-zone indoor temperature sensor entities for comfort-aware removal blocking
+- **Zone manual power** (optional) — Comma-separated per-zone power overrides (W) to bypass learned power for specific zones; format: `zone_id:watts, zone_id:watts`
+- **Enable temperature modulation** (default: enabled) — Allow the controller to use temperature data to influence zone removal decisions
+- **Update interval** (default: 10s) — How often the control loop runs (seconds)
+- **Compressor ramp seconds** (default: 600s) — Time after a zone is added during which the compressor is considered to be ramping up; used to suppress premature removal decisions
 - **Enable diagnostics sensor** (default: disabled) — Optional JSON diagnostics sensor
 - **Aggressiveness** (default: 0.5) — Controls how eagerly zones are activated; see the [Aggressiveness Slider](#️-aggressiveness-slider) section for details
 
@@ -251,18 +266,28 @@ When launched via Reconfigure, the form now pre-fills with your existing data+op
 - **`short_cycle_on_seconds`** — Minimum ON time before allowing OFF transition (default: 1200s)
 - **`short_cycle_off_seconds`** — Minimum OFF time before allowing ON transition (default: 20s)
 - **`action_delay_seconds`** — Inter-service-call delay for sequential zone actions (default: 3s)
+- **`update_interval`** — Control loop frequency in seconds (default: 10s)
+- **`compressor_ramp_seconds`** — Ramp-up guard window after a zone is added (default: 600s / 10 min)
 
 ### Threshold Parameters (Watts)
 
 - **`panic_threshold`** — Grid import level triggering panic shedding (default: 2000W)
 - **`panic_delay`** — Persistence time before panic activates (default: 60s)
 - **`solar_threshold_on`** — Solar production to enable master switch (default: 1200W)
-- **`solar_threshold_off`** — Solar production to disable master switch (default: 800W)
+- **`solar_threshold_off`** — Solar production to disable master switch (default: 500W)
 
 ### Decision Engine Parameters
 
 - **`initial_learned_power`** — Bootstrap estimate before learning completes (default: 1000W)
-- **`aggressiveness`** — Zone activation eagerness from 0.0 (conservative) to 1.0 (aggressive); drives add/remove thresholds and import tolerance simultaneously (default: 0.5)
+- **`aggressiveness`** — Zone activation eagerness from 0.0 (conservative) to 1.0 (aggressive); drives add/remove thresholds and import tolerance simultaneously (default: 0.5). Also adjustable in real time via the **Aggressiveness** number entity.
+
+### Comfort Parameters
+
+- **`max_temp_winter`** — Comfort ceiling for zones in heat mode; zones at or above this temperature are deprioritised for removal protection (default: 21°C)
+- **`min_temp_summer`** — Comfort floor for zones in cool mode (default: 21°C)
+- **`zone_temp_sensors`** — Per-zone temperature sensor entity IDs; required for non-climate zones when temperature modulation is enabled
+- **`zone_manual_power`** — Per-zone power overrides; bypasses learned power for the named zones
+- **`enable_temperature_modulation`** — Use temperature data in zone removal decisions (default: enabled)
 
 ### Diagnostics
 
@@ -334,13 +359,13 @@ Resets learned power values and sample count for specific zones or all zones. Th
 
 Reset all zones (full relearn):
 ```yaml
-service: solar_ac_controller.force_relearn
+action: solar_ac_controller.force_relearn
 data: {}
 ```
 
 Reset specific zone:
 ```yaml
-service: solar_ac_controller.force_relearn
+action: solar_ac_controller.force_relearn
 data:
   zone: climate.living_room
 ```

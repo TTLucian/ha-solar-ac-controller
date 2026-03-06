@@ -167,6 +167,20 @@
       },
       "diagnostics": {
         "name": "Diagnostics"
+      },
+      "required_export_source": {
+        "name": "Required Export Source",
+        "state": {
+          "learned_power": "Learned Power",
+          "manual_power_override": "Manual Power Override",
+          "panic_recovery": "Panic Recovery",
+          "integration_disabled": "Integration Disabled",
+          "solar_freeze": "Solar Freeze",
+          "initializing": "Initializing"
+        }
+      },
+      "last_relearn": {
+        "name": "Last Relearn"
       }
     }
   }

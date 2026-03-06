@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, Coroutine, Dict, Literal, Optional, TypedDict, TypeVar, cast
 
 from homeassistant.core import HomeAssistant
@@ -449,7 +449,9 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         self._diagnostics_entity_id_cached: str | None = None
 
         # Defensive initialization
-        self.required_export_source = "Initializing"
+        self.required_export_source = "initializing"
+        self.last_relearn_at: Optional[datetime] = None
+        self.last_relearn_target: str = ""
 
         # Sensor recovery tracking
         self._sensor_unavailable_since: Dict[str, float] = (
@@ -1611,17 +1613,17 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                                 and isinstance(self.zone_manual_power, dict)
                                 and next_zone in self.zone_manual_power
                             ):
-                                self.required_export_source = "Manual Power Override"
+                                self.required_export_source = "manual_power_override"
                             elif self.last_action == "panic_cooldown":
-                                self.required_export_source = "Panic Recovery"
+                                self.required_export_source = "panic_recovery"
                             elif self.last_action == "integration_disabled":
-                                self.required_export_source = "Integration Disabled"
+                                self.required_export_source = "integration_disabled"
                             elif self.last_action == "solar_too_low":
-                                self.required_export_source = "Solar Freeze"
+                                self.required_export_source = "solar_freeze"
                             else:
-                                self.required_export_source = "Learned Power"
+                                self.required_export_source = "learned_power"
                         except (ValueError, TypeError, KeyError, AttributeError):
-                            self.required_export_source = "Learned Power"
+                            self.required_export_source = "learned_power"
                         self.export_margin = (
                             None
                             if required_export is None
