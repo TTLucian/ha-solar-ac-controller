@@ -181,10 +181,16 @@ class PanicManager:
                 now_ts = dt_util.utcnow().timestamp()
                 self.coordinator.last_panic_ts = now_ts
 
-                await self.coordinator._log(
+                zones_shed = active_zones[1:] if len(active_zones) > 1 else active_zones
+                zones_kept = active_zones[:1] if len(active_zones) > 1 else []
+                shed_msg = (
                     f"[PANIC_SHED] ema30={round(self.coordinator.ema_30s)} "
-                    f"ema5m={round(self.coordinator.ema_5m)} zones={active_zones}"
+                    f"ema5m={round(self.coordinator.ema_5m)} "
+                    f"zones_shed={zones_shed}"
                 )
+                if zones_kept:
+                    shed_msg += f" zones_kept={zones_kept}"
+                await self.coordinator._log(shed_msg)
 
                 async with self.coordinator._state_lock:
                     self.coordinator.last_action = "panic"

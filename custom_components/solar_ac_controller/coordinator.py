@@ -767,6 +767,45 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                     pass
         return None
 
+    def get_lead_learned_power(
+        self,
+        zone_name: str,
+        mode: Optional[str] = None,
+    ) -> float | None:
+        """Return lead-specific learned power for a zone, or None if unavailable.
+
+        Lead power is measured when the zone starts from cold (ac_before < 50 W) and
+        stored under a dedicated key so extension learning can never overwrite it.
+        Returns None when no lead measurement exists yet.
+        """
+        entry = self.learned_power.get(zone_name)
+        if not entry:
+            return None
+        target_key = mode if mode in ["heat", "cool"] else "default"
+        val = entry.get(f"lead_{target_key}")  # type: ignore[literal-required]
+        if val is not None and isinstance(val, (int, float)):
+            return float(val)
+        return None
+
+    def get_lead_peak_delta(
+        self,
+        zone_name: str,
+        mode: Optional[str] = None,
+    ) -> float | None:
+        """Return lead-specific peak delta, or None if unavailable.
+
+        Stored separately from the general peak_delta so it is not overwritten by
+        extension learning sessions.
+        """
+        entry = self.learned_power.get(zone_name)
+        if not entry:
+            return None
+        target_key = mode if mode in ["heat", "cool"] else "default"
+        val = entry.get(f"lead_peak_delta_{target_key}")  # type: ignore[literal-required]
+        if val is not None and isinstance(val, (int, float)):
+            return float(val)
+        return None
+
     def set_learned_power(
         self,
         zone_name: str,
@@ -802,6 +841,15 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             entry[f"time_to_peak_{target_key}"] = float(time_to_peak)  # type: ignore[literal-required]
         if category is not None:
             entry["category"] = category  # type: ignore[typeddict-unknown-key]
+
+        # Lead measurements (cold-start, ac_before < 50 W) are stored under a dedicated
+        # key so they are never overwritten by extension learning.  When the zone is
+        # later added as the first active zone the lead value is used for required_export,
+        # which avoids the underestimate that extension deltas would otherwise cause.
+        if category == "lead":
+            entry[f"lead_{target_key}"] = float(value)  # type: ignore[literal-required]
+            if peak_delta is not None:
+                entry[f"lead_peak_delta_{target_key}"] = float(peak_delta)  # type: ignore[literal-required]
 
         self._storage_dirty = True
         _LOGGER.debug(
@@ -1584,8 +1632,19 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                         zone_info = f"active_zones={len(active_zones)}"
                         if next_zone:
                             next_zone_name = next_zone.split(".")[-1]
-                            next_power = self.get_learned_power(
-                                next_zone_name, self.season_mode
+                            _lead_pw = (
+                                self.get_lead_learned_power(
+                                    next_zone_name, self.season_mode
+                                )
+                                if len(active_zones) == 0
+                                else None
+                            )
+                            next_power = (
+                                _lead_pw
+                                if _lead_pw is not None
+                                else self.get_learned_power(
+                                    next_zone_name, self.season_mode
+                                )
                             )
                             zone_info += f" next_zone={next_zone}({round(next_power)}W)"
                         if last_zone:
@@ -1983,7 +2042,10 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
 
         Priority:
         1. Manual power override (if configured for zone)
-        2. Mode-aware peak delta (surge cost) for decision making
+        2. Lead-specific peak delta when next zone would be the first active zone
+        3. Lead-specific learned power when next zone would be the first active zone
+        4. Mode-aware peak delta (surge cost) for decision making
+        5. Mode-aware learned power
         """
         if not next_zone:
             return None
@@ -1993,11 +2055,24 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             return self.zone_manual_power[next_zone]
 
         zone_name = next_zone.split(".")[-1]
-        peak_delta = self.get_peak_delta(zone_name, mode=mode or "default")
+        effective_mode = mode or "default"
+
+        # When the next zone would be the first active zone (lead context), prefer the
+        # lead-specific measurements.  Extension deltas (small incremental values) would
+        # otherwise severely underestimate the real cold-start load requirement.
+        is_lead = len(getattr(self, "active_zones", None) or []) == 0
+        if is_lead:
+            lead_peak = self.get_lead_peak_delta(zone_name, mode=effective_mode)
+            if lead_peak is not None:
+                return float(lead_peak)
+            lead_lp = self.get_lead_learned_power(zone_name, mode=effective_mode)
+            if lead_lp is not None:
+                return float(lead_lp)
+
+        peak_delta = self.get_peak_delta(zone_name, mode=effective_mode)
         if peak_delta is not None:
             return float(peak_delta)
-        # Fallback to learned power if peak_delta not available
-        lp = self.get_learned_power(zone_name, mode=mode or "default")
+        lp = self.get_learned_power(zone_name, mode=effective_mode)
         return float(lp)
 
     def _read_zone_temps(self) -> None:
