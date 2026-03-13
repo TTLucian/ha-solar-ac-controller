@@ -15,6 +15,7 @@ DOMAIN = "solar_ac_controller"
 
 # Core configuration keys
 CONF_SOLAR_SENSOR = "solar_sensor"
+CONF_PV_CAPACITY_W = "pv_capacity_w"
 CONF_GRID_SENSOR = "grid_sensor"
 CONF_AC_POWER_SENSOR = "ac_power_sensor"
 CONF_AC_SWITCH = "ac_switch"
@@ -70,6 +71,7 @@ DEFAULT_INITIAL_LEARNED_POWER = 1000.0
 # Sensible defaults for thresholds and timing (used by coordinator if config missing)
 DEFAULT_SOLAR_THRESHOLD_ON = 1200.0
 DEFAULT_SOLAR_THRESHOLD_OFF = 500.0
+DEFAULT_PV_CAPACITY_W: int = 0  # 0 = not configured; feature disabled when 0
 
 DEFAULT_PANIC_THRESHOLD = 2000.0
 DEFAULT_PANIC_DELAY = 60  # seconds
@@ -103,6 +105,35 @@ EMA_30S_ALPHA = 0.25
 EMA_5M_ALPHA = 0.03
 EMA_10M_ALPHA = 0.1
 EMA_RESET_AFTER_OFF_SECONDS = 600
+
+# Solar EMA alphas for cloud / trend detection
+# Fast (~33 s time constant at 10 s cycle) tracks rapid production drops.
+# Slow matches the grid slow EMA for an apples-to-apples spread comparison.
+SOLAR_EMA_FAST_ALPHA: float = 0.15
+SOLAR_EMA_SLOW_ALPHA: float = 0.03
+
+# Solar slope thresholds (W) used by the decision engine
+# "Cloud": fast EMA has dropped more than this far below slow EMA → penalise adds.
+SOLAR_SLOPE_CLOUD_THRESHOLD_W: float = 150.0
+# "Stable solar": the fast-slow spread is within ±this → grid import is a household
+# load spike, not a cloud-driven supply drop → suppress zone-removal confidence.
+SOLAR_STABLE_THRESHOLD_W: float = 100.0
+# Maximum magnitudes for the two adjustments
+SOLAR_CLOUD_ADD_PENALTY_MAG: float = 20.0
+# Transient load-spike suppression magnitude reduced to avoid over-suppressing
+# genuine sustained imports.  Only fires when import_power < ceiling (below).
+SOLAR_TRANSIENT_REMOVE_SUPPRESS_MAG: float = 8.0
+# Ceiling (W): if import_power is above this the load is likely not a transient.
+SOLAR_TRANSIENT_IMPORT_CEILING_W: float = 400.0
+
+# PV-fraction bonuses (only active when pv_capacity_w > 0)
+# Solar fraction at which bonuses start to ramp up (e.g. 0.6 = 60 % of rated capacity).
+SOLAR_FRACTION_BONUS_THRESHOLD: float = 0.6
+# Maximum add-confidence bonus at solar_fraction = 1.0 (scaled by bonus_scale).
+SOLAR_FRACTION_ADD_BONUS_MAX: float = 12.0
+# Maximum remove-confidence suppression at solar_fraction = 1.0 (scaled by penalty_scale).
+# Kept small so genuine sustained imports can still push remove_conf over threshold.
+SOLAR_FRACTION_REMOVE_SUPPRESS_MAX: float = 5.0
 
 # Panic / safety configuration
 PANIC_COOLDOWN_SECONDS = 120

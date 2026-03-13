@@ -13,6 +13,7 @@
           "ac_power_sensor": "AC Power Sensor*",
           "solar_threshold_on": "Solar ON Threshold* (W). Default 1200W",
           "solar_threshold_off": "Solar OFF Threshold* (W). Default 500W",
+          "pv_capacity_w": "PV System Capacity (W, optional)",
           "initial_learned_power": "Initial Learned Power* (W)",
           "enable_temperature_modulation": "Enable Comfort-Based Zone Control",
           "enable_diagnostics_sensor": "Diagnostics Sensor (full state)"
@@ -25,6 +26,7 @@
           "ac_power_sensor": "Entity that measures your AC power consumption.",
           "solar_threshold_on": "Solar power must exceed this to enable the AC master switch.",
           "solar_threshold_off": "Solar power must fall below this to disable the master switch.",
+          "pv_capacity_w": "Rated peak output of your solar array in watts. When set, enables solar fraction scoring: bonuses for adds at peak sun and suppressed removals during high-output periods. Leave at 0 to disable.",
           "initial_learned_power": "Starting estimate of zone power before learning.",
           "enable_temperature_modulation": "Enable zone swapping based on comfort targets. When system is balanced, automatically swaps satisfied zones with higher-priority zones that need heating/cooling.",
           "enable_diagnostics_sensor": "Creates a sensor exposing full state for troubleshooting."
@@ -85,6 +87,7 @@
           "ac_power_sensor": "AC Power Sensor*",
           "solar_threshold_on": "Solar ON Threshold* (W). Default 1200W",
           "solar_threshold_off": "Solar OFF Threshold* (W). Default 500W",
+          "pv_capacity_w": "PV System Capacity (W, optional)",
           "initial_learned_power": "Initial Learned Power* (W)",
           "enable_temperature_modulation": "Enable Comfort-Based Zone Control",
           "enable_diagnostics_sensor": "Diagnostics Sensor (full state)"
@@ -97,6 +100,7 @@
           "ac_power_sensor": "Entity that measures your AC power consumption.",
           "solar_threshold_on": "Solar power must exceed this to enable the AC master switch.",
           "solar_threshold_off": "Solar power must fall below this to disable the master switch.",
+          "pv_capacity_w": "Rated peak output of your solar array in watts. When set, enables solar fraction scoring: bonuses for adds at peak sun and suppressed removals during high-output periods. Leave at 0 to disable.",
           "initial_learned_power": "Starting estimate of zone power before learning.",
           "enable_temperature_modulation": "Enable zone swapping based on comfort targets. When system is balanced, automatically swaps satisfied zones with higher-priority zones that need heating/cooling.",
           "enable_diagnostics_sensor": "Creates a sensor exposing full state for troubleshooting."
@@ -181,6 +185,12 @@
       },
       "last_relearn": {
         "name": "Last Relearn"
+      },
+      "solar_slope": {
+        "name": "Solar Slope"
+      },
+      "solar_fraction": {
+        "name": "Solar Fraction"
       }
     }
   }

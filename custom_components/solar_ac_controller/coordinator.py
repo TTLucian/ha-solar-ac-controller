@@ -28,6 +28,7 @@ from .const import (
     CONF_MIN_TEMP_SUMMER,
     CONF_PANIC_DELAY,
     CONF_PANIC_THRESHOLD,
+    CONF_PV_CAPACITY_W,
     CONF_SEASON_MODE,
     CONF_SHORT_CYCLE_OFF_SECONDS,
     CONF_SHORT_CYCLE_ON_SECONDS,
@@ -46,6 +47,7 @@ from .const import (
     DEFAULT_MIN_TEMP_SUMMER,
     DEFAULT_PANIC_DELAY,
     DEFAULT_PANIC_THRESHOLD,
+    DEFAULT_PV_CAPACITY_W,
     DEFAULT_SEASON_MODE,
     DEFAULT_SHORT_CYCLE_OFF_SECONDS,
     DEFAULT_SHORT_CYCLE_ON_SECONDS,
@@ -65,6 +67,8 @@ from .const import (
     LOGBOOK_THROTTLE_SECONDS,
     MAX_ZONE_HISTORY_RECORDS,
     PANIC_COOLDOWN_SECONDS,
+    SOLAR_EMA_FAST_ALPHA,
+    SOLAR_EMA_SLOW_ALPHA,
     STALE_TRACKING_CLEANUP_INTERVAL_SECONDS,
     STRAY_ZONE_THRESHOLD_W,
     ZONE_SWAP_MIN_INTERVAL_SECONDS,
@@ -336,25 +340,20 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         self._debounce_recalc()
 
     async def async_set_aggressiveness(self, value: float) -> None:
-        """Set aggressiveness and persist to config entry options."""
+        """Set aggressiveness and persist to storage (no config-entry reload)."""
         try:
             self.aggressiveness = float(value)
         except (TypeError, ValueError):
             return
 
-        # Persist into config entry options so OptionsFlow and UI reflect change
+        async with self._storage_lock:
+            self.stored_data["aggressiveness"] = float(self.aggressiveness)
+            self._storage_dirty = True
+
         try:
-            new_options = {
-                **getattr(self.config_entry, "options", {}),
-                CONF_AGGRESSIVENESS: float(self.aggressiveness),
-            }
-            # Use hass.config_entries to update options asynchronously
-            assert self.config_entry is not None
-            self.hass.config_entries.async_update_entry(
-                self.config_entry, options=new_options
-            )
-        except Exception as exc:  # pragma: no cover - defensive
-            _LOGGER.exception("Failed to persist aggressiveness option: %s", exc)
+            await self._debounced_save()
+        except (asyncio.CancelledError, OSError, ValueError) as exc:
+            _LOGGER.exception("Failed to persist aggressiveness: %s", exc)
 
         # Notify listeners so entity states refresh
         self._debounce_recalc()
@@ -410,6 +409,11 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         self.learning_zone: str | None = None
         self.ema_30s = 0.0
         self.ema_5m = 0.0
+        # Solar EMAs for cloud / load-spike detection (fast=~33 s, slow=~167 s)
+        self.solar_ema_fast: float = 0.0
+        self.solar_ema_slow: float = 0.0
+        # Solar fraction of rated PV capacity (0.0–1.0); 0.0 when pv_capacity_w=0
+        self.solar_fraction: float = 0.0
         # Compressor recovery timestamp (unix ts) - prevents rapid re-add until compressor ramps
         self.compressor_recover_until = 0.0
         self.next_decision_allowed_at = 0.0  # For UI visibility of ramp lock expiry
@@ -432,9 +436,9 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         self.zone_action_history: dict[str, list[dict]] = {}
 
         # Per-zone last-issued HA context ID for authorship-based override detection
-        self.zone_last_context_id: dict[str, tuple[str, float]] = (
-            {}
-        )  # zone -> (ctx_id, issued_ts)
+        self.zone_last_context_id: dict[
+            str, tuple[str, float]
+        ] = {}  # zone -> (ctx_id, issued_ts)
 
         # Temperature stability tracking for zone swapping
         self.temp_ema_10m: dict[str, float] = {}  # zone -> 10min EMA temperature
@@ -454,9 +458,9 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         self.last_relearn_target: str = ""
 
         # Sensor recovery tracking
-        self._sensor_unavailable_since: Dict[str, float] = (
-            {}
-        )  # sensor_id -> timestamp when it became unavailable
+        self._sensor_unavailable_since: Dict[
+            str, float
+        ] = {}  # sensor_id -> timestamp when it became unavailable
 
     def _debounce_recalc(self) -> None:
         """Debounce recalculation triggers from rapid service calls."""
@@ -589,8 +593,15 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             CONF_COMPRESSOR_RAMP_SECONDS, DEFAULT_COMPRESSOR_RAMP_SECONDS
         )
         # Aggressiveness: 0.0 conservative -> 1.0 aggressive
+        # Prefer value persisted via stored_data (written by async_set_aggressiveness)
+        # so slider changes survive HA restarts without re-loading the config entry.
         self.aggressiveness = float(
-            self.config_manager.get_float(CONF_AGGRESSIVENESS, DEFAULT_AGGRESSIVENESS)
+            self.stored_data.get(
+                "aggressiveness",
+                self.config_manager.get_float(
+                    CONF_AGGRESSIVENESS, DEFAULT_AGGRESSIVENESS
+                ),
+            )
         )
 
         # Initial learned power
@@ -987,7 +998,6 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             # Activity logging (only when enabled) - emit to logbook but throttle repeated messages
             if getattr(self, "activity_logging_enabled", False):
                 try:
-
                     # Resolve the diagnostics entity id once and cache it.
                     # The entity registry is queried only on the first log call;
                     # subsequent calls reuse the cached value.
@@ -1359,10 +1369,12 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                                             SensorInvalidError,
                                         ):
                                             pass
-                                        await self.master_controller.handle_master_switch(
-                                            _solar_check,
-                                            cycle_start,
-                                            ac_power=_ac_pw_dis,
+                                        await (
+                                            self.master_controller.handle_master_switch(
+                                                _solar_check,
+                                                cycle_start,
+                                                ac_power=_ac_pw_dis,
+                                            )
                                         )
                                     except Exception:  # noqa: BLE001
                                         pass
@@ -1506,7 +1518,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                             self._cleanup_sensor_tracking()
 
                         # 2. EMA updates
-                        self._update_ema(grid_raw)
+                        self._update_ema(grid_raw, solar)
 
                         # 3. Master switch auto-control (based ONLY on solar production)
                         await self.master_controller.handle_master_switch(
@@ -1591,10 +1603,11 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                                     )
 
                         # 6. Compute required export and confidences
-                        next_zone, last_zone = (
-                            await self.zone_manager.select_next_and_last_zone(
-                                active_zones
-                            )
+                        (
+                            next_zone,
+                            last_zone,
+                        ) = await self.zone_manager.select_next_and_last_zone(
+                            active_zones
                         )
                         required_export = self._compute_required_export(
                             next_zone, mode=self.season_mode
@@ -1916,8 +1929,8 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                                 f"solar={round(solar)}W "
                                 f"ema30s={round(self.ema_30s)}W ema5m={round(self.ema_5m)}W "
                                 f"active_zones={on_count} zones=[{zones_str}] "
-                                f"unified_conf={round(self.confidence,2)} "
-                                f"(add={round(self.last_add_conf,2)},remove={round(self.last_remove_conf,2)}) "
+                                f"unified_conf={round(self.confidence, 2)} "
+                                f"(add={round(self.last_add_conf, 2)},remove={round(self.last_remove_conf, 2)}) "
                                 f"samples={self.samples} season_mode={self.season_mode}"
                             )
 
@@ -1989,8 +2002,8 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         # EMA / metrics / guards
         # -------------------------------------------------------------------------
 
-    def _update_ema(self, grid_raw: float) -> None:
-        """Update EMA metrics for grid power."""
+    def _update_ema(self, grid_raw: float, solar_raw: float = 0.0) -> None:
+        """Update EMA metrics for grid power and solar production."""
         old_ema_30s = self.ema_30s
         old_ema_5m = self.ema_5m
 
@@ -2010,6 +2023,23 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             # Reset to safe values
             self.ema_tracker.reset()
             self.ema_30s, self.ema_5m = 0.0, 0.0
+
+        # Update solar EMAs for cloud / load-spike detection.
+        # Clamp to a non-negative value — solar production can't be negative.
+        s = max(0.0, solar_raw)
+        self.solar_ema_fast = calculate_ema(
+            self.solar_ema_fast, s, SOLAR_EMA_FAST_ALPHA
+        )
+        self.solar_ema_slow = calculate_ema(
+            self.solar_ema_slow, s, SOLAR_EMA_SLOW_ALPHA
+        )
+
+        # Compute solar fraction against rated PV capacity when configured.
+        pv_cap = self.config_manager.get_int(CONF_PV_CAPACITY_W, DEFAULT_PV_CAPACITY_W)
+        if pv_cap > 0:
+            self.solar_fraction = max(0.0, min(1.0, s / pv_cap))
+        else:
+            self.solar_fraction = 0.0
 
     async def _log_ema_validation_failure(
         self,

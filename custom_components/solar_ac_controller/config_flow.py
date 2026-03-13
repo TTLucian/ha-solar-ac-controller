@@ -24,6 +24,7 @@ from .const import (
     CONF_MIN_TEMP_SUMMER,
     CONF_PANIC_DELAY,
     CONF_PANIC_THRESHOLD,
+    CONF_PV_CAPACITY_W,
     CONF_SHORT_CYCLE_OFF_SECONDS,
     CONF_SHORT_CYCLE_ON_SECONDS,
     CONF_SOLAR_SENSOR,
@@ -42,6 +43,7 @@ from .const import (
     DEFAULT_MIN_TEMP_SUMMER,
     DEFAULT_PANIC_DELAY,
     DEFAULT_PANIC_THRESHOLD,
+    DEFAULT_PV_CAPACITY_W,
     DEFAULT_SHORT_CYCLE_OFF_SECONDS,
     DEFAULT_SHORT_CYCLE_ON_SECONDS,
     DEFAULT_SOLAR_THRESHOLD_OFF,
@@ -172,6 +174,10 @@ def schema_user(defaults: dict[str, Any]) -> Any:
                     defaults.get(CONF_SOLAR_THRESHOLD_OFF, DEFAULT_SOLAR_THRESHOLD_OFF)
                 ),
             ): int,
+            vol.Optional(
+                CONF_PV_CAPACITY_W,
+                default=int(defaults.get(CONF_PV_CAPACITY_W, DEFAULT_PV_CAPACITY_W)),
+            ): vol.All(vol.Coerce(int), vol.Range(min=0)),
             vol.Optional(
                 CONF_INITIAL_LEARNED_POWER,
                 default=int(

@@ -32,6 +32,14 @@ from .const import (
     DECISION_STABILITY_DENOM_MIN,
     DECISION_SWAP_BUFFER_W,
     DECISION_VARIABILITY_DIVISOR,
+    SOLAR_CLOUD_ADD_PENALTY_MAG,
+    SOLAR_FRACTION_ADD_BONUS_MAX,
+    SOLAR_FRACTION_BONUS_THRESHOLD,
+    SOLAR_FRACTION_REMOVE_SUPPRESS_MAX,
+    SOLAR_SLOPE_CLOUD_THRESHOLD_W,
+    SOLAR_STABLE_THRESHOLD_W,
+    SOLAR_TRANSIENT_IMPORT_CEILING_W,
+    SOLAR_TRANSIENT_REMOVE_SUPPRESS_MAG,
 )
 
 if TYPE_CHECKING:
@@ -158,6 +166,42 @@ class DecisionEngine:
             _LOGGER.debug("learn_penalty calculation failed: %s", exc)
             learn_penalty = 0.0
 
+        # Cloud detection: solar fast EMA has dropped well below slow EMA → penalise adds.
+        # A negative solar_slope means production is contracting (cloud shadow approaching).
+        # The penalty scales from 0 at the threshold to the full magnitude one threshold deeper.
+        cloud_penalty = 0.0
+        try:
+            solar_fast = getattr(self.coordinator, "solar_ema_fast", 0.0)
+            solar_slow = getattr(self.coordinator, "solar_ema_slow", 0.0)
+            solar_slope = solar_fast - solar_slow  # negative = solar dropping
+            if solar_slope < -SOLAR_SLOPE_CLOUD_THRESHOLD_W:
+                depth = min(
+                    1.0,
+                    (-solar_slope - SOLAR_SLOPE_CLOUD_THRESHOLD_W)
+                    / SOLAR_SLOPE_CLOUD_THRESHOLD_W,
+                )
+                cloud_penalty = -SOLAR_CLOUD_ADD_PENALTY_MAG * depth * penalty_scale
+        except Exception as exc:  # pragma: no cover
+            _LOGGER.debug("cloud_penalty calculation failed: %s", exc)
+            cloud_penalty = 0.0
+
+        # PV-fraction bonus: when solar is running at a high fraction of rated capacity
+        # (peak sun hour) the system can be more aggressive about adding zones.
+        # Only active when pv_capacity_w > 0 is configured.
+        solar_fraction_bonus = 0.0
+        try:
+            fraction = getattr(self.coordinator, "solar_fraction", 0.0)
+            if fraction > SOLAR_FRACTION_BONUS_THRESHOLD:
+                depth_f = (fraction - SOLAR_FRACTION_BONUS_THRESHOLD) / (
+                    1.0 - SOLAR_FRACTION_BONUS_THRESHOLD
+                )
+                solar_fraction_bonus = (
+                    SOLAR_FRACTION_ADD_BONUS_MAX * depth_f * bonus_scale
+                )
+        except Exception as exc:  # pragma: no cover
+            _LOGGER.debug("solar_fraction_bonus calculation failed: %s", exc)
+            solar_fraction_bonus = 0.0
+
         # AC-power stability early-allow: grant a modest bonus when EMA shows stable, substantial export
         ac_stability_bonus = 0.0
         try:
@@ -180,12 +224,14 @@ class DecisionEngine:
             + short_cycle_penalty
             + comp_penalty
             + learn_penalty
+            + cloud_penalty
+            + solar_fraction_bonus
         )
 
         # Debug: log component breakdown to help tuning
         try:
             _LOGGER.debug(
-                "[ADD_CONF] zone=%s base=%s sample=%s ema=%s stab=%s sc_pen=%s comp_pen=%s learn_pen=%s raw=%s",
+                "[ADD_CONF] zone=%s base=%s sample=%s ema=%s stab=%s sc_pen=%s comp_pen=%s learn_pen=%s cloud_pen=%s frac_bonus=%s raw=%s",
                 last_zone,
                 round(base, 2),
                 round(sample_bonus, 2),
@@ -194,6 +240,8 @@ class DecisionEngine:
                 round(short_cycle_penalty, 2),
                 round(comp_penalty, 2),
                 round(learn_penalty, 2),
+                round(cloud_penalty, 2),
+                round(solar_fraction_bonus, 2),
                 round(raw, 2),
             )
         except Exception:
@@ -212,6 +260,8 @@ class DecisionEngine:
                 "short_cycle_penalty": round(short_cycle_penalty, 2),
                 "comp_penalty": round(comp_penalty, 2),
                 "learn_penalty": round(learn_penalty, 2),
+                "cloud_penalty": round(cloud_penalty, 2),
+                "solar_fraction_bonus": round(solar_fraction_bonus, 2),
                 "raw": round(raw, 2),
             }
         except Exception as exc:  # pragma: no cover
@@ -259,30 +309,100 @@ class DecisionEngine:
             else 0.0
         )
 
+        # Transient load-spike suppression: when solar production is stable but the
+        # grid briefly goes to import, a household load spike (kettle, oven, EV charge
+        # burst) is the most likely cause — not a cloud.  Removing a zone for a 30-second
+        # kettle cycle wastes learning history and comfort.  Suppress remove confidence
+        # when the solar slope is near zero (solar stable) to give the load time to clear.
+        transient_suppress = 0.0
+        try:
+            solar_fast = getattr(self.coordinator, "solar_ema_fast", 0.0)
+            solar_slow = getattr(self.coordinator, "solar_ema_slow", 0.0)
+            solar_slope = solar_fast - solar_slow
+            # Only suppress when solar is stable AND import is small enough that a
+            # household transient (kettle, oven burst) is the plausible cause.
+            # Above SOLAR_TRANSIENT_IMPORT_CEILING_W the load is sustained, not a spike.
+            if (
+                abs(solar_slope) < SOLAR_STABLE_THRESHOLD_W
+                and 0 < import_power < SOLAR_TRANSIENT_IMPORT_CEILING_W
+            ):
+                transient_suppress = (
+                    -SOLAR_TRANSIENT_REMOVE_SUPPRESS_MAG * penalty_scale
+                )
+        except Exception as exc:  # pragma: no cover
+            _LOGGER.debug("transient_suppress calculation failed: %s", exc)
+            transient_suppress = 0.0
+
+        # Import EMA stability bonus: symmetric counterpart to the add-path ema_bonus.
+        # When both EMAs show positive import (slow EMA has been dragged positive), the
+        # import is confirmed as sustained rather than a transient.  Reward remove_conf
+        # proportionally to how closely the two EMAs agree (stability score).
+        import_ema_bonus = 0.0
+        try:
+            ema_fast = getattr(self.coordinator, "ema_30s", 0.0)
+            ema_slow = getattr(self.coordinator, "ema_5m", 0.0)
+            if ema_fast > 0 and ema_slow > 0:
+                stab_denom = max(DECISION_STABILITY_DENOM_MIN, abs(ema_slow))
+                stability_score = max(
+                    0.0, 1.0 - (abs(ema_fast - ema_slow) / (stab_denom + 1e-6))
+                )
+                import_ema_bonus = (
+                    stability_score * DECISION_EMA_BONUS_MULTIPLIER * bonus_scale
+                )
+        except Exception as exc:  # pragma: no cover
+            _LOGGER.debug("import_ema_bonus calculation failed: %s", exc)
+            import_ema_bonus = 0.0
+
+        # PV-fraction suppression: when solar is at a high fraction of rated capacity
+        # (peak sun) any grid import is almost certainly a transient household load, not
+        # a sustained solar shortfall.  Only active when pv_capacity_w > 0.
+        solar_fraction_suppress = 0.0
+        try:
+            fraction = getattr(self.coordinator, "solar_fraction", 0.0)
+            if fraction > SOLAR_FRACTION_BONUS_THRESHOLD:
+                depth_f = (fraction - SOLAR_FRACTION_BONUS_THRESHOLD) / (
+                    1.0 - SOLAR_FRACTION_BONUS_THRESHOLD
+                )
+                solar_fraction_suppress = (
+                    -SOLAR_FRACTION_REMOVE_SUPPRESS_MAX * depth_f * penalty_scale
+                )
+        except Exception as exc:  # pragma: no cover
+            _LOGGER.debug("solar_fraction_suppress calculation failed: %s", exc)
+            solar_fraction_suppress = 0.0
+
         raw = (
             base
             + DECISION_CONFIDENCE_OFFSET * bonus_scale
             + heavy_import_bonus
+            + import_ema_bonus
             + short_cycle_penalty
+            + transient_suppress
+            + solar_fraction_suppress
         )
         try:
             self.coordinator.last_remove_breakdown = {
                 "import_divisor": round(import_div, 2),
                 "base": round(base, 2),
                 "heavy_import_bonus": round(heavy_import_bonus, 2),
+                "import_ema_bonus": round(import_ema_bonus, 2),
                 "short_cycle_penalty": round(short_cycle_penalty, 2),
+                "transient_suppress": round(transient_suppress, 2),
+                "solar_fraction_suppress": round(solar_fraction_suppress, 2),
                 "raw": round(raw, 2),
             }
         except Exception as exc:  # pragma: no cover
             _LOGGER.debug("Failed to store remove breakdown: %s", exc)
         try:
             _LOGGER.debug(
-                "[REM_CONF] zone=%s import=%s base=%s heavy=%s sc_pen=%s raw=%s",
+                "[REM_CONF] zone=%s import=%s base=%s heavy=%s ema=%s sc_pen=%s transient_sup=%s frac_sup=%s raw=%s",
                 last_zone,
                 round(import_power, 2),
                 round(base, 2),
                 round(heavy_import_bonus, 2),
+                round(import_ema_bonus, 2),
                 round(short_cycle_penalty, 2),
+                round(transient_suppress, 2),
+                round(solar_fraction_suppress, 2),
                 round(raw, 2),
             )
         except Exception:

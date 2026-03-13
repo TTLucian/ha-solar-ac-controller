@@ -62,6 +62,8 @@ async def async_setup_entry(
     ):
         entities.append(SolarACAddBreakdownSensor(coordinator, entry_id))
         entities.append(SolarACRemoveBreakdownSensor(coordinator, entry_id))
+        entities.append(SolarACSolarSlopeSensor(coordinator, entry_id))
+        entities.append(SolarACSolarFractionSensor(coordinator, entry_id))
         for zone in coordinator.config.get(CONF_ZONES, []):
             zone_name = zone.split(".")[-1]
             entities.append(
@@ -456,6 +458,55 @@ class SolarACRemoveBreakdownSensor(_BaseSolarACSensor):
         self,
     ) -> dict[str, object]:
         return getattr(self.coordinator, "last_remove_breakdown", {}) or {}
+
+
+class SolarACSolarSlopeSensor(_NumericSolarACSensor):
+    """Difference between solar fast EMA and solar slow EMA (W).
+
+    A negative value means solar production is dropping (cloud approaching).
+    A positive value means production is rising (cloud clearing or morning ramp).
+    Used internally to distinguish cloud shadows from household load spikes.
+    """
+
+    _attr_name = "Solar Slope"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    @cached_property
+    def unique_id(self) -> str:
+        return f"{self._entry_id}_solar_slope"
+
+    @property
+    def native_value(  # pyright: ignore[reportIncompatibleVariableOverride]
+        self,
+    ) -> float:
+        fast = getattr(self.coordinator, "solar_ema_fast", 0.0)
+        slow = getattr(self.coordinator, "solar_ema_slow", 0.0)
+        return round(fast - slow, 2)
+
+
+class SolarACSolarFractionSensor(_BaseSolarACSensor):
+    """Solar production as a fraction (0.0–1.0) of rated PV capacity.
+
+    Only meaningful when `pv_capacity_w` is configured in options.
+    Returns 0.0 when the capacity is not set.
+    """
+
+    _attr_name = "Solar Fraction"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "%"
+    _attr_icon = "mdi:solar-power"
+
+    @cached_property
+    def unique_id(self) -> str:
+        return f"{self._entry_id}_solar_fraction"
+
+    @property
+    def native_value(  # pyright: ignore[reportIncompatibleVariableOverride]
+        self,
+    ) -> float:
+        fraction = getattr(self.coordinator, "solar_fraction", 0.0)
+        return round(fraction * 100.0, 1)
 
 
 class SolarACDiagnosticEntity(_BaseSolarACSensor):
