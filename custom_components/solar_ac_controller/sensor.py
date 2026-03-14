@@ -736,9 +736,22 @@ class SolarACZoneLockRemainingSensor(_BaseSolarACSensor):
     def native_value(  # pyright: ignore[reportIncompatibleVariableOverride]
         self,
     ) -> float:
+        now = dt_util.utcnow().timestamp()
+        # Short-cycle protection remaining (mirrors is_short_cycling logic)
+        last = self.coordinator.zone_last_changed.get(self._zone_id)
+        if last:
+            last_type = self.coordinator.zone_last_changed_type.get(self._zone_id)
+            if last_type == "on":
+                threshold = self.coordinator.short_cycle_on_seconds
+            else:
+                threshold = self.coordinator.short_cycle_off_seconds
+            short_cycle_remaining = max(0.0, (last + float(threshold)) - now)
+        else:
+            short_cycle_remaining = 0.0
+        # Manual lock remaining (explicit lock-until timestamp)
         until = self.coordinator.zone_manual_lock_until.get(self._zone_id, 0.0) or 0.0
-        remaining = until - dt_util.utcnow().timestamp()
-        return float(round(max(0.0, remaining), 0))
+        manual_remaining = max(0.0, until - now)
+        return float(round(max(short_cycle_remaining, manual_remaining), 0))
 
 
 class SolarACZonePeakDeltaSensor(_NumericSolarACSensor):

@@ -62,12 +62,6 @@ class IntegrationEnableSwitch(  # pyright: ignore[reportIncompatibleVariableOver
     async def async_turn_off(self, **kwargs: Any) -> None:
         await self.coordinator.async_set_integration_enabled(False)
 
-    async def async_added_to_hass(self) -> None:
-        await super().async_added_to_hass()
-        self.async_on_remove(
-            self.coordinator.async_add_listener(self.async_write_ha_state)
-        )
-
 
 class ActivityLoggingSwitch(  # pyright: ignore[reportIncompatibleVariableOverride]
     CoordinatorEntity, SwitchEntity
@@ -102,9 +96,3 @@ class ActivityLoggingSwitch(  # pyright: ignore[reportIncompatibleVariableOverri
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         await self.coordinator.async_set_activity_logging_enabled(False)
-
-    async def async_added_to_hass(self) -> None:
-        await super().async_added_to_hass()
-        self.async_on_remove(
-            self.coordinator.async_add_listener(self.async_write_ha_state)
-        )

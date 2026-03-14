@@ -193,6 +193,14 @@ class LearningSession:
                     # Lock in peak detection
                     if self._peak_detection_timestamp is None:
                         self._peak_detection_timestamp = now
+                        _LOGGER.debug(
+                            "[LEARNING_PHASE] peak_locked zone=%s peak_power=%.1fW time_to_peak=%s",
+                            self._zone,
+                            self._peak_power,
+                            round(now - self._start_time, 1)
+                            if self._start_time
+                            else "?",
+                        )
                     if self._time_to_peak is None and self._start_time is not None:
                         self._time_to_peak = now - self._start_time
 
@@ -217,6 +225,14 @@ class LearningSession:
                     # Record when stabilization was first detected
                     if self._stabilization_timestamp is None:
                         self._stabilization_timestamp = now
+                        _LOGGER.debug(
+                            "[LEARNING_PHASE] stabilized zone=%s stabilized_power=%.1fW elapsed=%ss",
+                            self._zone,
+                            avg_power,
+                            round(now - self._start_time, 1)
+                            if self._start_time
+                            else "?",
+                        )
 
     async def get_peak_power(self) -> float:
         """Get the detected peak power during startup."""

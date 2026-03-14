@@ -108,6 +108,14 @@ class PanicManager:
         # minimum load.  With only one zone active there is nothing to fall back
         # to, so that zone must be shed as well.
         zones_to_shed = active_zones[1:] if len(active_zones) > 1 else active_zones
+        zones_to_keep = active_zones[:1] if len(active_zones) > 1 else []
+        _LOGGER.debug(
+            "[PANIC_SHED_START] zones_to_shed=%s zones_to_keep=%s ema30s=%.0f threshold=%.0f",
+            zones_to_shed,
+            zones_to_keep,
+            self.coordinator.ema_30s,
+            self.coordinator.panic_threshold,
+        )
         for zone in zones_to_shed:
             try:
                 await self.coordinator.action_executor.call_entity_service(zone, False)
@@ -122,8 +130,10 @@ class PanicManager:
             self.coordinator.zone_last_changed[zone] = now_ts
             self.coordinator.zone_last_changed_type[zone] = "off"
             # Notify learning session of panic removal (for contamination detection)
-            await self.coordinator.controller.session.notify_zone_changed_during_learning(
-                zone, "panic"
+            await (
+                self.coordinator.controller.session.notify_zone_changed_during_learning(
+                    zone, "panic"
+                )
             )
             await asyncio.sleep(self.coordinator.action_delay_seconds)
         end = dt_util.utcnow().timestamp()

@@ -9,7 +9,7 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -58,6 +58,8 @@ class _BaseSolarACBinary(  # pyright: ignore[reportIncompatibleVariableOverride]
 
     _attr_has_entity_name = True
     _attr_should_poll = False
+    # Sentinel: None means "never written yet" (distinct from False)
+    _coordinator_last_is_on: bool | None = None
 
     def __init__(self, coordinator: Any, entry_id: str) -> None:
         super().__init__(coordinator)
@@ -70,6 +72,14 @@ class _BaseSolarACBinary(  # pyright: ignore[reportIncompatibleVariableOverride]
             identifiers={(DOMAIN, self._entry_id)},
             name="Solar AC Controller",
         )
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Write HA state only when is_on has actually changed."""
+        new_is_on = self.is_on
+        if new_is_on != self._coordinator_last_is_on:
+            self._coordinator_last_is_on = new_is_on
+            self.async_write_ha_state()
 
 
 # --- BINARY SENSORS ---
@@ -86,7 +96,6 @@ class SolarACLearningBinarySensor(_BaseSolarACBinary):
 
 
 class SolarACPanicBinarySensor(_BaseSolarACBinary):
-
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
     _attr_name = "Panic State"
 
@@ -100,7 +109,6 @@ class SolarACPanicBinarySensor(_BaseSolarACBinary):
 
 
 class SolarACPanicCooldownBinarySensor(_BaseSolarACBinary):
-
     # No device_class: this is a time-based state, not a direct problem
     _attr_name = "Panic Cooldown"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
@@ -115,7 +123,6 @@ class SolarACPanicCooldownBinarySensor(_BaseSolarACBinary):
 
 
 class SolarACShortCycleBinarySensor(_BaseSolarACBinary):
-
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
     _attr_name = "Short Cycling"
 
@@ -139,7 +146,6 @@ class SolarACShortCycleBinarySensor(_BaseSolarACBinary):
 
 
 class SolarACLockedBinarySensor(_BaseSolarACBinary):
-
     _attr_device_class = BinarySensorDeviceClass.LOCK
     _attr_name = "Manual Lock Active"
 
@@ -159,7 +165,6 @@ class SolarACLockedBinarySensor(_BaseSolarACBinary):
 
 
 class SolarACExportingBinarySensor(_BaseSolarACBinary):
-
     _attr_device_class = BinarySensorDeviceClass.POWER
     _attr_name = "Exporting"
 
@@ -173,7 +178,6 @@ class SolarACExportingBinarySensor(_BaseSolarACBinary):
 
 
 class SolarACImportingBinarySensor(_BaseSolarACBinary):
-
     _attr_device_class = BinarySensorDeviceClass.POWER
     _attr_name = "Importing"
 

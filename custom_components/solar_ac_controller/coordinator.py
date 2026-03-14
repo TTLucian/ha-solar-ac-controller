@@ -2041,6 +2041,19 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         else:
             self.solar_fraction = 0.0
 
+        _LOGGER.debug(
+            "[EMA] grid_raw=%.0f ema30s=%.0f ema5m=%.0f solar_raw=%.0f "
+            "solar_fast=%.0f solar_slow=%.0f solar_slope=%.0f solar_fraction=%.3f",
+            grid_raw,
+            self.ema_30s,
+            self.ema_5m,
+            solar_raw,
+            self.solar_ema_fast,
+            self.solar_ema_slow,
+            self.solar_ema_fast - self.solar_ema_slow,
+            self.solar_fraction,
+        )
+
     async def _log_ema_validation_failure(
         self,
         failure_type: str,
@@ -2084,7 +2097,14 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
 
         # Check for manual power override first
         if next_zone in self.zone_manual_power:
-            return self.zone_manual_power[next_zone]
+            value = self.zone_manual_power[next_zone]
+            _LOGGER.debug(
+                "[REQUIRED_EXPORT] zone=%s mode=%s is_lead=False source=manual value=%.0f",
+                next_zone.split(".")[-1],
+                mode or "default",
+                value,
+            )
+            return value
 
         zone_name = next_zone.split(".")[-1]
         effective_mode = mode or "default"
@@ -2096,15 +2116,41 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         if is_lead:
             lead_peak = self.get_lead_peak_delta(zone_name, mode=effective_mode)
             if lead_peak is not None:
+                _LOGGER.debug(
+                    "[REQUIRED_EXPORT] zone=%s mode=%s is_lead=True source=lead_peak_delta value=%.0f",
+                    zone_name,
+                    effective_mode,
+                    float(lead_peak),
+                )
                 return float(lead_peak)
             lead_lp = self.get_lead_learned_power(zone_name, mode=effective_mode)
             if lead_lp is not None:
+                _LOGGER.debug(
+                    "[REQUIRED_EXPORT] zone=%s mode=%s is_lead=True source=lead_learned_power value=%.0f",
+                    zone_name,
+                    effective_mode,
+                    float(lead_lp),
+                )
                 return float(lead_lp)
 
         peak_delta = self.get_peak_delta(zone_name, mode=effective_mode)
         if peak_delta is not None:
+            _LOGGER.debug(
+                "[REQUIRED_EXPORT] zone=%s mode=%s is_lead=%s source=peak_delta value=%.0f",
+                zone_name,
+                effective_mode,
+                is_lead,
+                float(peak_delta),
+            )
             return float(peak_delta)
         lp = self.get_learned_power(zone_name, mode=effective_mode)
+        _LOGGER.debug(
+            "[REQUIRED_EXPORT] zone=%s mode=%s is_lead=%s source=learned_power value=%.0f",
+            zone_name,
+            effective_mode,
+            is_lead,
+            float(lp),
+        )
         return float(lp)
 
     def _read_zone_temps(self) -> None:
@@ -2148,6 +2194,15 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
 
             # Temperature unavailable
             self.zone_current_temps[zone_id] = None
+
+        if self.zone_current_temps:
+            _LOGGER.debug(
+                "[ZONE_TEMPS] %s",
+                {
+                    k.split(".")[-1]: (round(v, 1) if v is not None else None)
+                    for k, v in self.zone_current_temps.items()
+                },
+            )
 
     async def _perform_zone_swap(self, zone_to_remove: str, zone_to_add: str) -> None:
         """Perform a zone swap: remove satisfied zone, add needy zone."""

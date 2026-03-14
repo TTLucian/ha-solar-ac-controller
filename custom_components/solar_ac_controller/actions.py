@@ -168,6 +168,12 @@ class ActionExecutor:
         """Turn off zone and update short-cycle memory."""
         # Validate zone exists in configuration
         configured_zones = self.coordinator.config.get(CONF_ZONES, [])
+        _LOGGER.debug(
+            "[REMOVE_ZONE_ENTRY] zone=%s ema30s=%.0f ema5m=%.0f",
+            zone.split(".")[-1],
+            getattr(self.coordinator, "ema_30s", 0.0),
+            getattr(self.coordinator, "ema_5m", 0.0),
+        )
         if zone not in configured_zones:
             raise HomeAssistantError(
                 f"Invalid zone '{zone}': not in configured zones {configured_zones}"
@@ -250,6 +256,13 @@ class ActionExecutor:
                 confidence=confidence,
                 export_margin=export_margin,
             )
+
+        _LOGGER.debug(
+            "[SERVICE_CALL] entity=%s action=%s ctx=%s",
+            entity_id,
+            action_label,
+            ctx.id,
+        )
 
         # Primary: attempt domain.turn_on/turn_off first
         try:

@@ -69,9 +69,3 @@ class AggressivenessNumber(  # pyright: ignore[reportIncompatibleVariableOverrid
     async def async_set_native_value(self, value: float) -> None:
         # Delegate to coordinator which persists option and notifies listeners
         await self.coordinator.async_set_aggressiveness(value)
-
-    async def async_added_to_hass(self) -> None:
-        await super().async_added_to_hass()
-        self.async_on_remove(
-            self.coordinator.async_add_listener(self.async_write_ha_state)
-        )

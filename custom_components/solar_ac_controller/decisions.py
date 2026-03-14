@@ -231,8 +231,10 @@ class DecisionEngine:
         # Debug: log component breakdown to help tuning
         try:
             _LOGGER.debug(
-                "[ADD_CONF] zone=%s base=%s sample=%s ema=%s stab=%s sc_pen=%s comp_pen=%s learn_pen=%s cloud_pen=%s frac_bonus=%s raw=%s",
+                "[ADD_CONF] zone=%s bs=%.2f ps=%.2f base=%s sample=%s ema=%s stab=%s sc_pen=%s comp_pen=%s learn_pen=%s cloud_pen=%s frac_bonus=%s raw=%s",
                 last_zone,
+                bonus_scale,
+                penalty_scale,
                 round(base, 2),
                 round(sample_bonus, 2),
                 round(ema_bonus, 2),
@@ -394,8 +396,10 @@ class DecisionEngine:
             _LOGGER.debug("Failed to store remove breakdown: %s", exc)
         try:
             _LOGGER.debug(
-                "[REM_CONF] zone=%s import=%s base=%s heavy=%s ema=%s sc_pen=%s transient_sup=%s frac_sup=%s raw=%s",
+                "[REM_CONF] zone=%s bs=%.2f ps=%.2f import=%s base=%s heavy=%s ema=%s sc_pen=%s transient_sup=%s frac_sup=%s raw=%s",
                 last_zone,
+                bonus_scale,
+                penalty_scale,
                 round(import_power, 2),
                 round(base, 2),
                 round(heavy_import_bonus, 2),

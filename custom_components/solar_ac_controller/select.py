@@ -62,9 +62,3 @@ class SeasonModeSelect(  # pyright: ignore[reportIncompatibleVariableOverride]
         if option not in SEASON_OPTIONS:
             return
         await self.coordinator.async_set_season_mode(option)
-
-    async def async_added_to_hass(self) -> None:
-        await super().async_added_to_hass()
-        self.async_on_remove(
-            self.coordinator.async_add_listener(self.async_write_ha_state)
-        )
