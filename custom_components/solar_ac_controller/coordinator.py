@@ -436,9 +436,9 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         self.zone_action_history: dict[str, list[dict]] = {}
 
         # Per-zone last-issued HA context ID for authorship-based override detection
-        self.zone_last_context_id: dict[
-            str, tuple[str, float]
-        ] = {}  # zone -> (ctx_id, issued_ts)
+        self.zone_last_context_id: dict[str, tuple[str, float]] = (
+            {}
+        )  # zone -> (ctx_id, issued_ts)
 
         # Temperature stability tracking for zone swapping
         self.temp_ema_10m: dict[str, float] = {}  # zone -> 10min EMA temperature
@@ -458,9 +458,9 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         self.last_relearn_target: str = ""
 
         # Sensor recovery tracking
-        self._sensor_unavailable_since: Dict[
-            str, float
-        ] = {}  # sensor_id -> timestamp when it became unavailable
+        self._sensor_unavailable_since: Dict[str, float] = (
+            {}
+        )  # sensor_id -> timestamp when it became unavailable
 
     def _debounce_recalc(self) -> None:
         """Debounce recalculation triggers from rapid service calls."""
