@@ -201,10 +201,13 @@ DECISION_SAMPLE_BONUS_MAX = 20.0
 DECISION_SHORT_CYCLE_PENALTY_ADD = -30.0
 
 DECISION_REMOVE_BASE_MAX = 60.0
-DECISION_IMPORT_BASE_OFFSET = 200.0
 DECISION_IMPORT_DIVISOR = 25.0
-DECISION_HEAVY_IMPORT_THRESHOLD = 1500.0
-DECISION_HEAVY_IMPORT_BONUS = 20.0
+# Headroom above the add-path import tolerance at which the decisive heavy-import
+# remove bonus fires.  At a=0.5 (default): 350 + 350 = 700 W threshold.
+# This ties the remove trigger to the add tolerance, preventing the two from
+# fighting each other at any aggressiveness setting.
+DECISION_HEAVY_IMPORT_HEADROOM_W = 350.0
+DECISION_HEAVY_IMPORT_BONUS = 25.0
 DECISION_SHORT_CYCLE_PENALTY_REMOVE = -40.0
 
 DECISION_CONFIDENCE_OFFSET = 5.0

@@ -18,8 +18,7 @@ from .const import (
     DECISION_FINAL_MAX,
     DECISION_FINAL_MIN,
     DECISION_HEAVY_IMPORT_BONUS,
-    DECISION_HEAVY_IMPORT_THRESHOLD,
-    DECISION_IMPORT_BASE_OFFSET,
+    DECISION_HEAVY_IMPORT_HEADROOM_W,
     DECISION_IMPORT_TOLERANCE_MAX_W,
     DECISION_LEARN_PENALTY_MAG,
     DECISION_RAW_MAX,
@@ -293,16 +292,28 @@ class DecisionEngine:
 
         _, import_div = self._get_dynamic_weight(zone_power)
 
+        # Use import_tolerance as the dead zone: base pressure builds only once
+        # ema_5m exceeds what the add-path is willing to tolerate.
+        # a=0 → 0 W dead zone, a=0.5 → 350 W, a=1.0 → 700 W
+        import_tolerance = float(a) * DECISION_IMPORT_TOLERANCE_MAX_W
         base = min(
             DECISION_REMOVE_BASE_MAX * bonus_scale,
             max(
                 0.0,
-                (import_power - DECISION_IMPORT_BASE_OFFSET) / (import_div or 1.0),
+                (import_power - import_tolerance) / (import_div or 1.0),
             ),
+        )
+        # Heavy-import threshold is tied to the add-path import tolerance so the
+        # two never fight each other: bonus fires only when import exceeds the
+        # level at which we'd still consider adding a zone.
+        # threshold = (a × 700) + 350  →  a=0: 350W, a=0.5: 700W, a=1.0: 1050W
+        heavy_import_threshold = (
+            float(a) * DECISION_IMPORT_TOLERANCE_MAX_W
+            + DECISION_HEAVY_IMPORT_HEADROOM_W
         )
         heavy_import_bonus = (
             DECISION_HEAVY_IMPORT_BONUS * bonus_scale
-            if import_power > DECISION_HEAVY_IMPORT_THRESHOLD
+            if import_power > heavy_import_threshold
             else 0.0
         )
         short_cycle_penalty = (
@@ -384,6 +395,7 @@ class DecisionEngine:
         try:
             self.coordinator.last_remove_breakdown = {
                 "import_divisor": round(import_div, 2),
+                "heavy_import_threshold": round(heavy_import_threshold, 0),
                 "base": round(base, 2),
                 "heavy_import_bonus": round(heavy_import_bonus, 2),
                 "import_ema_bonus": round(import_ema_bonus, 2),
@@ -396,11 +408,12 @@ class DecisionEngine:
             _LOGGER.debug("Failed to store remove breakdown: %s", exc)
         try:
             _LOGGER.debug(
-                "[REM_CONF] zone=%s bs=%.2f ps=%.2f import=%s base=%s heavy=%s ema=%s sc_pen=%s transient_sup=%s frac_sup=%s raw=%s",
+                "[REM_CONF] zone=%s bs=%.2f ps=%.2f import=%s heavy_thr=%s base=%s heavy=%s ema=%s sc_pen=%s transient_sup=%s frac_sup=%s raw=%s",
                 last_zone,
                 bonus_scale,
                 penalty_scale,
                 round(import_power, 2),
+                round(heavy_import_threshold, 0),
                 round(base, 2),
                 round(heavy_import_bonus, 2),
                 round(import_ema_bonus, 2),
