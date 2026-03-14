@@ -6,3 +6,6 @@
 *pyrightconfig*
 *quality_scale.yaml*
 log.txt
+*__pycache__*
+*.mypy_cache*
+*.pytest_cache*
