@@ -26,6 +26,7 @@ from .const import (
     DECISION_REMOVE_BASE_MAX,
     DECISION_SAMPLE_BONUS_MAX,
     DECISION_SAMPLE_BONUS_MULTIPLIER,
+    DECISION_SAMPLE_BONUS_RAMP_W,
     DECISION_SHORT_CYCLE_PENALTY_ADD,
     DECISION_SHORT_CYCLE_PENALTY_REMOVE,
     DECISION_STABILITY_DENOM_MIN,
@@ -124,9 +125,15 @@ class DecisionEngine:
 
         # Sample/history bonus only awarded when recent export margin is positive
         sample_bonus = 0.0
-        if export_margin > 0 and getattr(self.coordinator, "samples", 0) > 0:
+        if getattr(self.coordinator, "samples", 0) > 0:
             raw_bonus = self.coordinator.samples * DECISION_SAMPLE_BONUS_MULTIPLIER
-            sample_bonus = min(DECISION_SAMPLE_BONUS_MAX, raw_bonus) * bonus_scale
+            # Soft ramp: full bonus at export_margin >= 0, fades to zero at -RAMP_W
+            sample_factor = max(
+                0.0, min(1.0, 1.0 + export_margin / DECISION_SAMPLE_BONUS_RAMP_W)
+            )
+            sample_bonus = (
+                min(DECISION_SAMPLE_BONUS_MAX, raw_bonus) * bonus_scale * sample_factor
+            )
 
         # EMA stability bonus: reward when fast EMA close to slow EMA (stable power)
         stab_denom = max(DECISION_STABILITY_DENOM_MIN, abs(ema_slow))

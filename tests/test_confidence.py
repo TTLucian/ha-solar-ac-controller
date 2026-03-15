@@ -41,3 +41,37 @@ def test_add_confidence_zero_when_required_export_missing():
 
     add_conf = engine.compute_add_conf(export=0.0, required_export=None, last_zone=None)
     assert add_conf == 0.0
+
+
+def test_sample_bonus_ramp_below_required_export():
+    """Sample bonus must ramp down smoothly when export is below required, not cliff at zero."""
+    # No short-cycle, no zone changes
+    coord_below = FakeCoordinator()
+    coord_below.zone_last_changed = {}
+    coord_below.zone_last_changed_type = {}
+    coord_below.samples = 10  # enough samples for a full bonus
+
+    coord_just_above = FakeCoordinator()
+    coord_just_above.zone_last_changed = {}
+    coord_just_above.zone_last_changed_type = {}
+    coord_just_above.samples = 10
+
+    engine_below = DecisionEngine(coord_below)  # type: ignore[arg-type]
+    engine_above = DecisionEngine(coord_just_above)  # type: ignore[arg-type]
+
+    required = 1000.0
+    # 50 W below required → export_margin = -50, ramp factor = 0.5
+    conf_below = engine_below.compute_add_conf(
+        export=950.0, required_export=required, last_zone=None
+    )
+    # 1 W above required → export_margin = +1, ramp factor = 1.0
+    conf_above = engine_above.compute_add_conf(
+        export=1001.0, required_export=required, last_zone=None
+    )
+
+    # With the old binary gate conf_below would have had zero sample bonus;
+    # with the ramp it should be strictly between 0 and conf_above.
+    assert conf_below > 0, (
+        "sample bonus should be partial, not zero, when slightly below required"
+    )
+    assert conf_below < conf_above, "partial ramp should give less than full bonus"
