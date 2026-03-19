@@ -286,6 +286,13 @@ class DecisionEngine:
         penalty_scale = max(0.25, 1.5 - 1.0 * float(a))
         bonus_scale = max(0.5, 0.5 + 1.5 * float(a))
 
+        # If we're exporting to the grid (import_power <= 0) there is no
+        # reason to develop remove confidence (removal pressure).
+        # This prevents the removal-path offset from subtracting from add_conf
+        # and blocking new zone activations when the system is exporting.
+        if import_power <= 0.0:
+            return 0.0
+
         # Get zone power for dynamic weighting
         zone_power = 1500.0  # default
         if last_zone:

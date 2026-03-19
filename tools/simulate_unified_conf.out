@@ -1,0 +1,6 @@
+Parsed 225 cycles between 2026-03-18 08:00:00 and 2026-03-18 10:18:00.
+Aggressiveness=0.5, add_threshold=50.0
+
+First time unified_conf >= threshold: 2026-03-18 08:58:44 -> unified=64.66 (add=64.66, rem=0.00), export=2385.0, required=2385.0
+
+Sample timeline (every ~10 minutes):
