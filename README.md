@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <a href="https://buymeacoffee.com/ttlucian"><img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-Donate-yellow?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black" alt="Buy Me a Coffee" /></a>
+  <a href="https://ko-fi.com/ttlucian"><img src="https://img.shields.io/badge/Ko--fi-Donate-ff5f5f?style=for-the-badge&logo=ko-fi&logoColor=white" alt="Ko-fi" /></a>
 </p>
 
 A smart and adaptive Home Assistant integration that manages multi-zone (multi-split) AC systems based on real-time solar production, grid import/export, and learned compressor behavior.
@@ -29,7 +29,7 @@ This integration automatically:
 Designed as a Home Assistant **service integration** for high-performance, solar-aware HVAC automation.
 
 ---
- [!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/TTLucian)
+[<img src="https://storage.ko-fi.com/cdn/kofi5.png?v=3" height="36" alt="Ko-fi">](https://ko-fi.com/ttlucian)
 
 ---
 
