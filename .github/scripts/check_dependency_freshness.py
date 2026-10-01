@@ -43,9 +43,7 @@ def locked_version(package: str) -> str | None:
     with open("uv.lock", encoding="utf-8") as handle:
         lock = handle.read()
 
-    versions = re.findall(
-        rf'\[\[package\]\]\nname = "{re.escape(package)}"\nversion = "([^"]+)"', lock
-    )
+    versions = re.findall(rf'\[\[package\]\]\nname = "{re.escape(package)}"\nversion = "([^"]+)"', lock)
     parsed = []
     for raw in versions:
         try:

@@ -5,16 +5,20 @@ on:
     branches:
       - main
   pull_request:
-    branches:
-      - main
+    # ready_for_review is load-bearing: without it, marking a draft PR ready
+    # fires no event, so the PR can reach main having never been checked as
+    # non-draft.
+    types: [opened, reopened, synchronize, edited, ready_for_review]
   # Weekly dependency drift check (see .github/scripts/check_dependency_freshness.py)
   schedule:
     - cron: "23 6 * * 1"
   workflow_dispatch:
 
 # Cancel superseded runs on the same ref to avoid wasting runner minutes.
+# Keyed per pull request where there is one, so a push to the branch and a
+# push to the PR do not cancel each other's runs.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -32,7 +36,9 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Install uv
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
@@ -59,6 +65,12 @@ jobs:
       - name: Ruff - tests
         run: uv run --frozen ruff check tests/
 
+      # Formatting is enforced with ruff format, the successor to Black. The
+      # Black step was removed earlier: the version CI would have installed
+      # reformats `except (A, B):` into the invalid `except A, B:`.
+      - name: Check formatting
+        run: uv run --frozen ruff format --check --diff custom_components/solar_ac_controller tests/
+
       - name: Mypy - integration
         run: uv run --frozen mypy --config-file mypy.ini custom_components/solar_ac_controller
 
@@ -70,13 +82,28 @@ jobs:
           uv run --frozen mypy --config-file mypy.ini
           --namespace-packages --explicit-package-bases tests/
 
+      # A lint step that silently rewrites tracked files would leave the
+      # checkout dirty and the next run would pass on formatted code that was
+      # never committed. Nothing here auto-fixes, so this should never fire;
+      # it is here to catch a step that starts doing so.
+      - name: Check for modified files
+        run: |
+          if [ -n "$(git diff --name-only)" ] || [ -n "$(git diff --cached --name-only)" ]; then
+            echo "::error::Tracked files were modified by the checks. Run them locally and commit the result."
+            git --no-pager diff --stat
+            exit 1
+          fi
+          echo "Working tree is clean."
+
   test:
     name: Tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Install uv
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
@@ -113,7 +140,9 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Install uv
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0

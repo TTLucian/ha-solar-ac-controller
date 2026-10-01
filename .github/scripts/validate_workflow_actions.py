@@ -35,7 +35,26 @@ def fetch(url: str, timeout: int = 30) -> str:
         return str(response.read().decode("utf-8"))
 
 
-def fetch_action_yml(repo: str, ref: str) -> tuple[str | None, str | None]:
+def candidate_urls(path: str, ref: str) -> list[str]:
+    """Return raw URLs to try for an action path such as owner/repo/subdir.
+
+    An action may live at the repository root (hacs/action) or in a
+    subdirectory (home-assistant/actions/hassfest). Both layouts are tried,
+    subdirectory first because a 3-segment path is almost always a
+    subdirectory action.
+    """
+    parts = path.split("/")
+    urls: list[str] = []
+    if len(parts) >= 3:
+        urls.extend(
+            RAW.format(repo="/".join(parts[:2]), ref=ref, path=f"{'/'.join(parts[2:])}/{name}")
+            for name in CANDIDATE_PATHS
+        )
+    urls.extend(RAW.format(repo=path, ref=ref, path=name) for name in CANDIDATE_PATHS)
+    return urls
+
+
+def fetch_action_yml(path: str, ref: str) -> tuple[str | None, str | None]:
     """Return (action_yml_text, error). action_yml_text is None on failure.
 
     Only SHA-pinned references are fetched. A tag or branch is a valid
@@ -46,8 +65,7 @@ def fetch_action_yml(repo: str, ref: str) -> tuple[str | None, str | None]:
         return None, None
 
     last_error = "no action.yml/action.yaml found"
-    for path in CANDIDATE_PATHS:
-        url = RAW.format(repo=repo, ref=ref, path=path)
+    for url in candidate_urls(path, ref):
         try:
             return fetch(url), None
         except urllib.error.HTTPError as exc:
@@ -102,35 +120,33 @@ def main() -> int:
                 problems.append(f"{path.name}: malformed 'uses' (no @ref): {uses}")
                 continue
 
-            repo, ref = uses.rsplit("@", 1)
+            action_path, ref = uses.rsplit("@", 1)
             ref = ref.split("#", 1)[0].strip()
-            if "/" not in repo or not ref:
+            if "/" not in action_path or not ref:
                 problems.append(f"{path.name}: malformed 'uses': {uses}")
                 continue
 
-            key = (repo, ref)
+            key = (action_path, ref)
             with_block = step.get("with") or {}
             cached = checked.__contains__(key)
             checked.add(key)
 
-            text, err = fetch_action_yml(repo, ref)
+            text, err = fetch_action_yml(action_path, ref)
             if err:
-                problems.append(f"{path.name}: cannot resolve {repo}@{ref}: {err}")
+                problems.append(f"{path.name}: cannot resolve {action_path}@{ref}: {err}")
                 continue
             if text is None:
                 continue
 
             inputs = declared_inputs(text)
             if inputs is None:
-                problems.append(f"{path.name}: unparseable action.yml for {repo}@{ref}")
+                problems.append(f"{path.name}: unparseable action.yml for {action_path}@{ref}")
                 continue
 
             if not cached and isinstance(with_block, dict):
                 unknown = sorted(set(with_block) - inputs)
                 if unknown:
-                    problems.append(
-                        f"{path.name}: {repo}@{ref} has no input(s): {', '.join(unknown)}"
-                    )
+                    problems.append(f"{path.name}: {action_path}@{ref} has no input(s): {', '.join(unknown)}")
 
     print(f"Checked {len(checked)} distinct action reference(s) in {root}")
     if problems:
