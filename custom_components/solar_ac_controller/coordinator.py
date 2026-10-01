@@ -237,6 +237,12 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             "activity_logging_enabled", False
         )
 
+        # Initialize configuration values BEFORE learned data.
+        # _init_learned_data() falls back to self.initial_learned_power when a
+        # stored zone entry is missing default/heat/cool, so this must exist
+        # first or setup raises AttributeError on partial storage.
+        self._init_config_values()
+
         # Initialize learned data from storage
         self._init_learned_data(stored)
 
@@ -246,9 +252,6 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
 
         # Initialize core components
         self._init_core_components()
-
-        # Initialize configuration values
-        self._init_config_values()
 
         # Initialize zone mappings
         self._init_zone_mappings()
@@ -428,12 +431,12 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         self.last_add_breakdown: dict = {}
         self.last_remove_breakdown: dict = {}
 
-        # Idle compressor power learning
-        self.learned_idle_power: float = 0.0  # EMA of standby draw when no zones are on
-        self.idle_power_samples: int = 0  # Number of samples collected
-
-        # Zone action history ring buffers (persisted; source=integration|manual|panic|freeze)
-        self.zone_action_history: dict[str, list[dict]] = {}
+        # NOTE: learned_idle_power, idle_power_samples and zone_action_history are
+        # loaded from storage by _init_learned_data() (which runs earlier in
+        # __init__). They are deliberately NOT re-initialised here: assigning
+        # them again would discard the persisted values on every HA restart,
+        # forcing the idle-power baseline to re-learn from scratch and emptying
+        # the zone action history. Do not add defaults for them below.
 
         # Per-zone last-issued HA context ID for authorship-based override detection
         self.zone_last_context_id: dict[str, tuple[str, float]] = (

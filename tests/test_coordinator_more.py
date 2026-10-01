@@ -1,4 +1,5 @@
 import asyncio
+from typing import Any, cast
 import logging
 
 import pytest
@@ -7,26 +8,26 @@ from custom_components.solar_ac_controller.coordinator import SolarACCoordinator
 
 
 class FakeHass:
-    def async_create_task(self, coro):
+    def async_create_task(self, coro: Any) -> asyncio.Task[Any]:
         return asyncio.create_task(coro)
 
 
 class MockStore:
-    def __init__(self):
-        self.saved = None
+    def __init__(self) -> None:
+        self.saved: dict | None = None
 
-    async def async_save(self, data):
+    async def async_save(self, data: dict) -> None:
         self.saved = data
 
 
 @pytest.mark.asyncio
-async def test_async_persist_learned_values_saves_rounded_values():
+async def test_async_persist_learned_values_saves_rounded_values() -> None:
     """async_persist_learned_values rounds floats to whole watts before persisting."""
     coord = object.__new__(SolarACCoordinator)
     coord._storage_lock = asyncio.Lock()
     coord.stored_data = {}
     coord._storage_dirty = False
-    coord.hass = FakeHass()
+    coord.hass = cast(Any, FakeHass())
     coord._storage_debounce_task = None
     coord._last_storage_save = 0.0
     coord._storage_debounce_seconds = 5.0
@@ -55,7 +56,7 @@ async def test_async_persist_learned_values_saves_rounded_values():
     assert coord._storage_dirty is False
 
 
-def test__rounded_power_nested_and_non_numeric():
+def test__rounded_power_nested_and_non_numeric() -> None:
     coord = object.__new__(SolarACCoordinator)
     value = {"a": {"x": 12.7, "y": "n/a"}, "b": 3.2}
     out = SolarACCoordinator._rounded_power(coord, value)
@@ -65,10 +66,10 @@ def test__rounded_power_nested_and_non_numeric():
 
 
 @pytest.mark.asyncio
-async def test_create_task_ignored_cancel_does_not_log(caplog):
+async def test_create_task_ignored_cancel_does_not_log(caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level(logging.ERROR)
     coord = object.__new__(SolarACCoordinator)
-    coord.hass = FakeHass()
+    coord.hass = cast(Any, FakeHass())
 
     task = coord.create_task(asyncio.sleep(1))
     await asyncio.sleep(0.01)

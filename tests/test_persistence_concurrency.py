@@ -6,17 +6,17 @@ from custom_components.solar_ac_controller.coordinator import SolarACCoordinator
 
 
 class MockStore:
-    def __init__(self, event: asyncio.Event):
+    def __init__(self, event: asyncio.Event) -> None:
         self._event = event
-        self.saved = None
+        self.saved: dict | None = None
 
-    async def async_save(self, data):
+    async def async_save(self, data: dict) -> None:
         self.saved = data
         await self._event.wait()
 
 
 @pytest.mark.asyncio
-async def test_perform_storage_save_deepcopy():
+async def test_perform_storage_save_deepcopy() -> None:
     """Mutations to stored_data during a slow I/O write don't corrupt the saved snapshot."""
     coord = object.__new__(SolarACCoordinator)
     coord._storage_dirty = True

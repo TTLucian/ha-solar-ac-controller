@@ -7,7 +7,7 @@ from custom_components.solar_ac_controller.decisions import DecisionEngine
 class DummyCoordinator(SolarACCoordinator):
     """Minimal coordinator stub for testing DecisionEngine breakdowns."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         # Do not call parent init; just set attributes used by DecisionEngine
         self.aggressiveness = 0.5
         self.ema_30s = 0.0
@@ -26,11 +26,13 @@ class DummyCoordinator(SolarACCoordinator):
         self.confidence = 0.0
         self.initial_learned_power = 1000.0
 
-    def get_learned_power(self, zone_name: str, mode: str | None = None, band: str | None = None) -> float:  # type: ignore[override]
+    def get_learned_power(
+        self, zone_name: str, mode: str | None = None, band: str | None = None
+    ) -> float:
         return 1000.0
 
 
-def test_add_breakdown_present_and_numeric():
+def test_add_breakdown_present_and_numeric() -> None:
     coord = DummyCoordinator()
     engine = DecisionEngine(coord)
 
@@ -52,7 +54,7 @@ def test_add_breakdown_present_and_numeric():
     assert 0.0 <= add_conf <= 100.0
 
 
-def test_remove_breakdown_present_and_numeric():
+def test_remove_breakdown_present_and_numeric() -> None:
     coord = DummyCoordinator()
     engine = DecisionEngine(coord)
 

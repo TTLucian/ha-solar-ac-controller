@@ -4,7 +4,7 @@ from custom_components.solar_ac_controller.decisions import DecisionEngine
 
 
 class FakeCoordinator:
-    def __init__(self):
+    def __init__(self) -> None:
         self.panic_threshold = 2000.0
         # Simulate a very recent zone change to trigger short-cycle penalty
         now = dt_util.utcnow().timestamp()
@@ -17,11 +17,11 @@ class FakeCoordinator:
         self.season_mode = "heat"
         self.initial_learned_power = 1000.0
 
-    def get_learned_power(self, zone_short, season):
+    def get_learned_power(self, zone_short: str, season: str | None = None) -> float:
         return 1500.0  # fake value
 
 
-def test_remove_confidence_is_non_negative_when_penalized():
+def test_remove_confidence_is_non_negative_when_penalized() -> None:
     coord = FakeCoordinator()
     engine = DecisionEngine(coord)  # type: ignore[arg-type]
 
@@ -35,7 +35,7 @@ def test_remove_confidence_is_non_negative_when_penalized():
     assert remove_conf == 0
 
 
-def test_add_confidence_zero_when_required_export_missing():
+def test_add_confidence_zero_when_required_export_missing() -> None:
     coord = FakeCoordinator()
     engine = DecisionEngine(coord)  # type: ignore[arg-type]
 
@@ -43,7 +43,7 @@ def test_add_confidence_zero_when_required_export_missing():
     assert add_conf == 0.0
 
 
-def test_sample_bonus_ramp_below_required_export():
+def test_sample_bonus_ramp_below_required_export() -> None:
     """Sample bonus must ramp down smoothly when export is below required, not cliff at zero."""
     # No short-cycle, no zone changes
     coord_below = FakeCoordinator()

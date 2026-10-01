@@ -1,4 +1,5 @@
 import asyncio
+from typing import Any, cast
 import logging
 
 import pytest
@@ -8,23 +9,23 @@ from custom_components.solar_ac_controller.coordinator import SolarACCoordinator
 
 
 class FakeHass:
-    def async_create_task(self, coro):
+    def async_create_task(self, coro: Any) -> asyncio.Task[Any]:
         return asyncio.create_task(coro)
 
 
 class MockStore:
-    def __init__(self):
-        self.saved = None
+    def __init__(self) -> None:
+        self.saved: dict | None = None
 
-    async def async_save(self, data):
+    async def async_save(self, data: dict) -> None:
         self.saved = data
 
 
 @pytest.mark.asyncio
-async def test_concurrent_debounced_saves_end_with_latest_value():
+async def test_concurrent_debounced_saves_end_with_latest_value() -> None:
     """Multiple rapid _debounced_save calls collapse into a single write of the latest value."""
     coord = object.__new__(SolarACCoordinator)
-    coord.hass = FakeHass()
+    coord.hass = cast(Any, FakeHass())
     coord._storage_lock = asyncio.Lock()
     coord._storage_debounce_task = None
     coord._last_storage_save = dt_util.utcnow().timestamp()
@@ -34,7 +35,7 @@ async def test_concurrent_debounced_saves_end_with_latest_value():
     store = MockStore()
     coord.store = store
 
-    async def worker(val, delay):
+    async def worker(val: int, delay: float) -> None:
         await asyncio.sleep(delay)
         coord.stored_data = {"v": val}
         coord._storage_dirty = True
@@ -48,10 +49,10 @@ async def test_concurrent_debounced_saves_end_with_latest_value():
 
 
 @pytest.mark.asyncio
-async def test_flush_pending_storage_save_cancels_and_saves_immediately():
+async def test_flush_pending_storage_save_cancels_and_saves_immediately() -> None:
     """_flush_pending_storage_save cancels the debounce timer and saves immediately."""
     coord = object.__new__(SolarACCoordinator)
-    coord.hass = FakeHass()
+    coord.hass = cast(Any, FakeHass())
     coord._storage_lock = asyncio.Lock()
     coord._storage_debounce_task = None
     coord._last_storage_save = dt_util.utcnow().timestamp()
@@ -59,10 +60,10 @@ async def test_flush_pending_storage_save_cancels_and_saves_immediately():
     coord._storage_dirty = True
 
     class SlowStore:
-        def __init__(self):
-            self.saved = None
+        def __init__(self) -> None:
+            self.saved: dict | None = None
 
-        async def async_save(self, data):
+        async def async_save(self, data: dict) -> None:
             await asyncio.sleep(0.05)
             self.saved = data
 
@@ -82,7 +83,7 @@ async def test_flush_pending_storage_save_cancels_and_saves_immediately():
 
 
 @pytest.mark.asyncio
-async def test_perform_storage_save_logs_oserror_and_keeps_dirty(caplog):
+async def test_perform_storage_save_logs_oserror_and_keeps_dirty(caplog: pytest.LogCaptureFixture) -> None:
     """An OSError during save is logged; _storage_dirty stays True so the next cycle retries."""
     caplog.set_level(logging.ERROR)
     coord = object.__new__(SolarACCoordinator)
@@ -90,7 +91,7 @@ async def test_perform_storage_save_logs_oserror_and_keeps_dirty(caplog):
     coord._storage_dirty = True
 
     class FailingStore:
-        async def async_save(self, data):
+        async def async_save(self, data: dict) -> None:
             raise OSError("disk full")
 
     coord.store = FailingStore()

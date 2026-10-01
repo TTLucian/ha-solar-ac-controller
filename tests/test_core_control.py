@@ -95,7 +95,7 @@ def _decision_coordinator(
 
 
 @pytest.mark.asyncio
-async def test_should_add_zone_when_confidence_meets_threshold():
+async def test_should_add_zone_when_confidence_meets_threshold() -> None:
     """confidence ≥ add_threshold → should_add_zone is True."""
     coord = _decision_coordinator(confidence=60.0, add_threshold=50.0)
     engine = DecisionEngine(coord)  # type: ignore[arg-type]
@@ -103,7 +103,7 @@ async def test_should_add_zone_when_confidence_meets_threshold():
 
 
 @pytest.mark.asyncio
-async def test_should_not_add_zone_when_confidence_below_threshold():
+async def test_should_not_add_zone_when_confidence_below_threshold() -> None:
     """confidence < add_threshold → should_add_zone is False."""
     coord = _decision_coordinator(confidence=49.9, add_threshold=50.0)
     engine = DecisionEngine(coord)  # type: ignore[arg-type]
@@ -111,7 +111,7 @@ async def test_should_not_add_zone_when_confidence_below_threshold():
 
 
 @pytest.mark.asyncio
-async def test_should_remove_zone_when_confidence_below_threshold():
+async def test_should_remove_zone_when_confidence_below_threshold() -> None:
     """confidence ≤ remove_threshold → should_remove_zone is True."""
     coord = _decision_coordinator(confidence=-5.0, remove_threshold=0.0)
     engine = DecisionEngine(coord)  # type: ignore[arg-type]
@@ -119,7 +119,7 @@ async def test_should_remove_zone_when_confidence_below_threshold():
 
 
 @pytest.mark.asyncio
-async def test_should_not_remove_zone_when_confidence_above_threshold():
+async def test_should_not_remove_zone_when_confidence_above_threshold() -> None:
     """confidence > remove_threshold → should_remove_zone is False."""
     coord = _decision_coordinator(confidence=10.0, remove_threshold=0.0)
     engine = DecisionEngine(coord)  # type: ignore[arg-type]
@@ -138,7 +138,7 @@ def _ts_ago(seconds: float) -> float:
     return dt_util.utcnow().timestamp() - seconds
 
 
-def test_short_cycle_penalty_applied_when_zone_recently_turned_on():
+def test_short_cycle_penalty_applied_when_zone_recently_turned_on() -> None:
     """compute_add_conf must return a lower score when the zone just turned on."""
     # Short-cycle scenario: last "on" was 30 s ago, threshold is 1200 s
     zone = "climate.z1"
@@ -177,7 +177,7 @@ def test_short_cycle_penalty_applied_when_zone_recently_turned_on():
     ), f"Expected sc penalty: {conf_with_sc:.2f} < {conf_without_sc:.2f}"
 
 
-def test_short_cycle_penalty_applied_when_zone_recently_turned_off():
+def test_short_cycle_penalty_applied_when_zone_recently_turned_off() -> None:
     """compute_remove_conf must return a lower score when the zone just turned off."""
     zone = "climate.z1"
     coord_sc = _decision_coordinator(
@@ -231,36 +231,36 @@ def _panic_coordinator(
     return coord
 
 
-def test_should_panic_when_ema_exceeds_threshold():
+def test_should_panic_when_ema_exceeds_threshold() -> None:
     """ema_30s > panic_threshold + at least one zone on → should_panic is True."""
     coord = _panic_coordinator(ema_30s=3000.0, panic_threshold=2000.0, on_count=1)
-    mgr = PanicManager(coord)  # type: ignore[arg-type]
+    mgr = PanicManager(coord)
     assert mgr.should_panic is True
 
 
-def test_should_not_panic_below_threshold():
+def test_should_not_panic_below_threshold() -> None:
     """ema_30s ≤ panic_threshold → should_panic is False."""
     coord = _panic_coordinator(ema_30s=1999.0, panic_threshold=2000.0, on_count=1)
-    mgr = PanicManager(coord)  # type: ignore[arg-type]
+    mgr = PanicManager(coord)
     assert mgr.should_panic is False
 
 
-def test_should_not_panic_when_no_zones_on():
+def test_should_not_panic_when_no_zones_on() -> None:
     """on_count == 0 → should_panic is False even if ema exceeds threshold."""
     coord = _panic_coordinator(ema_30s=5000.0, panic_threshold=2000.0, on_count=0)
-    mgr = PanicManager(coord)  # type: ignore[arg-type]
+    mgr = PanicManager(coord)
     assert mgr.should_panic is False
 
 
 @pytest.mark.asyncio
-async def test_panic_schedule_creates_task():
+async def test_panic_schedule_creates_task() -> None:
     """schedule_panic must create a background task."""
     coord = _panic_coordinator(ema_30s=3000.0, panic_threshold=2000.0)
     # Intercept task creation to prevent actual coroutine from running
     tasks_created = []
 
-    def capture_task(coro):
-        task = asyncio.ensure_future(coro)
+    def capture_task(coro: Any) -> asyncio.Future[Any]:
+        task: asyncio.Future[Any] = asyncio.ensure_future(coro)
         tasks_created.append(task)
         return task
 
@@ -288,7 +288,7 @@ async def test_panic_schedule_creates_task():
         states=SimpleNamespace(get=MagicMock(return_value=None))
     )
 
-    mgr = PanicManager(coord)  # type: ignore[arg-type]
+    mgr = PanicManager(coord)
     await mgr.schedule_panic(["climate.z1"])
 
     assert len(tasks_created) == 1, "Expected one background task to be created"
@@ -308,7 +308,7 @@ async def test_panic_schedule_creates_task():
 
 
 @pytest.mark.asyncio
-async def test_learning_session_detects_peak():
+async def test_learning_session_detects_peak() -> None:
     """After a rise-then-fall in power readings, peak is detected."""
     session = LearningSession()
     import time
@@ -327,7 +327,7 @@ async def test_learning_session_detects_peak():
 
 
 @pytest.mark.asyncio
-async def test_learning_session_detects_stabilization():
+async def test_learning_session_detects_stabilization() -> None:
     """After STABILIZATION_READING_COUNT stable readings, stabilized_power is set."""
     from custom_components.solar_ac_controller.const import STABILIZATION_READING_COUNT
 
@@ -347,7 +347,7 @@ async def test_learning_session_detects_stabilization():
 
 
 @pytest.mark.asyncio
-async def test_learning_session_end_clears_state():
+async def test_learning_session_end_clears_state() -> None:
     """end_session must clear all phase-detection state."""
     session = LearningSession()
     import time
@@ -369,7 +369,7 @@ async def test_learning_session_end_clears_state():
 
 
 @pytest.mark.asyncio
-async def test_learning_contamination_flagged_when_other_zone_added():
+async def test_learning_contamination_flagged_when_other_zone_added() -> None:
     """Adding a different zone during learning marks the session contaminated."""
     session = LearningSession()
     import time
@@ -382,7 +382,7 @@ async def test_learning_contamination_flagged_when_other_zone_added():
 
 
 @pytest.mark.asyncio
-async def test_learning_contamination_not_flagged_for_same_zone():
+async def test_learning_contamination_not_flagged_for_same_zone() -> None:
     """Notification for the learning zone itself does not set contamination."""
     session = LearningSession()
     import time
@@ -439,10 +439,10 @@ def _master_coordinator(
 
 
 @pytest.mark.asyncio
-async def test_master_switch_turns_on_when_solar_above_threshold():
+async def test_master_switch_turns_on_when_solar_above_threshold() -> None:
     """When solar ≥ on_threshold and switch is off, turn_on must be called."""
     coord = _master_coordinator(switch_state="off", solar_on=1200.0, solar_off=500.0)
-    ctrl = MasterSwitchController(coord)  # type: ignore[arg-type]
+    ctrl = MasterSwitchController(coord)
 
     await ctrl.handle_master_switch(solar=1500.0, cycle_start=0)
 
@@ -454,14 +454,14 @@ async def test_master_switch_turns_on_when_solar_above_threshold():
 
 
 @pytest.mark.asyncio
-async def test_master_switch_turns_off_when_solar_below_threshold():
+async def test_master_switch_turns_off_when_solar_below_threshold() -> None:
     """When solar ≤ off_threshold and switch is on, turn_off must be called."""
     coord = _master_coordinator(switch_state="on", solar_on=1200.0, solar_off=500.0)
     # configure the off_threshold check
     coord.config_manager.get_float = MagicMock(
         side_effect=lambda k, default: 1200.0 if "on" in k else 500.0
     )
-    ctrl = MasterSwitchController(coord)  # type: ignore[arg-type]
+    ctrl = MasterSwitchController(coord)
 
     await ctrl.handle_master_switch(solar=200.0, cycle_start=0)
 
@@ -471,11 +471,11 @@ async def test_master_switch_turns_off_when_solar_below_threshold():
 
 
 @pytest.mark.asyncio
-async def test_master_switch_no_action_in_hysteresis_band():
+async def test_master_switch_no_action_in_hysteresis_band() -> None:
     """Solar between off and on threshold with switch already on → no action."""
     # Switch is on, solar is between thresholds → stay put
     coord = _master_coordinator(switch_state="on", solar_on=1200.0, solar_off=500.0)
-    ctrl = MasterSwitchController(coord)  # type: ignore[arg-type]
+    ctrl = MasterSwitchController(coord)
 
     await ctrl.handle_master_switch(solar=800.0, cycle_start=0)
 
@@ -483,11 +483,11 @@ async def test_master_switch_no_action_in_hysteresis_band():
 
 
 @pytest.mark.asyncio
-async def test_master_switch_manual_lock_prevents_auto_control():
+async def test_master_switch_manual_lock_prevents_auto_control() -> None:
     """A manual lock on 'off' must prevent auto turn_on until natural cycle aligns."""
     coord = _master_coordinator(switch_state="off", solar_on=1200.0, solar_off=500.0)
     coord.master_manual_lock_state = "off"  # locked off by user
-    ctrl = MasterSwitchController(coord)  # type: ignore[arg-type]
+    ctrl = MasterSwitchController(coord)
 
     # Solar is above on_threshold but lock is active — must NOT turn on
     await ctrl.handle_master_switch(solar=1500.0, cycle_start=0)
@@ -506,11 +506,11 @@ def _sensor_coordinator() -> Any:
 
     coord = object.__new__(SolarACCoordinator)
     coord._sensor_unavailable_since = {}
-    coord.create_background_task = MagicMock()
+    coord.create_background_task = MagicMock()  # type: ignore[method-assign]
     return coord
 
 
-def test_sensor_unavailable_raises_when_state_is_none():
+def test_sensor_unavailable_raises_when_state_is_none() -> None:
     """`_validate_sensor_state(None, ...)` must raise SensorUnavailableError."""
     from custom_components.solar_ac_controller.coordinator import SolarACCoordinator
 
@@ -519,7 +519,7 @@ def test_sensor_unavailable_raises_when_state_is_none():
         SolarACCoordinator._validate_sensor_state(coord, None, "Grid sensor")
 
 
-def test_sensor_unavailable_raises_when_state_is_unavailable():
+def test_sensor_unavailable_raises_when_state_is_unavailable() -> None:
     """`state='unavailable'` must raise SensorUnavailableError."""
     from custom_components.solar_ac_controller.coordinator import SolarACCoordinator
 
@@ -530,7 +530,7 @@ def test_sensor_unavailable_raises_when_state_is_unavailable():
         )
 
 
-def test_sensor_unavailable_raises_when_state_is_unknown():
+def test_sensor_unavailable_raises_when_state_is_unknown() -> None:
     """`state='unknown'` must raise SensorUnavailableError."""
     from custom_components.solar_ac_controller.coordinator import SolarACCoordinator
 
@@ -541,7 +541,7 @@ def test_sensor_unavailable_raises_when_state_is_unknown():
         )
 
 
-def test_sensor_invalid_raises_when_state_is_not_numeric():
+def test_sensor_invalid_raises_when_state_is_not_numeric() -> None:
     """`state='foobar'` (non-numeric) must raise SensorInvalidError."""
     from custom_components.solar_ac_controller.coordinator import SolarACCoordinator
 
@@ -552,7 +552,7 @@ def test_sensor_invalid_raises_when_state_is_not_numeric():
         )
 
 
-def test_sensor_valid_state_returns_float():
+def test_sensor_valid_state_returns_float() -> None:
     """`state='1234.5'` must return the numeric value."""
     from custom_components.solar_ac_controller.coordinator import SolarACCoordinator
 
@@ -583,32 +583,32 @@ def _lock_coordinator(lock_until: float | None) -> Any:
 
 
 @pytest.mark.asyncio
-async def test_zone_is_locked_when_lock_is_in_future():
+async def test_zone_is_locked_when_lock_is_in_future() -> None:
     """A future lock timestamp → is_locked returns True."""
     from homeassistant.util import dt as dt_util
 
     future = dt_util.utcnow().timestamp() + 9999
     coord = _lock_coordinator(lock_until=future)
-    mgr = ZoneManager(coord)  # type: ignore[arg-type]
+    mgr = ZoneManager(coord)
     assert await mgr.is_locked("climate.z1") is True
 
 
 @pytest.mark.asyncio
-async def test_zone_is_not_locked_when_lock_has_expired():
+async def test_zone_is_not_locked_when_lock_has_expired() -> None:
     """An expired lock timestamp → is_locked returns False and removes the entry."""
     from homeassistant.util import dt as dt_util
 
     past = dt_util.utcnow().timestamp() - 1
     coord = _lock_coordinator(lock_until=past)
-    mgr = ZoneManager(coord)  # type: ignore[arg-type]
+    mgr = ZoneManager(coord)
     assert await mgr.is_locked("climate.z1") is False
     # Lock entry must be removed after expiry
     assert "climate.z1" not in coord.zone_manual_lock_until
 
 
 @pytest.mark.asyncio
-async def test_zone_is_not_locked_when_no_lock_set():
+async def test_zone_is_not_locked_when_no_lock_set() -> None:
     """No lock entry → is_locked returns False."""
     coord = _lock_coordinator(lock_until=None)
-    mgr = ZoneManager(coord)  # type: ignore[arg-type]
+    mgr = ZoneManager(coord)
     assert await mgr.is_locked("climate.z1") is False

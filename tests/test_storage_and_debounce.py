@@ -1,4 +1,5 @@
 import asyncio
+from typing import Any, cast
 import logging
 
 import pytest
@@ -8,20 +9,20 @@ from custom_components.solar_ac_controller.coordinator import SolarACCoordinator
 
 
 class FakeHass:
-    def async_create_task(self, coro):
+    def async_create_task(self, coro: Any) -> asyncio.Task[Any]:
         return asyncio.create_task(coro)
 
 
 class MockStore:
-    def __init__(self):
-        self.saved = None
+    def __init__(self) -> None:
+        self.saved: dict | None = None
 
-    async def async_save(self, data):
+    async def async_save(self, data: dict) -> None:
         self.saved = data
 
 
 @pytest.mark.asyncio
-async def test_perform_storage_save_failure_leaves_dirty_flag(caplog):
+async def test_perform_storage_save_failure_leaves_dirty_flag(caplog: pytest.LogCaptureFixture) -> None:
     """A failed save leaves _storage_dirty=True; the error is logged for visibility."""
     caplog.set_level(logging.ERROR)
     coord = object.__new__(SolarACCoordinator)
@@ -30,7 +31,7 @@ async def test_perform_storage_save_failure_leaves_dirty_flag(caplog):
     calls = {"n": 0}
 
     class FlakyStore:
-        async def async_save(self, data):
+        async def async_save(self, data: dict) -> None:
             calls["n"] += 1
             raise OSError("io error")
 
@@ -43,10 +44,10 @@ async def test_perform_storage_save_failure_leaves_dirty_flag(caplog):
 
 
 @pytest.mark.asyncio
-async def test_debounced_save_cancels_previous_and_saves_latest():
+async def test_debounced_save_cancels_previous_and_saves_latest() -> None:
     """A second _debounced_save call before the first fires cancels the first task."""
     coord = object.__new__(SolarACCoordinator)
-    coord.hass = FakeHass()
+    coord.hass = cast(Any, FakeHass())
     coord._storage_lock = asyncio.Lock()
     coord.stored_data = {"value": 1}
     coord._storage_dirty = True

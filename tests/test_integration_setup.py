@@ -91,18 +91,19 @@ def _make_entry() -> Any:
 class _MockStore:
     """Minimal Store stub."""
 
-    def __init__(self) -> None:
-        self._data: dict = {}
+    def __init__(self, data: dict | None = None) -> None:
+        # Allow callers to seed arbitrary stored data (e.g. partial learned_power).
+        self._data: dict = dict(data) if data is not None else dict(_STORED)
 
     async def async_load(self) -> dict:
-        return dict(_STORED)
+        return dict(self._data)
 
     async def async_save(self, data: dict) -> None:
         self._data = data
 
 
 @pytest.mark.asyncio
-async def test_async_setup_entry_creates_coordinator():
+async def test_async_setup_entry_creates_coordinator() -> None:
     """async_setup_entry must register a SolarACCoordinator under hass.data."""
     hass = _make_hass()
     entry = _make_entry()
@@ -150,7 +151,56 @@ async def test_async_setup_entry_creates_coordinator():
 
 
 @pytest.mark.asyncio
-async def test_async_setup_entry_forwards_all_platforms():
+async def test_setup_survives_partial_stored_learned_power() -> None:
+    """Setup must survive a stored zone entry missing default/heat/cool.
+
+    This exercises the real __init__ ordering rather than calling
+    _init_learned_data() directly, so it catches a regression where
+    _init_config_values() runs after _init_learned_data(): the latter's
+    fallback reads self.initial_learned_power, which would not exist yet and
+    would raise AttributeError, failing the whole config entry load.
+    """
+    hass = _make_hass()
+    entry = _make_entry()
+    # 'cool' and 'default' absent - only 'heat' was ever learned.
+    seeded = dict(_STORED)
+    seeded["learned_power"] = {"zone1": {"heat": 1200.0}}
+    store = _MockStore(seeded)
+
+    with (
+        patch(
+            "custom_components.solar_ac_controller.Store",
+            return_value=store,
+        ),
+        patch(
+            "custom_components.solar_ac_controller.dr.async_get",
+            return_value=SimpleNamespace(async_get_or_create=MagicMock()),
+        ),
+        patch(
+            "custom_components.solar_ac_controller.async_get_integration",
+            new=AsyncMock(return_value=SimpleNamespace(version="0.99.0")),
+        ),
+        patch("homeassistant.helpers.frame.report_usage", return_value=None),
+        patch.object(
+            SolarACCoordinator,
+            "async_config_entry_first_refresh",
+            new=AsyncMock(),
+        ),
+    ):
+        result = await async_setup_entry(hass, entry)
+
+    assert result is True, "partial stored data must not break setup"
+    coord = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    learned = coord.learned_power["zone1"]
+    assert learned["heat"] == pytest.approx(1200.0)
+    # Absent modes are backfilled from initial_learned_power, not zeroed.
+    assert learned["default"] == pytest.approx(
+        coord.initial_learned_power
+    )
+    assert learned["cool"] == pytest.approx(coord.initial_learned_power)
+
+@pytest.mark.asyncio
+async def test_async_setup_entry_forwards_all_platforms() -> None:
     """All expected platforms must be forwarded during setup."""
     from custom_components.solar_ac_controller import ALL_PLATFORMS
 
@@ -187,7 +237,7 @@ async def test_async_setup_entry_forwards_all_platforms():
 
 
 @pytest.mark.asyncio
-async def test_async_setup_entry_coordinator_has_expected_attributes():
+async def test_async_setup_entry_coordinator_has_expected_attributes() -> None:
     """Coordinator produced by setup must expose key runtime attributes."""
     hass = _make_hass()
     entry = _make_entry()

@@ -336,7 +336,10 @@ async def _validate_zone_temp_sensors(
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Solar AC Controller."""
 
-    VERSION = 1
+    # Must stay >= the version written by async_migrate_entry in __init__.py.
+    # HA refuses to load an entry whose version is higher than the handler's
+    # VERSION, so a mismatch here permanently breaks the config entry.
+    VERSION = 2
 
     @staticmethod
     def async_get_options_flow(

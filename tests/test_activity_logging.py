@@ -6,7 +6,7 @@ from custom_components.solar_ac_controller.coordinator import SolarACCoordinator
 
 
 @pytest.mark.asyncio
-async def test_async_set_activity_logging_enabled_updates_state_and_saves():
+async def test_async_set_activity_logging_enabled_updates_state_and_saves() -> None:
     """Enabling activity logging updates in-memory state, stored_data, and schedules a save."""
     coord = object.__new__(SolarACCoordinator)
     coord.activity_logging_enabled = False
@@ -19,12 +19,12 @@ async def test_async_set_activity_logging_enabled_updates_state_and_saves():
     async def fake_log(message: str, level: str | None = "info") -> None:
         pass
 
-    async def fake_debounced_save():
+    async def fake_debounced_save() -> None:
         save_called["count"] += 1
 
     coord._log = fake_log  # type: ignore[method-assign]
-    coord._debounced_save = fake_debounced_save
-    coord._debounce_recalc = lambda: None
+    coord._debounced_save = fake_debounced_save  # type: ignore[method-assign]
+    coord._debounce_recalc = lambda: None  # type: ignore[method-assign]
 
     await coord.async_set_activity_logging_enabled(True)
 
@@ -35,7 +35,7 @@ async def test_async_set_activity_logging_enabled_updates_state_and_saves():
 
 
 @pytest.mark.asyncio
-async def test_async_set_activity_logging_disabled_updates_state_and_saves():
+async def test_async_set_activity_logging_disabled_updates_state_and_saves() -> None:
     """Disabling activity logging updates state and schedules a save."""
     coord = object.__new__(SolarACCoordinator)
     coord.activity_logging_enabled = True
@@ -48,12 +48,12 @@ async def test_async_set_activity_logging_disabled_updates_state_and_saves():
     async def fake_log(message: str, level: str | None = "info") -> None:
         pass
 
-    async def fake_debounced_save():
+    async def fake_debounced_save() -> None:
         save_called["count"] += 1
 
     coord._log = fake_log  # type: ignore[method-assign]
-    coord._debounced_save = fake_debounced_save
-    coord._debounce_recalc = lambda: None
+    coord._debounced_save = fake_debounced_save  # type: ignore[method-assign]
+    coord._debounce_recalc = lambda: None  # type: ignore[method-assign]
 
     await coord.async_set_activity_logging_enabled(False)
 

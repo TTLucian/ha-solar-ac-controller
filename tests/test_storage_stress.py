@@ -1,4 +1,5 @@
 import asyncio
+from typing import Any, cast
 
 import pytest
 from homeassistant.util import dt as dt_util
@@ -7,25 +8,25 @@ from custom_components.solar_ac_controller.coordinator import SolarACCoordinator
 
 
 class FakeHass:
-    def async_create_task(self, coro):
+    def async_create_task(self, coro: Any) -> asyncio.Task[Any]:
         return asyncio.create_task(coro)
 
 
 class SlowStore:
-    def __init__(self, delay=0.01):
-        self.saved = None
+    def __init__(self, delay: float = 0.01) -> None:
+        self.saved: dict | None = None
         self.delay = delay
 
-    async def async_save(self, data):
+    async def async_save(self, data: dict) -> None:
         await asyncio.sleep(self.delay)
         self.saved = data
 
 
 @pytest.mark.asyncio
-async def test_stress_concurrent_debounced_saves_saves_latest():
+async def test_stress_concurrent_debounced_saves_saves_latest() -> None:
     """40 concurrent update+save calls must result in the last value being written."""
     coord = object.__new__(SolarACCoordinator)
-    coord.hass = FakeHass()
+    coord.hass = cast(Any, FakeHass())
     coord._storage_lock = asyncio.Lock()
     coord._storage_debounce_task = None
     coord._last_storage_save = dt_util.utcnow().timestamp()
@@ -35,7 +36,7 @@ async def test_stress_concurrent_debounced_saves_saves_latest():
     store = SlowStore(delay=0.01)
     coord.store = store
 
-    async def updater(i):
+    async def updater(i: int) -> None:
         await asyncio.sleep(i * 0.005)
         coord.stored_data = {"n": i}
         coord._storage_dirty = True
@@ -49,17 +50,17 @@ async def test_stress_concurrent_debounced_saves_saves_latest():
 
 
 @pytest.mark.asyncio
-async def test_intermittent_failures_do_not_lose_last_successful_save():
+async def test_intermittent_failures_do_not_lose_last_successful_save() -> None:
     """Intermittent OSErrors leave dirty=True; successful saves clear it with the right data."""
     coord = object.__new__(SolarACCoordinator)
     coord._storage_dirty = True
 
     class FlakyStore:
-        def __init__(self):
-            self.saved = None
+        def __init__(self) -> None:
+            self.saved: dict | None = None
             self.calls = 0
 
-        async def async_save(self, data):
+        async def async_save(self, data: dict) -> None:
             self.calls += 1
             # Every 3rd call succeeds; the rest raise OSError
             if self.calls % 3 != 0:
