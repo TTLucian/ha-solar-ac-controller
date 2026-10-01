@@ -72,14 +72,17 @@ jobs:
         run: uv run --frozen ruff format --check --diff custom_components/solar_ac_controller tests/
 
       - name: Mypy - integration
-        run: uv run --frozen mypy --config-file mypy.ini custom_components/solar_ac_controller
+        run: uv run --frozen mypy custom_components/solar_ac_controller
 
       # tests/ is a namespace package, so it needs the package-bases flags.
       # --namespace-packages --explicit-package-bases keeps mypy from aborting
       # with "Source file found twice under different module names".
       - name: Mypy - tests
+        # tests/ is a namespace package, so without these flags mypy aborts
+        # with "Source file found twice under different module names" and
+        # checks nothing at all.
         run: >-
-          uv run --frozen mypy --config-file mypy.ini
+          uv run --frozen mypy
           --namespace-packages --explicit-package-bases tests/
 
       # A lint step that silently rewrites tracked files would leave the

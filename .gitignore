@@ -1,12 +1,20 @@
 
-
 *.vscode*
 .github/**/*instruction*
 *samples*
-*pyrightconfig*
+# pyrightconfig.json is tracked on purpose: without an explicit pythonVersion
+# Pylance falls back to an older interpreter and reports bogus errors against
+# this codebase. Only the per-machine override stays ignored. This replaces an
+# earlier "*pyrightconfig*" pattern, which silently excluded the tracked file.
+pyrightconfig.local.json
 *quality_scale.yaml*
 log.txt
-*__pycache__*
+*pycache*
 *.mypy_cache*
 *.pytest_cache*
+*.ruff_cache*
+.coverage
+.coverage.*
+htmlcov/
+.venv
 *venv*

@@ -3,15 +3,20 @@ name = "ha-solar-ac-controller"
 version = "0.0.0"
 description = "Home Assistant custom integration: solar AC controller"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.14.2,<3.15"
 dependencies = []
 
+# This is the single source of truth for the toolchain. uv.lock pins the
+# exact versions, and the pre-commit hook revs track them - a mirror that does
+# not mirror reads as a passing check while testing something else.
 [dependency-groups]
 dev = [
-    "ruff>=0.16.0",
-    "mypy>=2.3.0",
+    "ruff>=0.16.9",
+    "mypy>=2.3.1",
     "pytest>=9.0.0",
+    "pytest-asyncio>=1.3.0",
     "pytest-homeassistant-custom-component",
+    "pre-commit",
 ]
 
 [tool.uv]
@@ -20,7 +25,7 @@ default-groups = ["dev"]
 [tool.ruff]
 line-length = 120
 target-version = "py314"
-exclude = [".venv", "__pycache__", ".mypy_cache", ".pytest_cache"]
+exclude = [".venv", "__pycache__", ".mypy_cache", ".pytest_cache", ".ruff_cache"]
 
 [tool.ruff.lint]
 select = ["E", "F", "UP"]
@@ -28,13 +33,34 @@ ignore = [
     "E501",  # Line too long
 ]
 
+# Previously split across mypy.ini and a [tool.mypy] block here. mypy prefers
+# mypy.ini whenever it exists, so the settings that lived only in this file -
+# including disable_error_code - were silently dead. One file now, so both
+# editors and CI see the same rules.
 [tool.mypy]
 python_version = "3.14"
+mypy_path = "."
 ignore_missing_imports = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
 check_untyped_defs = true
-disable_error_code = ["misc"]  # Prevents HA class attribute assignment errors (_attr_options)
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+show_error_codes = true
+# Prevents HA class attribute assignment errors (_attr_options and friends).
+disable_error_code = ["misc"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "--strict-markers"
