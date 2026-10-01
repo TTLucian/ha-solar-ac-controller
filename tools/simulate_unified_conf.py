@@ -4,6 +4,7 @@ import os
 import re
 import sys
 from datetime import datetime
+from typing import Any
 
 # Ensure we can import the integration package from the repo root
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -12,13 +13,13 @@ from custom_components.solar_ac_controller.decisions import DecisionEngine
 
 
 class FakeCoordinator:
-    def __init__(self):
+    def __init__(self) -> None:
         self.aggressiveness = 0.5
         self.initial_learned_power = 1000.0
         self.samples = 0
         self.season_mode = "heat"
-        self.zone_last_changed = {}
-        self.zone_last_changed_type = {}
+        self.zone_last_changed: dict[str, float] = {}
+        self.zone_last_changed_type: dict[str, str] = {}
         self.compressor_recover_until = 0.0
         self.compressor_ramp_seconds = 0.0
         self.learning_active_cached = False
@@ -28,7 +29,7 @@ class FakeCoordinator:
         self.solar_ema_slow = 0.0
         self.solar_fraction = 0.0
 
-    def get_learned_power(self, zone_short, season):
+    def get_learned_power(self, zone_short: str, season: str | None = None) -> float:
         return 1500.0
 
 
@@ -52,8 +53,8 @@ ema_re = re.compile(
 )
 samples_re = re.compile(r"samples=(?P<samples>\d+)")
 
-records = []
-state = {
+records: list[dict[str, Any]] = []
+state: dict[str, Any] = {
     "ema_30s": 0.0,
     "ema_5m": 0.0,
     "solar_fast": 0.0,
@@ -66,12 +67,12 @@ start_ts = datetime.fromisoformat("2026-03-18 08:00:00")
 end_ts = datetime.fromisoformat("2026-03-18 10:18:00")
 
 
-def parse_timestamp(ts_str):
+def parse_timestamp(ts_str: str) -> datetime:
     base, _, _ = ts_str.partition(".")
     return datetime.fromisoformat(base)
 
 
-with open("log.txt", "r") as f:
+with open("log.txt") as f:
     for line in f:
         if "SYSTEM_BALANCED" in line:
             m = samples_re.search(line)
@@ -134,8 +135,8 @@ coordinator = FakeCoordinator()
 engine = DecisionEngine(coordinator)  # type: ignore[arg-type]  # pyright: ignore[reportArgumentType]
 threshold = 80.0 - (60.0 * coordinator.aggressiveness)
 
-first_add = None
-lines = []
+first_add: tuple[datetime, float, float, float, float, float] | None = None
+lines: list[tuple[datetime, float, float, float, float, float]] = []
 for rec in records:
     coordinator.ema_30s = rec["ema_30s"]
     coordinator.ema_5m = rec["ema_5m"]
@@ -166,9 +167,7 @@ for rec in records:
         )
 
     if rec["ts"].minute % 10 == 0 and rec["ts"].second < 2:
-        lines.append(
-            (rec["ts"], unified, add, rem, rec["export"], rec["required_export"])
-        )
+        lines.append((rec["ts"], unified, add, rem, rec["export"], rec["required_export"]))
 
 print(f"Parsed {len(records)} cycles between {start_ts} and {end_ts}.")
 print(f"Aggressiveness={coordinator.aggressiveness}, add_threshold={threshold}\n")
@@ -182,6 +181,4 @@ else:
 
 print("\nSample timeline (every ~10 minutes):")
 for ts, u, a, r, ex, req in lines:
-    print(
-        f"{ts:%H:%M:%S}  unified={u:5.1f} add={a:5.1f} rem={r:5.1f} export={ex:6.0f} required={req:6.0f}"
-    )
+    print(f"{ts:%H:%M:%S}  unified={u:5.1f} add={a:5.1f} rem={r:5.1f} export={ex:6.0f} required={req:6.0f}")

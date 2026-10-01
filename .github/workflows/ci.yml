@@ -59,31 +59,28 @@ jobs:
       - name: Validate workflow action references and inputs
         run: uv run --frozen python .github/scripts/validate_workflow_actions.py
 
-      - name: Ruff - integration
-        run: uv run --frozen ruff check custom_components/solar_ac_controller
-
-      - name: Ruff - tests
-        run: uv run --frozen ruff check tests/
-
+      # Everything Python in the repository is checked, not just the two
+      # directories that started out covered. tools/ and .github/scripts/ were
+      # invisible to CI while the editor checked them, so Pylance reported
+      # errors that no run ever caught.
+      #
       # Formatting is enforced with ruff format, the successor to Black. The
       # Black step was removed earlier: the version CI would have installed
       # reformats `except (A, B):` into the invalid `except A, B:`.
-      - name: Check formatting
-        run: uv run --frozen ruff format --check --diff custom_components/solar_ac_controller tests/
+      - name: Ruff - whole repository
+        run: uv run --frozen ruff check .
 
-      - name: Mypy - integration
-        run: uv run --frozen mypy custom_components/solar_ac_controller
+      - name: Ruff format - whole repository
+        run: uv run --frozen ruff format --check .
 
-      # tests/ is a namespace package, so it needs the package-bases flags.
-      # --namespace-packages --explicit-package-bases keeps mypy from aborting
-      # with "Source file found twice under different module names".
-      - name: Mypy - tests
-        # tests/ is a namespace package, so without these flags mypy aborts
-        # with "Source file found twice under different module names" and
-        # checks nothing at all.
+      # tests/ is a namespace package, so it needs the package-bases flags;
+      # without them mypy aborts with "Source file found twice under different
+      # module names" and checks nothing at all.
+      - name: Mypy - whole repository
         run: >-
           uv run --frozen mypy
-          --namespace-packages --explicit-package-bases tests/
+          --namespace-packages --explicit-package-bases
+          custom_components/solar_ac_controller tests/ tools/ .github/scripts/
 
       # A lint step that silently rewrites tracked files would leave the
       # checkout dirty and the next run would pass on formatted code that was
