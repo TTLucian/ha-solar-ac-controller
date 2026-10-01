@@ -67,7 +67,7 @@ def parse_numeric_list(val: Any) -> list[float | None] | None:
     if isinstance(val, (list, tuple)):
         try:
             return [float(x) if x != "" else None for x in val]
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return None
     try:
         # Split and filter out empty strings, but preserve position with None
@@ -79,10 +79,10 @@ def parse_numeric_list(val: Any) -> list[float | None] | None:
             else:
                 try:
                     result.append(float(part))
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     return None
         return result
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return None
 
 
@@ -106,9 +106,7 @@ def validate_solar_hysteresis(
 def validate_panic_threshold(
     user_input: dict[str, Any], data: dict[str, Any], errors: dict[str, str]
 ) -> dict[str, str]:
-    panic_th = user_input.get(
-        CONF_PANIC_THRESHOLD, data.get(CONF_PANIC_THRESHOLD, DEFAULT_PANIC_THRESHOLD)
-    )
+    panic_th = user_input.get(CONF_PANIC_THRESHOLD, data.get(CONF_PANIC_THRESHOLD, DEFAULT_PANIC_THRESHOLD))
     solar_on = data.get(CONF_SOLAR_THRESHOLD_ON, DEFAULT_SOLAR_THRESHOLD_ON)
     if int(panic_th) <= int(solar_on):
         errors["base"] = "panic_too_low"
@@ -122,9 +120,7 @@ def clean_zone_temp_sensors(zones: list[str], zone_temp_sensors: Any) -> list[st
         else:
             zone_temp_sensors = [zone_temp_sensors]
     if len(zone_temp_sensors) < len(zones):
-        zone_temp_sensors = list(zone_temp_sensors) + [""] * (
-            len(zones) - len(zone_temp_sensors)
-        )
+        zone_temp_sensors = list(zone_temp_sensors) + [""] * (len(zones) - len(zone_temp_sensors))
     if len(zone_temp_sensors) > len(zones):
         zone_temp_sensors = zone_temp_sensors[: len(zones)]
     return cast(list[str], zone_temp_sensors)
@@ -143,36 +139,28 @@ def clean_zone_manual_power(zones: list[str], zone_manual_power: Any) -> str:
 def schema_user(defaults: dict[str, Any]) -> Any:
     return vol.Schema(
         {
-            vol.Required(
-                CONF_ZONES, default=defaults.get(CONF_ZONES, [])
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(
-                    domain=["climate", "switch", "fan"], multiple=True
-                )
+            vol.Required(CONF_ZONES, default=defaults.get(CONF_ZONES, [])): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain=["climate", "switch", "fan"], multiple=True)
+            ),
+            vol.Optional(CONF_AC_SWITCH, default=defaults.get(CONF_AC_SWITCH, "")): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="switch")
+            ),
+            vol.Required(CONF_SOLAR_SENSOR, default=defaults.get(CONF_SOLAR_SENSOR)): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
+            vol.Required(CONF_GRID_SENSOR, default=defaults.get(CONF_GRID_SENSOR)): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
+            vol.Required(CONF_AC_POWER_SENSOR, default=defaults.get(CONF_AC_POWER_SENSOR)): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
             ),
             vol.Optional(
-                CONF_AC_SWITCH, default=defaults.get(CONF_AC_SWITCH, "")
-            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="switch")),
-            vol.Required(
-                CONF_SOLAR_SENSOR, default=defaults.get(CONF_SOLAR_SENSOR)
-            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
-            vol.Required(
-                CONF_GRID_SENSOR, default=defaults.get(CONF_GRID_SENSOR)
-            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
-            vol.Required(
-                CONF_AC_POWER_SENSOR, default=defaults.get(CONF_AC_POWER_SENSOR)
-            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
-            vol.Optional(
                 CONF_SOLAR_THRESHOLD_ON,
-                default=int(
-                    defaults.get(CONF_SOLAR_THRESHOLD_ON, DEFAULT_SOLAR_THRESHOLD_ON)
-                ),
+                default=int(defaults.get(CONF_SOLAR_THRESHOLD_ON, DEFAULT_SOLAR_THRESHOLD_ON)),
             ): int,
             vol.Optional(
                 CONF_SOLAR_THRESHOLD_OFF,
-                default=int(
-                    defaults.get(CONF_SOLAR_THRESHOLD_OFF, DEFAULT_SOLAR_THRESHOLD_OFF)
-                ),
+                default=int(defaults.get(CONF_SOLAR_THRESHOLD_OFF, DEFAULT_SOLAR_THRESHOLD_OFF)),
             ): int,
             vol.Optional(
                 CONF_PV_CAPACITY_W,
@@ -180,19 +168,11 @@ def schema_user(defaults: dict[str, Any]) -> Any:
             ): vol.All(vol.Coerce(int), vol.Range(min=0)),
             vol.Optional(
                 CONF_INITIAL_LEARNED_POWER,
-                default=int(
-                    defaults.get(
-                        CONF_INITIAL_LEARNED_POWER, DEFAULT_INITIAL_LEARNED_POWER
-                    )
-                ),
+                default=int(defaults.get(CONF_INITIAL_LEARNED_POWER, DEFAULT_INITIAL_LEARNED_POWER)),
             ): vol.All(vol.Coerce(int), vol.Range(min=0)),
             vol.Optional(
                 CONF_ENABLE_TEMP_MODULATION,
-                default=bool(
-                    defaults.get(
-                        CONF_ENABLE_TEMP_MODULATION, DEFAULT_ENABLE_TEMP_MODULATION
-                    )
-                ),
+                default=bool(defaults.get(CONF_ENABLE_TEMP_MODULATION, DEFAULT_ENABLE_TEMP_MODULATION)),
             ): selector.BooleanSelector(),
             vol.Optional(
                 CONF_ENABLE_DIAGNOSTICS_SENSOR,
@@ -207,39 +187,23 @@ def schema_timing(defaults: dict[str, Any]) -> Any:
         {
             vol.Optional(
                 CONF_ACTION_DELAY_SECONDS,
-                default=int(
-                    defaults.get(
-                        CONF_ACTION_DELAY_SECONDS, DEFAULT_ACTION_DELAY_SECONDS
-                    )
-                ),
+                default=int(defaults.get(CONF_ACTION_DELAY_SECONDS, DEFAULT_ACTION_DELAY_SECONDS)),
             ): int,
             vol.Optional(
                 CONF_MANUAL_LOCK_SECONDS,
-                default=int(
-                    defaults.get(CONF_MANUAL_LOCK_SECONDS, DEFAULT_MANUAL_LOCK_SECONDS)
-                ),
+                default=int(defaults.get(CONF_MANUAL_LOCK_SECONDS, DEFAULT_MANUAL_LOCK_SECONDS)),
             ): int,
             vol.Optional(
                 CONF_SHORT_CYCLE_ON_SECONDS,
-                default=int(
-                    defaults.get(
-                        CONF_SHORT_CYCLE_ON_SECONDS, DEFAULT_SHORT_CYCLE_ON_SECONDS
-                    )
-                ),
+                default=int(defaults.get(CONF_SHORT_CYCLE_ON_SECONDS, DEFAULT_SHORT_CYCLE_ON_SECONDS)),
             ): int,
             vol.Optional(
                 CONF_SHORT_CYCLE_OFF_SECONDS,
-                default=int(
-                    defaults.get(
-                        CONF_SHORT_CYCLE_OFF_SECONDS, DEFAULT_SHORT_CYCLE_OFF_SECONDS
-                    )
-                ),
+                default=int(defaults.get(CONF_SHORT_CYCLE_OFF_SECONDS, DEFAULT_SHORT_CYCLE_OFF_SECONDS)),
             ): int,
             vol.Optional(
                 CONF_PANIC_THRESHOLD,
-                default=int(
-                    defaults.get(CONF_PANIC_THRESHOLD, DEFAULT_PANIC_THRESHOLD)
-                ),
+                default=int(defaults.get(CONF_PANIC_THRESHOLD, DEFAULT_PANIC_THRESHOLD)),
             ): int,
             vol.Optional(
                 CONF_PANIC_DELAY,
@@ -247,14 +211,8 @@ def schema_timing(defaults: dict[str, Any]) -> Any:
             ): int,
             vol.Optional(
                 CONF_UPDATE_INTERVAL,
-                default=int(
-                    defaults.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)
-                ),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=5, max=60, mode=NumberSelectorMode.BOX
-                )
-            ),
+                default=int(defaults.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)),
+            ): selector.NumberSelector(selector.NumberSelectorConfig(min=5, max=60, mode=NumberSelectorMode.BOX)),
             vol.Optional(
                 CONF_COMPRESSOR_RAMP_SECONDS,
                 default=int(
@@ -275,9 +233,7 @@ def schema_comfort(defaults: dict[str, Any], zone_manual_default: str) -> Any:
                 CONF_ZONE_TEMP_SENSORS,
                 default=defaults.get(CONF_ZONE_TEMP_SENSORS, []),
             ): selector.EntitySelector(
-                selector.EntitySelectorConfig(
-                    domain="sensor", device_class="temperature", multiple=True
-                )
+                selector.EntitySelectorConfig(domain="sensor", device_class="temperature", multiple=True)
             ),
             vol.Optional(
                 CONF_ZONE_MANUAL_POWER,
@@ -295,9 +251,7 @@ def schema_comfort(defaults: dict[str, Any], zone_manual_default: str) -> Any:
     )
 
 
-async def _validate_zone_temp_sensors(
-    hass: HomeAssistant, zones: list[str], sensors: list[str]
-) -> str | None:
+async def _validate_zone_temp_sensors(hass: HomeAssistant, zones: list[str], sensors: list[str]) -> str | None:
     """
     Validate zone-sensor mapping when temperature modulation is enabled.
     - Non-climate zones MUST have external temperature sensors
@@ -403,9 +357,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 if self.data.get(CONF_ENABLE_TEMP_MODULATION):
                     return await self.async_step_comfort()
                 else:
-                    return self.async_create_entry(
-                        title="Solar AC Controller", data=self.data
-                    )
+                    return self.async_create_entry(title="Solar AC Controller", data=self.data)
         schema = schema_timing(defaults)
         return self.async_show_form(
             step_id="timing",
@@ -429,9 +381,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors[CONF_ZONE_TEMP_SENSORS] = "zone_temp_sensors_mismatch"
             if not errors:
                 zone_temp_sensors = clean_zone_temp_sensors(zones, zone_temp_sensors)
-            validation_error = await _validate_zone_temp_sensors(
-                self.hass, zones, zone_temp_sensors
-            )
+            validation_error = await _validate_zone_temp_sensors(self.hass, zones, zone_temp_sensors)
             if validation_error:
                 errors["base"] = validation_error
             parsed_power = _parse_manual_power(zone_manual_power)
@@ -449,9 +399,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 if parsed_power is not None:
                     cleaned_input[CONF_ZONE_MANUAL_POWER] = parsed_power
                 self.data = {**self.data, **cleaned_input}
-                return self.async_create_entry(
-                    title="Solar AC Controller", data=self.data
-                )
+                return self.async_create_entry(title="Solar AC Controller", data=self.data)
         # Always show manual power as a string for UI
         zone_manual_default = clean_zone_manual_power(
             self.data.get(CONF_ZONES, []), defaults.get(CONF_ZONE_MANUAL_POWER, "")
@@ -466,9 +414,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_import(self, user_input: dict[str, Any]) -> Any:
         return await self.async_step_user(user_input)
 
-    async def async_step_reconfigure(
-        self, user_input: dict[str, Any] | None = None
-    ) -> Any:
+    async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None) -> Any:
         """Handle reconfigure flow by seeding defaults from existing entry and updating, not duplicating."""
         entry_id = self.context.get("entry_id")
         entry = self.hass.config_entries.async_get_entry(entry_id) if entry_id else None
@@ -551,9 +497,7 @@ class SolarACOptionsFlowHandler(OptionsFlow):
                 errors[CONF_ZONE_TEMP_SENSORS] = "zone_temp_sensors_mismatch"
             if not errors:
                 zone_temp_sensors = clean_zone_temp_sensors(zones, zone_temp_sensors)
-            validation_error = await _validate_zone_temp_sensors(
-                self.hass, zones, zone_temp_sensors
-            )
+            validation_error = await _validate_zone_temp_sensors(self.hass, zones, zone_temp_sensors)
             if validation_error:
                 errors["base"] = validation_error
             parsed_power = _parse_manual_power(zone_manual_power)

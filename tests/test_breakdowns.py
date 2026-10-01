@@ -26,9 +26,7 @@ class DummyCoordinator(SolarACCoordinator):
         self.confidence = 0.0
         self.initial_learned_power = 1000.0
 
-    def get_learned_power(
-        self, zone_name: str, mode: str | None = None, band: str | None = None
-    ) -> float:
+    def get_learned_power(self, zone_name: str, mode: str | None = None, band: str | None = None) -> float:
         return 1000.0
 
 
@@ -40,9 +38,7 @@ def test_add_breakdown_present_and_numeric() -> None:
     assert not hasattr(coord, "last_add_breakdown")
 
     # Call compute_add_conf with valid required_export
-    add_conf = engine.compute_add_conf(
-        export=2000.0, required_export=1500.0, last_zone=None
-    )
+    add_conf = engine.compute_add_conf(export=2000.0, required_export=1500.0, last_zone=None)
 
     # After call, breakdown should be set and contain numeric values
     assert hasattr(coord, "last_add_breakdown")

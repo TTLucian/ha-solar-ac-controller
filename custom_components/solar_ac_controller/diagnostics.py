@@ -13,9 +13,7 @@ from .const import CONF_GRID_SENSOR, CONF_SOLAR_SENSOR, DOMAIN, SolarACData
 TO_REDACT = {CONF_SOLAR_SENSOR, CONF_GRID_SENSOR}
 
 
-async def async_get_config_entry_diagnostics(
-    hass: HomeAssistant, entry: ConfigEntry
-) -> dict[str, Any]:
+async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigEntry) -> dict[str, Any]:
     """Return diagnostics for a config entry."""
     domain_data: SolarACData = hass.data[DOMAIN]
     coordinator = domain_data[entry.entry_id]["coordinator"]
@@ -35,10 +33,8 @@ async def async_get_config_entry_diagnostics(
         if not ts:
             return None
         try:
-            return str(
-                dt_util.utc_from_timestamp(float(ts)).replace(microsecond=0).isoformat()
-            )
-        except (ValueError, TypeError, OSError):
+            return str(dt_util.utc_from_timestamp(float(ts)).replace(microsecond=0).isoformat())
+        except ValueError, TypeError, OSError:
             return None
 
     diag_data["logic_state"] = {
@@ -49,12 +45,8 @@ async def async_get_config_entry_diagnostics(
         "last_action": getattr(coordinator, "last_action", None),
         "note": getattr(coordinator, "note", None),
         "required_export_source": getattr(coordinator, "required_export_source", None),
-        "next_decision_allowed_at": iso_ts(
-            getattr(coordinator, "next_decision_allowed_at", None)
-        ),
-        "last_action_started_at": iso_ts(
-            getattr(coordinator, "last_action_start_ts", None)
-        ),
+        "next_decision_allowed_at": iso_ts(getattr(coordinator, "next_decision_allowed_at", None)),
+        "last_action_started_at": iso_ts(getattr(coordinator, "last_action_start_ts", None)),
         "last_panic_at": iso_ts(getattr(coordinator, "last_panic_ts", None)),
     }
 
@@ -69,17 +61,11 @@ async def async_get_config_entry_diagnostics(
     zone_info = {}
     for zone in getattr(coordinator, "config", {}).get("zones", []):
         st = getattr(coordinator.hass.states, "get", lambda x: None)(zone)
-        friendly = (
-            st.attributes.get("friendly_name")
-            if st and hasattr(st, "attributes")
-            else None
-        )
+        friendly = st.attributes.get("friendly_name") if st and hasattr(st, "attributes") else None
         zone_info[zone] = {
             "friendly_name": friendly,
             "last_state": getattr(coordinator, "zone_last_state", {}).get(zone),
-            "locked_until": getattr(coordinator, "zone_manual_lock_until", {}).get(
-                zone
-            ),
+            "locked_until": getattr(coordinator, "zone_manual_lock_until", {}).get(zone),
             "is_locked": (
                 await getattr(coordinator, "zone_manager").is_locked(zone)
                 if getattr(coordinator, "zone_manager", None)
@@ -92,13 +78,9 @@ async def async_get_config_entry_diagnostics(
             ),
             "current_temp": getattr(coordinator, "zone_current_temps", {}).get(zone),
             # Last HA context ID issued for this zone (used for override authorship)
-            "last_context_id": (
-                getattr(coordinator, "zone_last_context_id", {}).get(zone, (None,))[0]
-            ),
+            "last_context_id": (getattr(coordinator, "zone_last_context_id", {}).get(zone, (None,))[0]),
             # Most-recent action history entries for quick inspection
-            "action_history": getattr(coordinator, "zone_action_history", {}).get(
-                zone, []
-            )[-5:],
+            "action_history": getattr(coordinator, "zone_action_history", {}).get(zone, [])[-5:],
         }
     diag_data["zones"] = zone_info
 

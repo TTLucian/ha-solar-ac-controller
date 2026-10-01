@@ -28,9 +28,7 @@ def test_remove_confidence_is_non_negative_when_penalized() -> None:
     # Negative import power (exporting) should produce base==0, offset applies,
     # but short-cycle penalty may drive the raw value negative. After change,
     # compute_remove_conf must return >= 0.
-    remove_conf = engine.compute_remove_conf(
-        import_power=-495.26, last_zone="climate.guest"
-    )
+    remove_conf = engine.compute_remove_conf(import_power=-495.26, last_zone="climate.guest")
     assert remove_conf >= 0
     assert remove_conf == 0
 
@@ -61,17 +59,11 @@ def test_sample_bonus_ramp_below_required_export() -> None:
 
     required = 1000.0
     # 50 W below required → export_margin = -50, ramp factor = 0.5
-    conf_below = engine_below.compute_add_conf(
-        export=950.0, required_export=required, last_zone=None
-    )
+    conf_below = engine_below.compute_add_conf(export=950.0, required_export=required, last_zone=None)
     # 1 W above required → export_margin = +1, ramp factor = 1.0
-    conf_above = engine_above.compute_add_conf(
-        export=1001.0, required_export=required, last_zone=None
-    )
+    conf_above = engine_above.compute_add_conf(export=1001.0, required_export=required, last_zone=None)
 
     # With the old binary gate conf_below would have had zero sample bonus;
     # with the ramp it should be strictly between 0 and conf_above.
-    assert conf_below > 0, (
-        "sample bonus should be partial, not zero, when slightly below required"
-    )
+    assert conf_below > 0, "sample bonus should be partial, not zero, when slightly below required"
     assert conf_below < conf_above, "partial ramp should give less than full bonus"

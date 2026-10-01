@@ -37,9 +37,7 @@ class ActionExecutor:
         # Validate zone exists in configuration
         configured_zones = self.coordinator.config.get(CONF_ZONES, [])
         if next_zone not in configured_zones:
-            raise HomeAssistantError(
-                f"Invalid zone '{next_zone}': not in configured zones {configured_zones}"
-            )
+            raise HomeAssistantError(f"Invalid zone '{next_zone}': not in configured zones {configured_zones}")
 
         if self.coordinator.last_action == f"add_{next_zone}":
             return
@@ -58,9 +56,7 @@ class ActionExecutor:
         # Validate zone exists in configuration
         configured_zones = self.coordinator.config.get(CONF_ZONES, [])
         if last_zone not in configured_zones:
-            raise HomeAssistantError(
-                f"Invalid zone '{last_zone}': not in configured zones {configured_zones}"
-            )
+            raise HomeAssistantError(f"Invalid zone '{last_zone}': not in configured zones {configured_zones}")
 
         if self.coordinator.last_action == f"remove_{last_zone}":
             return
@@ -84,9 +80,7 @@ class ActionExecutor:
         # Validate zone exists in configuration
         configured_zones = self.coordinator.config.get(CONF_ZONES, [])
         if zone not in configured_zones:
-            raise HomeAssistantError(
-                f"Invalid zone '{zone}': not in configured zones {configured_zones}"
-            )
+            raise HomeAssistantError(f"Invalid zone '{zone}': not in configured zones {configured_zones}")
 
         if await self.coordinator.controller.is_learning_active():
             current_learning_zone = await self.coordinator.controller.session.get_zone()
@@ -112,9 +106,7 @@ class ActionExecutor:
             self.coordinator.zone_last_changed_type[zone] = "on"
 
         # Notify learning session of zone addition (for contamination detection)
-        await self.coordinator.controller.session.notify_zone_changed_during_learning(
-            zone, "add"
-        )
+        await self.coordinator.controller.session.notify_zone_changed_during_learning(zone, "add")
 
         # Check for cancellation before delay
         if self.coordinator.hass.is_stopping:
@@ -128,16 +120,12 @@ class ActionExecutor:
             f"measuring power increase to determine zone requirements"
         )
 
-    async def add_zone_without_learning(
-        self, zone: str, ac_power_before: float
-    ) -> None:
+    async def add_zone_without_learning(self, zone: str, ac_power_before: float) -> None:
         """Turn on zone without starting learning (for multi-zone additions)."""
         # Validate zone exists in configuration
         configured_zones = self.coordinator.config.get(CONF_ZONES, [])
         if zone not in configured_zones:
-            raise HomeAssistantError(
-                f"Invalid zone '{zone}': not in configured zones {configured_zones}"
-            )
+            raise HomeAssistantError(f"Invalid zone '{zone}': not in configured zones {configured_zones}")
 
         start = dt_util.utcnow().timestamp()
         try:
@@ -150,9 +138,7 @@ class ActionExecutor:
             self.coordinator.zone_last_changed_type[zone] = "on"
 
         # Notify learning session of zone addition (for contamination detection)
-        await self.coordinator.controller.session.notify_zone_changed_during_learning(
-            zone, "add"
-        )
+        await self.coordinator.controller.session.notify_zone_changed_during_learning(zone, "add")
 
         # Check for cancellation before delay
         if self.coordinator.hass.is_stopping:
@@ -175,9 +161,7 @@ class ActionExecutor:
             getattr(self.coordinator, "ema_5m", 0.0),
         )
         if zone not in configured_zones:
-            raise HomeAssistantError(
-                f"Invalid zone '{zone}': not in configured zones {configured_zones}"
-            )
+            raise HomeAssistantError(f"Invalid zone '{zone}': not in configured zones {configured_zones}")
 
         start = dt_util.utcnow().timestamp()
         try:
@@ -190,9 +174,7 @@ class ActionExecutor:
             self.coordinator.zone_last_changed_type[zone] = "off"
 
         # Notify learning session of zone removal (for contamination detection)
-        await self.coordinator.controller.session.notify_zone_changed_during_learning(
-            zone, "remove"
-        )
+        await self.coordinator.controller.session.notify_zone_changed_during_learning(zone, "remove")
 
         # Set compressor recovery window to avoid rapid re-adds until hardware ramps
         try:
@@ -215,8 +197,7 @@ class ActionExecutor:
         await asyncio.sleep(self.coordinator.action_delay_seconds)
 
         await self.coordinator._log(
-            f"Zone '{zone.split('.')[-1]}' deactivated successfully - "
-            f"grid import now {round(self.coordinator.ema_5m)}W"
+            f"Zone '{zone.split('.')[-1]}' deactivated successfully - grid import now {round(self.coordinator.ema_5m)}W"
         )
 
     async def call_entity_service(
@@ -275,11 +256,7 @@ class ActionExecutor:
             )
 
             # If we turned on a climate entity, verify hvac_mode and set it only if needed
-            if (
-                turn_on
-                and domain == "climate"
-                and self.coordinator.season_mode in ("heat", "cool")
-            ):
+            if turn_on and domain == "climate" and self.coordinator.season_mode in ("heat", "cool"):
                 try:
                     st = self.coordinator.hass.states.get(entity_id)
                     current_mode = None
@@ -310,9 +287,7 @@ class ActionExecutor:
                                 entity_id,
                                 e,
                             )
-                except (
-                    Exception
-                ) as e:  # defensive - don't break main flow for unexpected state issues
+                except Exception as e:  # defensive - don't break main flow for unexpected state issues
                     _LOGGER.debug("Could not verify hvac_mode for %s: %s", entity_id, e)
 
             _store_context()
@@ -359,9 +334,5 @@ class ActionExecutor:
             KeyError,
             HomeAssistantError,
         ) as e:
-            _LOGGER.exception(
-                "Fallback climate.%s failed for %s: %s", service, entity_id, e
-            )
-            raise HomeAssistantError(
-                f"Failed to {service} {entity_id} - entity unavailable or unresponsive"
-            )
+            _LOGGER.exception("Fallback climate.%s failed for %s: %s", service, entity_id, e)
+            raise HomeAssistantError(f"Failed to {service} {entity_id} - entity unavailable or unresponsive")

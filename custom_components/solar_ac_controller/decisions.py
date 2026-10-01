@@ -93,7 +93,7 @@ class DecisionEngine:
         try:
             export_val = float(export)
             required_export_val = float(required_export)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return 0.0
 
         now = dt_util.utcnow().timestamp()
@@ -128,33 +128,23 @@ class DecisionEngine:
         if getattr(self.coordinator, "samples", 0) > 0:
             raw_bonus = self.coordinator.samples * DECISION_SAMPLE_BONUS_MULTIPLIER
             # Soft ramp: full bonus at export_margin >= 0, fades to zero at -RAMP_W
-            sample_factor = max(
-                0.0, min(1.0, 1.0 + export_margin / DECISION_SAMPLE_BONUS_RAMP_W)
-            )
-            sample_bonus = (
-                min(DECISION_SAMPLE_BONUS_MAX, raw_bonus) * bonus_scale * sample_factor
-            )
+            sample_factor = max(0.0, min(1.0, 1.0 + export_margin / DECISION_SAMPLE_BONUS_RAMP_W))
+            sample_bonus = min(DECISION_SAMPLE_BONUS_MAX, raw_bonus) * bonus_scale * sample_factor
 
         # EMA stability bonus: reward when fast EMA close to slow EMA (stable power)
         stab_denom = max(DECISION_STABILITY_DENOM_MIN, abs(ema_slow))
-        stability_score = max(
-            0.0, 1.0 - (abs(ema_fast - ema_slow) / (stab_denom + 1e-6))
-        )
+        stability_score = max(0.0, 1.0 - (abs(ema_fast - ema_slow) / (stab_denom + 1e-6)))
         ema_bonus = stability_score * DECISION_EMA_BONUS_MULTIPLIER * bonus_scale
 
         # Short-cycle penalty (large negative value when recently toggled)
         short_cycle_penalty = (
-            DECISION_SHORT_CYCLE_PENALTY_ADD * penalty_scale
-            if self._is_short_cycling_for_add(last_zone)
-            else 0.0
+            DECISION_SHORT_CYCLE_PENALTY_ADD * penalty_scale if self._is_short_cycling_for_add(last_zone) else 0.0
         )
 
         # Compressor recovery penalty (decays linearly until recover_until)
         comp_penalty = 0.0
         try:
-            recover_until = float(
-                getattr(self.coordinator, "compressor_recover_until", 0) or 0
-            )
+            recover_until = float(getattr(self.coordinator, "compressor_recover_until", 0) or 0)
             ramp = float(getattr(self.coordinator, "compressor_ramp_seconds", 0) or 0)
             if ramp > 0 and recover_until > now:
                 frac = max(0.0, min(1.0, (recover_until - now) / ramp))
@@ -183,8 +173,7 @@ class DecisionEngine:
             if solar_slope < -SOLAR_SLOPE_CLOUD_THRESHOLD_W:
                 depth = min(
                     1.0,
-                    (-solar_slope - SOLAR_SLOPE_CLOUD_THRESHOLD_W)
-                    / SOLAR_SLOPE_CLOUD_THRESHOLD_W,
+                    (-solar_slope - SOLAR_SLOPE_CLOUD_THRESHOLD_W) / SOLAR_SLOPE_CLOUD_THRESHOLD_W,
                 )
                 cloud_penalty = -SOLAR_CLOUD_ADD_PENALTY_MAG * depth * penalty_scale
         except Exception as exc:  # pragma: no cover
@@ -198,12 +187,8 @@ class DecisionEngine:
         try:
             fraction = getattr(self.coordinator, "solar_fraction", 0.0)
             if fraction > SOLAR_FRACTION_BONUS_THRESHOLD:
-                depth_f = (fraction - SOLAR_FRACTION_BONUS_THRESHOLD) / (
-                    1.0 - SOLAR_FRACTION_BONUS_THRESHOLD
-                )
-                solar_fraction_bonus = (
-                    SOLAR_FRACTION_ADD_BONUS_MAX * depth_f * bonus_scale
-                )
+                depth_f = (fraction - SOLAR_FRACTION_BONUS_THRESHOLD) / (1.0 - SOLAR_FRACTION_BONUS_THRESHOLD)
+                solar_fraction_bonus = SOLAR_FRACTION_ADD_BONUS_MAX * depth_f * bonus_scale
         except Exception as exc:  # pragma: no cover
             _LOGGER.debug("solar_fraction_bonus calculation failed: %s", exc)
             solar_fraction_bonus = 0.0
@@ -212,10 +197,7 @@ class DecisionEngine:
         ac_stability_bonus = 0.0
         try:
             variability = abs(ema_fast - ema_slow)
-            if (
-                variability <= DECISION_AC_STABILITY_THRESHOLD_W
-                and abs(ema_slow) > DECISION_AC_STABILITY_THRESHOLD_W
-            ):
+            if variability <= DECISION_AC_STABILITY_THRESHOLD_W and abs(ema_slow) > DECISION_AC_STABILITY_THRESHOLD_W:
                 ac_stability_bonus = DECISION_AC_STABILITY_BONUS * bonus_scale
         except Exception as exc:  # pragma: no cover
             _LOGGER.debug("ac_stability_bonus calculation failed: %s", exc)
@@ -297,12 +279,7 @@ class DecisionEngine:
         zone_power = 1500.0  # default
         if last_zone:
             zone_short = last_zone.split(".")[-1]
-            zone_power = (
-                self.coordinator.get_learned_power(
-                    zone_short, self.coordinator.season_mode
-                )
-                or 1500.0
-            )
+            zone_power = self.coordinator.get_learned_power(zone_short, self.coordinator.season_mode) or 1500.0
 
         _, import_div = self._get_dynamic_weight(zone_power)
 
@@ -321,19 +298,10 @@ class DecisionEngine:
         # two never fight each other: bonus fires only when import exceeds the
         # level at which we'd still consider adding a zone.
         # threshold = (a × 700) + 350  →  a=0: 350W, a=0.5: 700W, a=1.0: 1050W
-        heavy_import_threshold = (
-            float(a) * DECISION_IMPORT_TOLERANCE_MAX_W
-            + DECISION_HEAVY_IMPORT_HEADROOM_W
-        )
-        heavy_import_bonus = (
-            DECISION_HEAVY_IMPORT_BONUS * bonus_scale
-            if import_power > heavy_import_threshold
-            else 0.0
-        )
+        heavy_import_threshold = float(a) * DECISION_IMPORT_TOLERANCE_MAX_W + DECISION_HEAVY_IMPORT_HEADROOM_W
+        heavy_import_bonus = DECISION_HEAVY_IMPORT_BONUS * bonus_scale if import_power > heavy_import_threshold else 0.0
         short_cycle_penalty = (
-            DECISION_SHORT_CYCLE_PENALTY_REMOVE * penalty_scale
-            if self._is_short_cycling_for_remove(last_zone)
-            else 0.0
+            DECISION_SHORT_CYCLE_PENALTY_REMOVE * penalty_scale if self._is_short_cycling_for_remove(last_zone) else 0.0
         )
 
         # Transient load-spike suppression: when solar production is stable but the
@@ -349,13 +317,8 @@ class DecisionEngine:
             # Only suppress when solar is stable AND import is small enough that a
             # household transient (kettle, oven burst) is the plausible cause.
             # Above SOLAR_TRANSIENT_IMPORT_CEILING_W the load is sustained, not a spike.
-            if (
-                abs(solar_slope) < SOLAR_STABLE_THRESHOLD_W
-                and 0 < import_power < SOLAR_TRANSIENT_IMPORT_CEILING_W
-            ):
-                transient_suppress = (
-                    -SOLAR_TRANSIENT_REMOVE_SUPPRESS_MAG * penalty_scale
-                )
+            if abs(solar_slope) < SOLAR_STABLE_THRESHOLD_W and 0 < import_power < SOLAR_TRANSIENT_IMPORT_CEILING_W:
+                transient_suppress = -SOLAR_TRANSIENT_REMOVE_SUPPRESS_MAG * penalty_scale
         except Exception as exc:  # pragma: no cover
             _LOGGER.debug("transient_suppress calculation failed: %s", exc)
             transient_suppress = 0.0
@@ -370,12 +333,8 @@ class DecisionEngine:
             ema_slow = getattr(self.coordinator, "ema_5m", 0.0)
             if ema_fast > 0 and ema_slow > 0:
                 stab_denom = max(DECISION_STABILITY_DENOM_MIN, abs(ema_slow))
-                stability_score = max(
-                    0.0, 1.0 - (abs(ema_fast - ema_slow) / (stab_denom + 1e-6))
-                )
-                import_ema_bonus = (
-                    stability_score * DECISION_EMA_BONUS_MULTIPLIER * bonus_scale
-                )
+                stability_score = max(0.0, 1.0 - (abs(ema_fast - ema_slow) / (stab_denom + 1e-6)))
+                import_ema_bonus = stability_score * DECISION_EMA_BONUS_MULTIPLIER * bonus_scale
         except Exception as exc:  # pragma: no cover
             _LOGGER.debug("import_ema_bonus calculation failed: %s", exc)
             import_ema_bonus = 0.0
@@ -387,12 +346,8 @@ class DecisionEngine:
         try:
             fraction = getattr(self.coordinator, "solar_fraction", 0.0)
             if fraction > SOLAR_FRACTION_BONUS_THRESHOLD:
-                depth_f = (fraction - SOLAR_FRACTION_BONUS_THRESHOLD) / (
-                    1.0 - SOLAR_FRACTION_BONUS_THRESHOLD
-                )
-                solar_fraction_suppress = (
-                    -SOLAR_FRACTION_REMOVE_SUPPRESS_MAX * depth_f * penalty_scale
-                )
+                depth_f = (fraction - SOLAR_FRACTION_BONUS_THRESHOLD) / (1.0 - SOLAR_FRACTION_BONUS_THRESHOLD)
+                solar_fraction_suppress = -SOLAR_FRACTION_REMOVE_SUPPRESS_MAX * depth_f * penalty_scale
         except Exception as exc:  # pragma: no cover
             _LOGGER.debug("solar_fraction_suppress calculation failed: %s", exc)
             solar_fraction_suppress = 0.0
@@ -440,21 +395,15 @@ class DecisionEngine:
             pass
         return max(0.0, min(100.0, raw))
 
-    async def should_add_zone(
-        self, next_zone: str, required_export: float | None
-    ) -> bool:
+    async def should_add_zone(self, next_zone: str, required_export: float | None) -> bool:
         """Return True if add zone conditions are met using unified confidence only."""
         # Decision is driven by unified confidence computed in coordinator loop.
         # This method simply returns whether the unified confidence meets the add threshold.
-        return getattr(self.coordinator, "confidence", 0.0) >= getattr(
-            self.coordinator, "unified_add_threshold", 0.0
-        )
+        return getattr(self.coordinator, "confidence", 0.0) >= getattr(self.coordinator, "unified_add_threshold", 0.0)
 
     # Multi-zone addition/abundance logic removed — single-zone additions only.
 
-    async def should_remove_zone(
-        self, last_zone: str, import_power: float, active_zones: list[str]
-    ) -> bool:
+    async def should_remove_zone(self, last_zone: str, import_power: float, active_zones: list[str]) -> bool:
         """
         Return True if remove zone conditions are met.
 
@@ -498,9 +447,7 @@ class DecisionEngine:
         """Check if zone is short-cycling (for remove penalty)."""
         return self._is_short_cycling_for_add(zone)
 
-    async def should_swap_zone(
-        self, satisfied_zone: str, import_power: float
-    ) -> str | None:
+    async def should_swap_zone(self, satisfied_zone: str, import_power: float) -> str | None:
         """
         Check if we should swap a satisfied zone with a higher-priority needy zone.
 
@@ -537,28 +484,19 @@ class DecisionEngine:
         available_zones = [
             z
             for z in self.coordinator.config.get(CONF_ZONES, [])
-            if z not in active_zones
-            and not await self.coordinator.zone_manager.is_locked(z)
+            if z not in active_zones and not await self.coordinator.zone_manager.is_locked(z)
         ]
 
-        satisfied_zone_priority = self.coordinator.zone_priorities.get(
-            satisfied_zone.split(".")[-1], 999
-        )
+        satisfied_zone_priority = self.coordinator.zone_priorities.get(satisfied_zone.split(".")[-1], 999)
 
         # Trigger 1: comfort swap — satisfied_zone has reached its target temperature.
-        satisfied_at_target = self.coordinator.zone_manager.is_zone_at_target_stable(
-            satisfied_zone
-        )
+        satisfied_at_target = self.coordinator.zone_manager.is_zone_at_target_stable(satisfied_zone)
         if satisfied_at_target:
             for zone in sorted(
                 available_zones,
-                key=lambda z: self.coordinator.zone_priorities.get(
-                    z.split(".")[-1], 999
-                ),
+                key=lambda z: self.coordinator.zone_priorities.get(z.split(".")[-1], 999),
             ):
-                if self.coordinator.zone_manager.does_zone_need_heating(
-                    zone
-                ) and self._power_compatible_for_swap(zone):
+                if self.coordinator.zone_manager.does_zone_need_heating(zone) and self._power_compatible_for_swap(zone):
                     return cast(str, zone)
 
         # Trigger 2: priority-inversion swap — a higher-priority zone needs heating
@@ -568,9 +506,7 @@ class DecisionEngine:
             available_zones,
             key=lambda z: self.coordinator.zone_priorities.get(z.split(".")[-1], 999),
         ):
-            zone_priority = self.coordinator.zone_priorities.get(
-                zone.split(".")[-1], 999
-            )
+            zone_priority = self.coordinator.zone_priorities.get(zone.split(".")[-1], 999)
             if (
                 zone_priority < satisfied_zone_priority
                 and self.coordinator.zone_manager.does_zone_need_heating(zone)
@@ -583,18 +519,13 @@ class DecisionEngine:
     def _power_compatible_for_swap(self, zone: str) -> bool:
         """Check if zone's power requirements are compatible for swapping."""
         zone_name = zone.split(".")[-1]
-        zone_power = self.coordinator.get_learned_power(
-            zone_name, self.coordinator.season_mode
-        )
+        zone_power = self.coordinator.get_learned_power(zone_name, self.coordinator.season_mode)
 
         # For multi-split: first zone typically draws most power
         # Allow swap if new zone power is <= current highest power zone + buffer
         active_zones = self.coordinator.active_zones
         active_powers = [
-            self.coordinator.get_learned_power(
-                z.split(".")[-1], self.coordinator.season_mode
-            )
-            for z in active_zones
+            self.coordinator.get_learned_power(z.split(".")[-1], self.coordinator.season_mode) for z in active_zones
         ]
         max_active_power = max(active_powers) if active_powers else 0
 

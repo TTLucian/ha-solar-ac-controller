@@ -145,9 +145,7 @@ async def test_async_setup_entry_creates_coordinator() -> None:
     assert DOMAIN in hass.data
     assert entry.entry_id in hass.data[DOMAIN]
     coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
-    assert isinstance(
-        coordinator, SolarACCoordinator
-    ), "hass.data entry must contain a SolarACCoordinator"
+    assert isinstance(coordinator, SolarACCoordinator), "hass.data entry must contain a SolarACCoordinator"
 
 
 @pytest.mark.asyncio
@@ -194,10 +192,9 @@ async def test_setup_survives_partial_stored_learned_power() -> None:
     learned = coord.learned_power["zone1"]
     assert learned["heat"] == pytest.approx(1200.0)
     # Absent modes are backfilled from initial_learned_power, not zeroed.
-    assert learned["default"] == pytest.approx(
-        coord.initial_learned_power
-    )
+    assert learned["default"] == pytest.approx(coord.initial_learned_power)
     assert learned["cool"] == pytest.approx(coord.initial_learned_power)
+
 
 @pytest.mark.asyncio
 async def test_async_setup_entry_forwards_all_platforms() -> None:
@@ -231,9 +228,9 @@ async def test_async_setup_entry_forwards_all_platforms() -> None:
     _, call_args, _ = hass.config_entries.async_forward_entry_setups.mock_calls[0]
     forwarded_entry, forwarded_platforms = call_args
     assert forwarded_entry is entry
-    assert set(forwarded_platforms) == set(
-        ALL_PLATFORMS
-    ), f"Expected platforms {ALL_PLATFORMS}, got {forwarded_platforms}"
+    assert set(forwarded_platforms) == set(ALL_PLATFORMS), (
+        f"Expected platforms {ALL_PLATFORMS}, got {forwarded_platforms}"
+    )
 
 
 @pytest.mark.asyncio

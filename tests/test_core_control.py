@@ -164,17 +164,11 @@ def test_short_cycle_penalty_applied_when_zone_recently_turned_on() -> None:
     engine_sc = DecisionEngine(coord_sc)  # type: ignore[arg-type]
     engine_clean = DecisionEngine(coord_clean)  # type: ignore[arg-type]
 
-    conf_with_sc = engine_sc.compute_add_conf(
-        export=2000.0, required_export=1000.0, last_zone=zone
-    )
-    conf_without_sc = engine_clean.compute_add_conf(
-        export=2000.0, required_export=1000.0, last_zone=zone
-    )
+    conf_with_sc = engine_sc.compute_add_conf(export=2000.0, required_export=1000.0, last_zone=zone)
+    conf_without_sc = engine_clean.compute_add_conf(export=2000.0, required_export=1000.0, last_zone=zone)
 
     # Short-cycle protection reduces the score
-    assert (
-        conf_with_sc < conf_without_sc
-    ), f"Expected sc penalty: {conf_with_sc:.2f} < {conf_without_sc:.2f}"
+    assert conf_with_sc < conf_without_sc, f"Expected sc penalty: {conf_with_sc:.2f} < {conf_without_sc:.2f}"
 
 
 def test_short_cycle_penalty_applied_when_zone_recently_turned_off() -> None:
@@ -194,13 +188,9 @@ def test_short_cycle_penalty_applied_when_zone_recently_turned_off() -> None:
     engine_clean = DecisionEngine(coord_clean)  # type: ignore[arg-type]
 
     conf_with_sc = engine_sc.compute_remove_conf(import_power=1500.0, last_zone=zone)
-    conf_without_sc = engine_clean.compute_remove_conf(
-        import_power=1500.0, last_zone=zone
-    )
+    conf_without_sc = engine_clean.compute_remove_conf(import_power=1500.0, last_zone=zone)
 
-    assert (
-        conf_with_sc < conf_without_sc
-    ), f"Expected sc penalty: {conf_with_sc:.2f} < {conf_without_sc:.2f}"
+    assert conf_with_sc < conf_without_sc, f"Expected sc penalty: {conf_with_sc:.2f} < {conf_without_sc:.2f}"
 
 
 # ---------------------------------------------------------------------------
@@ -222,9 +212,7 @@ def _panic_coordinator(
     coord._panic_task = None
     coord._panic_active = False
     coord._state_lock = asyncio.Lock()
-    coord.create_background_task = MagicMock(
-        side_effect=lambda coro: asyncio.ensure_future(coro)
-    )
+    coord.create_background_task = MagicMock(side_effect=lambda coro: asyncio.ensure_future(coro))
     coord._log = AsyncMock()
     coord.last_action = "balanced"
     coord.active_zones = ["climate.z1"]
@@ -284,9 +272,7 @@ async def test_panic_schedule_creates_task() -> None:
     )
 
     # Stub hass.states
-    coord.hass = SimpleNamespace(
-        states=SimpleNamespace(get=MagicMock(return_value=None))
-    )
+    coord.hass = SimpleNamespace(states=SimpleNamespace(get=MagicMock(return_value=None)))
 
     mgr = PanicManager(coord)
     await mgr.schedule_panic(["climate.z1"])
@@ -298,7 +284,7 @@ async def test_panic_schedule_creates_task() -> None:
         t.cancel()
         try:
             await t
-        except (asyncio.CancelledError, Exception):
+        except asyncio.CancelledError, Exception:
             pass
 
 
@@ -418,13 +404,9 @@ def _master_coordinator(
 
     # config_manager stub
     coord.config_manager = SimpleNamespace(
-        get=MagicMock(
-            side_effect=lambda k, *a: ac_switch if k == "ac_switch" else None
-        ),
+        get=MagicMock(side_effect=lambda k, *a: ac_switch if k == "ac_switch" else None),
         get_float=MagicMock(
-            side_effect=lambda k, default: (
-                solar_on if "on" in k else (solar_off if "off" in k else default)
-            )
+            side_effect=lambda k, default: solar_on if "on" in k else (solar_off if "off" in k else default)
         ),
         get_list=MagicMock(return_value=[]),  # no zones → safe to cut power
     )
@@ -458,9 +440,7 @@ async def test_master_switch_turns_off_when_solar_below_threshold() -> None:
     """When solar ≤ off_threshold and switch is on, turn_off must be called."""
     coord = _master_coordinator(switch_state="on", solar_on=1200.0, solar_off=500.0)
     # configure the off_threshold check
-    coord.config_manager.get_float = MagicMock(
-        side_effect=lambda k, default: 1200.0 if "on" in k else 500.0
-    )
+    coord.config_manager.get_float = MagicMock(side_effect=lambda k, default: 1200.0 if "on" in k else 500.0)
     ctrl = MasterSwitchController(coord)
 
     await ctrl.handle_master_switch(solar=200.0, cycle_start=0)
@@ -525,9 +505,7 @@ def test_sensor_unavailable_raises_when_state_is_unavailable() -> None:
 
     coord = _sensor_coordinator()
     with pytest.raises(SensorUnavailableError):
-        SolarACCoordinator._validate_sensor_state(
-            coord, _state("unavailable"), "Solar sensor"
-        )
+        SolarACCoordinator._validate_sensor_state(coord, _state("unavailable"), "Solar sensor")
 
 
 def test_sensor_unavailable_raises_when_state_is_unknown() -> None:
@@ -536,9 +514,7 @@ def test_sensor_unavailable_raises_when_state_is_unknown() -> None:
 
     coord = _sensor_coordinator()
     with pytest.raises(SensorUnavailableError):
-        SolarACCoordinator._validate_sensor_state(
-            coord, _state("unknown"), "AC power sensor"
-        )
+        SolarACCoordinator._validate_sensor_state(coord, _state("unknown"), "AC power sensor")
 
 
 def test_sensor_invalid_raises_when_state_is_not_numeric() -> None:
@@ -547,9 +523,7 @@ def test_sensor_invalid_raises_when_state_is_not_numeric() -> None:
 
     coord = _sensor_coordinator()
     with pytest.raises(SensorInvalidError):
-        SolarACCoordinator._validate_sensor_state(
-            coord, _state("foobar"), "Solar sensor"
-        )
+        SolarACCoordinator._validate_sensor_state(coord, _state("foobar"), "Solar sensor")
 
 
 def test_sensor_valid_state_returns_float() -> None:
@@ -557,9 +531,7 @@ def test_sensor_valid_state_returns_float() -> None:
     from custom_components.solar_ac_controller.coordinator import SolarACCoordinator
 
     coord = _sensor_coordinator()
-    result = SolarACCoordinator._validate_sensor_state(
-        coord, _state("1234.5"), "Solar sensor"
-    )
+    result = SolarACCoordinator._validate_sensor_state(coord, _state("1234.5"), "Solar sensor")
     assert result == pytest.approx(1234.5)
 
 
@@ -575,9 +547,7 @@ def _lock_coordinator(lock_until: float | None) -> Any:
     coord.zone_manual_lock_until = {}
     if lock_until is not None:
         coord.zone_manual_lock_until["climate.z1"] = lock_until
-    coord.create_background_task = MagicMock(
-        side_effect=lambda coro: asyncio.ensure_future(coro)
-    )
+    coord.create_background_task = MagicMock(side_effect=lambda coro: asyncio.ensure_future(coro))
     coord._log = AsyncMock()
     return coord
 

@@ -116,8 +116,7 @@ class LearningSession:
                         self._contamination_timestamp = now
                     self._zones_changed_during_learning.append((zone, action))
                     _LOGGER.warning(
-                        f"Zone {zone} {action} during learning of {self._zone} - "
-                        f"learning results may be contaminated"
+                        f"Zone {zone} {action} during learning of {self._zone} - learning results may be contaminated"
                     )
                     # Also log to coordinator for logbook visibility
                     log_fn = cast(
@@ -129,7 +128,7 @@ class LearningSession:
                             await log_fn(
                                 f"[LEARNING_CONTAMINATION] zone={zone} action={action} during learning of {self._zone}"
                             )
-                        except (AttributeError, TypeError, ValueError):
+                        except AttributeError, TypeError, ValueError:
                             pass
 
     async def is_learning_contaminated(self) -> bool:
@@ -198,26 +197,15 @@ class LearningSession:
                             "[LEARNING_PHASE] peak_locked zone=%s peak_power=%.1fW time_to_peak=%s",
                             self._zone,
                             self._peak_power,
-                            (
-                                round(now - self._start_time, 1)
-                                if self._start_time
-                                else "?"
-                            ),
+                            (round(now - self._start_time, 1) if self._start_time else "?"),
                         )
                     if self._time_to_peak is None and self._start_time is not None:
                         self._time_to_peak = now - self._start_time
 
             # Detect stabilization (low variation in recent readings)
-            if (
-                len(self._power_readings) >= STABILIZATION_READING_COUNT
-            ):  # 2 minutes at 5s intervals
+            if len(self._power_readings) >= STABILIZATION_READING_COUNT:  # 2 minutes at 5s intervals
                 # deque does not support slicing; convert tail to list
-                recent_readings = [
-                    p
-                    for _, p in list(self._power_readings)[
-                        -STABILIZATION_READING_COUNT:
-                    ]
-                ]
+                recent_readings = [p for _, p in list(self._power_readings)[-STABILIZATION_READING_COUNT:]]
                 avg_power = sum(recent_readings) / len(recent_readings)
                 max_variation = max(recent_readings) - min(recent_readings)
 
@@ -232,11 +220,7 @@ class LearningSession:
                             "[LEARNING_PHASE] stabilized zone=%s stabilized_power=%.1fW elapsed=%ss",
                             self._zone,
                             avg_power,
-                            (
-                                round(now - self._start_time, 1)
-                                if self._start_time
-                                else "?"
-                            ),
+                            (round(now - self._start_time, 1) if self._start_time else "?"),
                         )
 
     async def get_peak_power(self) -> float:
@@ -266,9 +250,7 @@ class SolarACController:
     All learning state is managed on the coordinator.
     """
 
-    def __init__(
-        self, hass: HomeAssistant, coordinator: Any, store: Any | None = None
-    ) -> None:
+    def __init__(self, hass: HomeAssistant, coordinator: Any, store: Any | None = None) -> None:
         """Initialize controller with Home Assistant, coordinator, and optional store."""
         self.hass = hass
         self.coordinator = coordinator
@@ -284,9 +266,7 @@ class SolarACController:
         """Synchronous check if learning is active."""
         return self.session._active
 
-    async def start_learning(
-        self, zone_entity_id: str, ac_power_before: float | None
-    ) -> None:
+    async def start_learning(self, zone_entity_id: str, ac_power_before: float | None) -> None:
         """Begin learning for a zone, storing baseline power and initializing phase detection."""
         if await self.session.is_active():
             _LOGGER.debug(
@@ -297,7 +277,7 @@ class SolarACController:
 
         try:
             baseline = float(ac_power_before) if ac_power_before is not None else None
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             baseline = None
             _LOGGER.debug("start_learning: invalid ac_power_before=%s", ac_power_before)
 
@@ -355,9 +335,7 @@ class SolarACController:
             stabilized_detected = self.session._stabilized_detected
             stabilization_timestamp = self.session._stabilization_timestamp
             peak_power = self.session._peak_power if peak_detected else 0.0
-            stabilized_power = (
-                self.session._stabilized_power if stabilized_detected else 0.0
-            )
+            stabilized_power = self.session._stabilized_power if stabilized_detected else 0.0
             time_to_peak = self.session._time_to_peak
         # Lock is released here — all subsequent operations are lock-free.
 
@@ -406,7 +384,7 @@ class SolarACController:
                             f"[LEARNING_CONTAMINATION] zone={zone} action=discard_all "
                             f"contaminated_by={contaminated_changes}"
                         )
-                    except (AttributeError, TypeError, ValueError):
+                    except AttributeError, TypeError, ValueError:
                         pass
                 await self._reset_learning_state_async()
                 return LearningResult(
@@ -430,13 +408,11 @@ class SolarACController:
                             f"[LEARNING_CONTAMINATION] zone={zone} action=use_peak_only "
                             f"contaminated_by={contaminated_changes}"
                         )
-                    except (AttributeError, TypeError, ValueError):
+                    except AttributeError, TypeError, ValueError:
                         pass
             elif not peak_valid and stabilization_valid:
                 # This shouldn't happen with current logic, but handle it
-                _LOGGER.warning(
-                    f"Peak invalid but stabilization valid for {zone} - using stabilization"
-                )
+                _LOGGER.warning(f"Peak invalid but stabilization valid for {zone} - using stabilization")
                 # Also log to coordinator for logbook visibility
                 log_fn = cast(
                     Callable[[str], Awaitable[None]] | None,
@@ -448,17 +424,12 @@ class SolarACController:
                             f"[LEARNING_CONTAMINATION] zone={zone} action=use_stabilization "
                             f"contaminated_by={contaminated_changes}"
                         )
-                    except (AttributeError, TypeError, ValueError):
+                    except AttributeError, TypeError, ValueError:
                         pass
 
         # Calculate learned power: average of valid measurements, or use whichever is available
         learned_power: float | None = None
-        if (
-            peak_valid
-            and peak_power > 0
-            and stabilization_valid
-            and stabilized_power > 0
-        ):
+        if peak_valid and peak_power > 0 and stabilization_valid and stabilized_power > 0:
             # Both valid: use average for balanced estimate
             learned_power = (peak_power + stabilized_power) / 2
             _LOGGER.debug(
@@ -478,21 +449,15 @@ class SolarACController:
             ema = getattr(self.coordinator, "ema_30s", None)
             try:
                 learned_power = float(ema) if ema is not None else None
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 learned_power = None
 
         if learned_power is None or learned_power <= 0:
-            _LOGGER.debug(
-                "Unable to determine learned power from phase detection or EMA"
-            )
+            _LOGGER.debug("Unable to determine learned power from phase detection or EMA")
             await self._reset_learning_state_async()
-            return LearningResult(
-                False, error_message="Unable to determine learned power"
-            )
+            return LearningResult(False, error_message="Unable to determine learned power")
 
-        assert (
-            learned_power is not None
-        )  # At this point, learned_power is guaranteed to be a float
+        assert learned_power is not None  # At this point, learned_power is guaranteed to be a float
 
         ac_before = getattr(self.coordinator, "ac_power_before", None)
         if ac_before is None:
@@ -502,16 +467,12 @@ class SolarACController:
 
         # Calculate deltas for peak and stabilized power
         peak_delta = (peak_power - ac_before) if peak_valid and peak_power > 0 else None
-        stabilized_delta = (
-            (stabilized_power - ac_before)
-            if stabilization_valid and stabilized_power > 0
-            else None
-        )
+        stabilized_delta = (stabilized_power - ac_before) if stabilization_valid and stabilized_power > 0 else None
 
         # Calculate delta (learned power - baseline)
         try:
             delta = abs(float(learned_power) - float(ac_before))
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             _LOGGER.debug("Failed to compute power delta")
             await self._reset_learning_state_async()
             return LearningResult(False, error_message="Failed to compute power delta")
@@ -532,17 +493,13 @@ class SolarACController:
                 MAX_W,
             )
             await self._reset_learning_state_async()
-            return LearningResult(
-                False, error_message=f"Power delta {delta}W outside valid range"
-            )
+            return LearningResult(False, error_message=f"Power delta {delta}W outside valid range")
 
         # Get zone mode for learning
         zone_state_obj = self.hass.states.get(zone)
         mode = None
         if zone_state_obj:
-            hvac_mode = zone_state_obj.attributes.get(
-                "hvac_mode"
-            ) or zone_state_obj.attributes.get("hvac_action")
+            hvac_mode = zone_state_obj.attributes.get("hvac_mode") or zone_state_obj.attributes.get("hvac_action")
             if isinstance(hvac_mode, str):
                 if "heat" in hvac_mode:
                     mode = "heat"
@@ -581,13 +538,9 @@ class SolarACController:
             getattr(self.coordinator, "async_persist_learned_values", None),
         )
         if not (set_lp and callable(set_lp)) or not persist_fn:
-            _LOGGER.error(
-                "Coordinator missing required persistence API; aborting learning save"
-            )
+            _LOGGER.error("Coordinator missing required persistence API; aborting learning save")
             await self._reset_learning_state_async()
-            return LearningResult(
-                False, error_message="Coordinator missing persistence API"
-            )
+            return LearningResult(False, error_message="Coordinator missing persistence API")
 
         try:
             set_lp(
@@ -599,9 +552,7 @@ class SolarACController:
                 peak_delta=peak_delta,
                 stabilized_delta=stabilized_delta,
             )
-            self.coordinator.samples = (
-                int(getattr(self.coordinator, "samples", 0) or 0) + 1
-            )
+            self.coordinator.samples = int(getattr(self.coordinator, "samples", 0) or 0) + 1
             await persist_fn()
             _LOGGER.info(
                 "Finished learning: zone=%s mode=%s category=%s delta=%s samples=%s (peak_delta: %sW, stabilized_delta: %sW, time_to_peak: %ss)",

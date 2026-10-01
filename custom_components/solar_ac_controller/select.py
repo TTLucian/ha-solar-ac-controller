@@ -20,9 +20,7 @@ if TYPE_CHECKING:
 SEASON_OPTIONS = ["heat", "cool"]
 
 
-async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
-) -> None:
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
     domain_data: SolarACData = hass.data[DOMAIN]
     coordinator = domain_data[entry.entry_id]["coordinator"]
     async_add_entities([SeasonModeSelect(coordinator, entry)])

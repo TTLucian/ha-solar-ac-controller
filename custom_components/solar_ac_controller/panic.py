@@ -26,19 +26,14 @@ class PanicManager:
     @property
     def is_panicking(self) -> bool:
         """Return True if a panic task is currently running (zones are being shed)."""
-        return (
-            self.coordinator._panic_task is not None
-            and not self.coordinator._panic_task.done()
-        )
+        return self.coordinator._panic_task is not None and not self.coordinator._panic_task.done()
 
     @property
     def should_panic(self) -> bool:
         """Return True if panic shedding should be triggered."""
         # Use on_count from coordinator if available, else default to 2
         on_count = getattr(self.coordinator, "on_count", 2)
-        return (
-            self.coordinator.ema_30s > self.coordinator.panic_threshold and on_count > 0
-        )
+        return self.coordinator.ema_30s > self.coordinator.panic_threshold and on_count > 0
 
     @property
     def is_in_cooldown(self) -> bool:
@@ -76,10 +71,7 @@ class PanicManager:
         """Schedule panic task if not already running."""
         async with self.coordinator._state_lock:
             self.coordinator._panic_active = True  # Prevent decision overrides
-            task_exists = (
-                self.coordinator._panic_task is not None
-                and not self.coordinator._panic_task.done()
-            )
+            task_exists = self.coordinator._panic_task is not None and not self.coordinator._panic_task.done()
 
         if self.coordinator.last_action != "panic":
             await self.coordinator._log(
@@ -130,11 +122,7 @@ class PanicManager:
             self.coordinator.zone_last_changed[zone] = now_ts
             self.coordinator.zone_last_changed_type[zone] = "off"
             # Notify learning session of panic removal (for contamination detection)
-            await (
-                self.coordinator.controller.session.notify_zone_changed_during_learning(
-                    zone, "panic"
-                )
-            )
+            await self.coordinator.controller.session.notify_zone_changed_during_learning(zone, "panic")
             await asyncio.sleep(self.coordinator.action_delay_seconds)
         end = dt_util.utcnow().timestamp()
         self.coordinator.last_action_start_ts = start
@@ -160,9 +148,7 @@ class PanicManager:
             if ac_switch:
                 st = self.coordinator.hass.states.get(ac_switch)
                 if st and st.state == "off":
-                    await self.coordinator._log(
-                        "[PANIC_ABORTED] master switch turned off during panic delay"
-                    )
+                    await self.coordinator._log("[PANIC_ABORTED] master switch turned off during panic delay")
                     return
 
             if self._cancel_requested:
@@ -171,9 +157,7 @@ class PanicManager:
 
             # Abort if integration was disabled while waiting for the panic delay
             if not getattr(self.coordinator, "integration_enabled", True):
-                await self.coordinator._log(
-                    "[PANIC_ABORTED] integration disabled during panic delay"
-                )
+                await self.coordinator._log("[PANIC_ABORTED] integration disabled during panic delay")
                 return
 
             if self.coordinator.ema_30s > self.coordinator.panic_threshold:
@@ -183,10 +167,8 @@ class PanicManager:
                 try:
                     if getattr(self.coordinator, "controller", None) is not None:
                         await self.coordinator.controller._reset_learning_state_async()
-                except (AttributeError, asyncio.CancelledError):
-                    _LOGGER.debug(
-                        "Controller reset learning method failed or controller not set"
-                    )
+                except AttributeError, asyncio.CancelledError:
+                    _LOGGER.debug("Controller reset learning method failed or controller not set")
 
                 now_ts = dt_util.utcnow().timestamp()
                 self.coordinator.last_panic_ts = now_ts

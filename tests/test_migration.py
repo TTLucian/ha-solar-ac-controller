@@ -52,6 +52,7 @@ async def test_migrate_preserves_other_keys() -> None:
     assert out["custom_key"] == "value"
     assert out["learned_power"]["zone.a"]["default"] == 1000.0
 
+
 def test_init_learned_data_survives_missing_mode_keys() -> None:
     """Stored zone entries missing default/heat/cool must not crash setup.
 
@@ -79,9 +80,7 @@ def test_init_learned_data_survives_malformed_entries() -> None:
     coord = object.__new__(SolarACCoordinator)
     coord.initial_learned_power = 1000.0
 
-    coord._init_learned_data(
-        {"learned_power": {"bad": 1234.0, "worse": None, "empty": {}}}
-    )
+    coord._init_learned_data({"learned_power": {"bad": 1234.0, "worse": None, "empty": {}}})
 
     for zone in ("bad", "worse", "empty"):
         entry = coord.learned_power[zone]
@@ -159,11 +158,7 @@ async def test_async_migrate_entry_upgrades_v1_entry() -> None:
 
     hass = cast(
         HomeAssistant,
-        SimpleNamespace(
-            config_entries=SimpleNamespace(
-                async_update_entry=MagicMock(side_effect=_update)
-            )
-        ),
+        SimpleNamespace(config_entries=SimpleNamespace(async_update_entry=MagicMock(side_effect=_update))),
     )
 
     assert await async_migrate_entry(hass, cast(Any, entry)) is True
@@ -183,9 +178,7 @@ async def test_async_migrate_entry_rejects_future_version() -> None:
     entry = SimpleNamespace(version=ConfigFlow.VERSION + 1, minor_version=1)
     hass = cast(
         HomeAssistant,
-        SimpleNamespace(
-            config_entries=SimpleNamespace(async_update_entry=MagicMock())
-        ),
+        SimpleNamespace(config_entries=SimpleNamespace(async_update_entry=MagicMock())),
     )
 
     assert await async_migrate_entry(hass, cast(Any, entry)) is False

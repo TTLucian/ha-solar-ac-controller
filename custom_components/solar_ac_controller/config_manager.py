@@ -23,21 +23,21 @@ class ConfigManager:
         """Get configuration value as float."""
         try:
             return float(self.options.get(key, self.data.get(key, default)))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return default
 
     def get_int(self, key: str, default: int) -> int:
         """Get configuration value as int."""
         try:
             return int(self.options.get(key, self.data.get(key, default)))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return default
 
     def get_bool(self, key: str, default: bool) -> bool:
         """Get configuration value as bool."""
         try:
             return bool(self.options.get(key, self.data.get(key, default)))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return default
 
     def get_list(self, key: str, default: list | None = None) -> list:

@@ -43,9 +43,7 @@ CONF_ACTIVITY_LOGGING = "activity_logging"
 
 # Compressor / hardware tuning
 CONF_COMPRESSOR_RAMP_SECONDS = "compressor_ramp_seconds"
-DEFAULT_COMPRESSOR_RAMP_SECONDS = (
-    600  # seconds (10 minutes) - multisplit conservative default
-)
+DEFAULT_COMPRESSOR_RAMP_SECONDS = 600  # seconds (10 minutes) - multisplit conservative default
 
 # High-level tuning: single aggressiveness slider (0.0 conservative -> 1.0 aggressive)
 CONF_AGGRESSIVENESS = "aggressiveness"
@@ -175,9 +173,7 @@ IDLE_POWER_MAX_W = 50.0  # Samples above this are rejected (zone still active)
 IDLE_POWER_SETTLE_SECONDS = 120  # Wait 2 min after last zone-off before sampling
 IDLE_POWER_MIN_SAMPLES = 6  # ~1 min of data required before value is trusted
 SPINDOWN_THRESHOLD_W = 30.0  # ac_power − idle > this → compressor still spinning down
-STRAY_ZONE_THRESHOLD_W = (
-    80.0  # ac_power − idle > this with 0 zones → stray zone warning
-)
+STRAY_ZONE_THRESHOLD_W = 80.0  # ac_power − idle > this with 0 zones → stray zone warning
 
 # Comfort temperature targets (C) - 0.1 increment precision
 DEFAULT_MAX_TEMP_WINTER = 21.0

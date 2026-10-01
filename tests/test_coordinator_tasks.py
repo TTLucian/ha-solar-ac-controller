@@ -10,9 +10,7 @@ from custom_components.solar_ac_controller.coordinator import SolarACCoordinator
 
 class FakeHass:
     class MockLoop:
-        def call_later(
-            self, delay: float, callback: Callable[..., Any], *args: Any
-        ) -> None:
+        def call_later(self, delay: float, callback: Callable[..., Any], *args: Any) -> None:
             callback(*args)
             return None
 

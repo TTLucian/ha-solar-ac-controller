@@ -75,9 +75,7 @@ async def _async_migrate_data(
                     val[mode] = initial_lp
         else:
             # Handle invalid types by setting to default
-            _LOGGER.warning(
-                f"Invalid learned_power value for zone {zone}: {val}, resetting to default"
-            )
+            _LOGGER.warning(f"Invalid learned_power value for zone {zone}: {val}, resetting to default")
             learned_power[zone] = {
                 "default": initial_lp,
                 "heat": initial_lp,
@@ -118,9 +116,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                 zone_names = {z.split(".")[-1] for z in all_configured_zones}
 
                 if zone not in zone_names:
-                    raise ValueError(
-                        f"Zone '{zone}' not found. Available zones: {', '.join(sorted(zone_names))}"
-                    )
+                    raise ValueError(f"Zone '{zone}' not found. Available zones: {', '.join(sorted(zone_names))}")
 
             for entry_dict in domain_data.values():
                 if not isinstance(entry_dict, dict):
@@ -135,31 +131,21 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                             del coordinator.learned_power[zone]
                         if hasattr(coordinator, "samples"):
                             coordinator.samples = 0
-                        persist_fn = getattr(
-                            coordinator, "async_persist_learned_values", None
-                        )
+                        persist_fn = getattr(coordinator, "async_persist_learned_values", None)
                         if persist_fn:
                             await persist_fn()
-                        _LOGGER.info(
-                            f"Force relearn: reset learned power and samples for zone {zone}"
-                        )
+                        _LOGGER.info(f"Force relearn: reset learned power and samples for zone {zone}")
                     else:
                         # Reset all learned power and samples
                         coordinator.learned_power = {}
                         if hasattr(coordinator, "samples"):
                             coordinator.samples = 0
-                        persist_fn = getattr(
-                            coordinator, "async_persist_learned_values", None
-                        )
+                        persist_fn = getattr(coordinator, "async_persist_learned_values", None)
                         if persist_fn:
                             await persist_fn()
-                        _LOGGER.info(
-                            "Force relearn: reset all learned power and samples"
-                        )
+                        _LOGGER.info("Force relearn: reset all learned power and samples")
             # Feedback: expose timestamp and target for the Last Relearn sensor
-            assert (
-                coordinator is not None
-            )  # narrowed above by `if not coordinator: continue`
+            assert coordinator is not None  # narrowed above by `if not coordinator: continue`
             coordinator.last_relearn_at = dt_util.utcnow()
             coordinator.last_relearn_target = zone or "all"
             coordinator.async_update_listeners()
@@ -190,9 +176,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             _LOGGER.info("Migrated zone_temp_sensors from dict to list format")
 
     if needs_update:
-        hass.config_entries.async_update_entry(
-            entry, data=new_data, options=new_options
-        )
+        hass.config_entries.async_update_entry(entry, data=new_data, options=new_options)
 
     # 1. Get Integration Version from manifest
     integration = await async_get_integration(hass, DOMAIN)
@@ -208,7 +192,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     try:
         stored_data = await store.async_load()
-    except (OSError, StorageError):  # pragma: no cover - defensive
+    except OSError, StorageError:  # pragma: no cover - defensive
         _LOGGER.exception("Failed to load stored data; falling back to defaults")
         stored_data = None
 
@@ -234,21 +218,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Use stored_data directly (store.data does not exist)
     stored_data["integration_enabled"] = stored_data.get("integration_enabled", True)
     # 3b. Activity logging enabled state (persisted)
-    stored_data["activity_logging_enabled"] = stored_data.get(
-        "activity_logging_enabled", False
-    )
+    stored_data["activity_logging_enabled"] = stored_data.get("activity_logging_enabled", False)
     # 3c. Season mode state (persisted)
     stored_data["season_mode"] = stored_data.get(
         "season_mode",
-        entry.options.get(
-            CONF_SEASON_MODE, entry.data.get(CONF_SEASON_MODE, DEFAULT_SEASON_MODE)
-        ),
+        entry.options.get(CONF_SEASON_MODE, entry.data.get(CONF_SEASON_MODE, DEFAULT_SEASON_MODE)),
     )
 
     # 4. Save ONCE
     try:
         await store.async_save(stored_data)
-    except (OSError, StorageError):
+    except OSError, StorageError:
         _LOGGER.debug("Skipped save during storage load")
 
     # 3. Create Device (The "Master" record)
@@ -272,9 +252,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Integration enable/disable state (persisted)
     coordinator.integration_enabled = stored_data.get("integration_enabled", True)
-    coordinator.activity_logging_enabled = stored_data.get(
-        "activity_logging_enabled", False
-    )
+    coordinator.activity_logging_enabled = stored_data.get("activity_logging_enabled", False)
 
     hass.data[DOMAIN][entry.entry_id] = {"coordinator": coordinator}
 
@@ -336,9 +314,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # If this was the last instance, clean up the global services
     # We check if DOMAIN is in hass.data and if it has any keys other than the service flag
-    remaining_entries = [
-        k for k in hass.data.get(DOMAIN, {}) if k != "__svc_force_relearn_registered"
-    ]
+    remaining_entries = [k for k in hass.data.get(DOMAIN, {}) if k != "__svc_force_relearn_registered"]
 
     if not remaining_entries:
         for service in ["force_relearn"]:

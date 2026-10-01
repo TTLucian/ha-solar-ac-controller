@@ -15,9 +15,7 @@ if TYPE_CHECKING:
     from .coordinator import SolarACCoordinator
 
 
-async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: Any
-) -> None:
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: Any) -> None:
     domain_data = hass.data[DOMAIN]
     coordinator = domain_data[entry.entry_id]["coordinator"]
     async_add_entities([AggressivenessNumber(coordinator, entry)])
@@ -50,9 +48,7 @@ class AggressivenessNumber(  # pyright: ignore[reportIncompatibleVariableOverrid
     def native_value(  # pyright: ignore[reportIncompatibleVariableOverride]
         self,
     ) -> float:
-        return float(
-            getattr(self.coordinator, "aggressiveness", DEFAULT_AGGRESSIVENESS)
-        )
+        return float(getattr(self.coordinator, "aggressiveness", DEFAULT_AGGRESSIVENESS))
 
     @cached_property
     def native_min_value(self) -> float:

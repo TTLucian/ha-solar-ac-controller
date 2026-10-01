@@ -67,16 +67,12 @@ async def async_setup_entry(
         entities.append(SolarACSolarFractionSensor(coordinator, entry_id))
         for zone in coordinator.config.get(CONF_ZONES, []):
             zone_name = zone.split(".")[-1]
-            entities.append(
-                SolarACZonePeakDeltaSensor(coordinator, entry_id, zone_name)
-            )
+            entities.append(SolarACZonePeakDeltaSensor(coordinator, entry_id, zone_name))
 
     for zone in coordinator.config.get(CONF_ZONES, []):
         zone_name = zone.split(".")[-1]
         entities.append(SolarACLearnedPowerSensor(coordinator, entry_id, zone_name))
-        entities.append(
-            SolarACZoneLockRemainingSensor(coordinator, entry_id, zone_name, zone)
-        )
+        entities.append(SolarACZoneLockRemainingSensor(coordinator, entry_id, zone_name, zone))
 
     if entry.options.get(
         CONF_ENABLE_DIAGNOSTICS_SENSOR,
@@ -144,16 +140,12 @@ class _BaseSolarACSensor(SensorEntity):
         # Prefer Home Assistant's task creation when available
         if getattr(self, "hass", None):
             # Use coordinator's safe task creator when available
-            if getattr(self, "coordinator", None) and hasattr(
-                self.coordinator, "create_background_task"
-            ):
+            if getattr(self, "coordinator", None) and hasattr(self.coordinator, "create_background_task"):
                 self.coordinator.create_background_task(self._smart_write_ha_state())
             else:
                 # Fallback: use coordinator's create_task or hass.async_create_task
                 try:
-                    if getattr(self, "coordinator", None) and hasattr(
-                        self.coordinator, "create_task"
-                    ):
+                    if getattr(self, "coordinator", None) and hasattr(self.coordinator, "create_task"):
                         self.coordinator.create_task(self._smart_write_ha_state())
                     else:
                         self.hass.async_create_task(self._smart_write_ha_state())
@@ -169,7 +161,7 @@ class _BaseSolarACSensor(SensorEntity):
         """Register listener for coordinator updates."""
         try:
             self._unsub = self.coordinator.async_add_listener(self._sync_write_ha_state)
-        except (AttributeError, TypeError):
+        except AttributeError, TypeError:
             await self._smart_write_ha_state()
 
     async def async_will_remove_from_hass(self) -> None:
@@ -193,8 +185,7 @@ class SolarACActiveZonesSensor(_BaseSolarACSensor):
         zones = [
             z
             for z in self.coordinator.config.get(CONF_ZONES, [])
-            if (st := self.coordinator.hass.states.get(z))
-            and st.state in ("heat", "cool", "on")
+            if (st := self.coordinator.hass.states.get(z)) and st.state in ("heat", "cool", "on")
         ]
         return ", ".join(zones) if zones else "none"
 
@@ -318,9 +309,7 @@ class SolarACConfidenceThresholdSensor(_BaseSolarACSensor):
     ) -> dict:
         return {
             "add_threshold": getattr(self.coordinator, "unified_add_threshold", None),
-            "remove_threshold": getattr(
-                self.coordinator, "unified_remove_threshold", None
-            ),
+            "remove_threshold": getattr(self.coordinator, "unified_remove_threshold", None),
         }
 
 
@@ -413,9 +402,7 @@ class SolarACLearnedPowerSensor(_NumericSolarACSensor):
     ) -> float:
         return cast(
             float,
-            self.coordinator.get_learned_power(
-                self.zone_name, self.coordinator.season_mode
-            ),
+            self.coordinator.get_learned_power(self.zone_name, self.coordinator.season_mode),
         )
 
 
@@ -547,13 +534,9 @@ class SolarACDiagnosticEntity(_BaseSolarACSensor):
         if last_action in stable_states:
             return last_action
         elif last_action.startswith("add_") and note:
-            return (
-                f"{last_action}: {note.split(':')[1].strip() if ':' in note else note}"
-            )
+            return f"{last_action}: {note.split(':')[1].strip() if ':' in note else note}"
         elif last_action.startswith("remove_") and note:
-            return (
-                f"{last_action}: {note.split(':')[1].strip() if ':' in note else note}"
-            )
+            return f"{last_action}: {note.split(':')[1].strip() if ':' in note else note}"
         elif note:
             return f"{last_action}: {note}"
 
@@ -597,8 +580,7 @@ class SolarACActiveZoneCountSensor(_BaseSolarACSensor):
         return sum(
             1
             for z in self.coordinator.config.get(CONF_ZONES, [])
-            if (st := self.coordinator.hass.states.get(z))
-            and st.state in ("heat", "cool", "on")
+            if (st := self.coordinator.hass.states.get(z)) and st.state in ("heat", "cool", "on")
         )
 
 
@@ -652,10 +634,7 @@ class SolarACRequiredExportSourceSensor(_BaseSolarACSensor):
     def native_value(  # pyright: ignore[reportIncompatibleVariableOverride]
         self,
     ) -> str:
-        return (
-            getattr(self.coordinator, "required_export_source", "initializing")
-            or "initializing"
-        )
+        return getattr(self.coordinator, "required_export_source", "initializing") or "initializing"
 
 
 class SolarACCompressorRecoverySensor(_BaseSolarACSensor):
@@ -681,9 +660,7 @@ class SolarACCompressorRecoverySensor(_BaseSolarACSensor):
     def native_value(  # pyright: ignore[reportIncompatibleVariableOverride]
         self,
     ) -> float:
-        recover_until = (
-            getattr(self.coordinator, "compressor_recover_until", 0.0) or 0.0
-        )
+        recover_until = getattr(self.coordinator, "compressor_recover_until", 0.0) or 0.0
         remaining = recover_until - dt_util.utcnow().timestamp()
         return float(round(max(0.0, remaining), 1))
 
@@ -724,9 +701,7 @@ class SolarACZoneLockRemainingSensor(_BaseSolarACSensor):
     _attr_native_unit_of_measurement = "s"
     _attr_icon = "mdi:lock-clock"
 
-    def __init__(
-        self, coordinator: Any, entry_id: str, zone_name: str, zone_id: str
-    ) -> None:
+    def __init__(self, coordinator: Any, entry_id: str, zone_name: str, zone_id: str) -> None:
         super().__init__(coordinator, entry_id)
         self._zone_name = zone_name
         self._zone_id = zone_id

@@ -1,7 +1,6 @@
 # custom_components/solar_ac_controller/zone_config_parser.py
 """Zone configuration parsing utilities."""
 
-
 from homeassistant.config_entries import ConfigEntry
 
 
@@ -9,18 +8,13 @@ class ZoneConfigParser:
     """Parses zone-related configuration from config entries."""
 
     @staticmethod
-    def parse_temp_sensors(
-        config_entry: ConfigEntry, zones: list[str]
-    ) -> dict[str, str]:
+    def parse_temp_sensors(config_entry: ConfigEntry, zones: list[str]) -> dict[str, str]:
         """Parse zone temperature sensor mappings."""
         if not isinstance(zones, list) or not all(isinstance(z, str) for z in zones):
             return {}
 
         zone_temp_sensors_list = (
-            config_entry.options.get(
-                "zone_temp_sensors", config_entry.data.get("zone_temp_sensors", [])
-            )
-            or []
+            config_entry.options.get("zone_temp_sensors", config_entry.data.get("zone_temp_sensors", [])) or []
         )
 
         if not isinstance(zone_temp_sensors_list, list):
@@ -36,16 +30,12 @@ class ZoneConfigParser:
         return zone_temp_sensors
 
     @staticmethod
-    def parse_manual_power(
-        config_entry: ConfigEntry, zones: list[str]
-    ) -> dict[str, float]:
+    def parse_manual_power(config_entry: ConfigEntry, zones: list[str]) -> dict[str, float]:
         """Parse zone manual power mappings."""
         if not isinstance(zones, list) or not all(isinstance(z, str) for z in zones):
             return {}
 
-        raw_manual = config_entry.options.get(
-            "zone_manual_power", config_entry.data.get("zone_manual_power", [])
-        )
+        raw_manual = config_entry.options.get("zone_manual_power", config_entry.data.get("zone_manual_power", []))
 
         zone_manual_power = {}
 
@@ -57,7 +47,7 @@ class ZoneConfigParser:
                     if idx < len(zones):
                         try:
                             zone_manual_power[zones[idx]] = float(val)
-                        except (ValueError, TypeError):
+                        except ValueError, TypeError:
                             continue
             else:
                 # Legacy: zone_id:power
@@ -66,20 +56,19 @@ class ZoneConfigParser:
                         zone, val = part.split(":", 1)
                         try:
                             zone_manual_power[zone.strip()] = float(val)
-                        except (ValueError, TypeError):
+                        except ValueError, TypeError:
                             continue
         elif isinstance(raw_manual, (list, tuple)):
             # If all items are numbers, map by index
             if all(
-                isinstance(item, (int, float))
-                or (isinstance(item, str) and item.replace(".", "", 1).isdigit())
+                isinstance(item, (int, float)) or (isinstance(item, str) and item.replace(".", "", 1).isdigit())
                 for item in raw_manual
             ):
                 for idx, val in enumerate(raw_manual):
                     if idx < len(zones):
                         try:
                             zone_manual_power[zones[idx]] = float(val)
-                        except (ValueError, TypeError):
+                        except ValueError, TypeError:
                             continue
             else:
                 for item in list(raw_manual):
@@ -87,7 +76,7 @@ class ZoneConfigParser:
                         zone, val = item.split(":", 1)
                         try:
                             zone_manual_power[zone.strip()] = float(val)
-                        except (ValueError, TypeError):
+                        except ValueError, TypeError:
                             continue
 
         return zone_manual_power

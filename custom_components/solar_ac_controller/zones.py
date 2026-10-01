@@ -58,8 +58,7 @@ class ZoneManager:
                 if stored_ctx_entry is not None:
                     ctx_id, _issued_ts = stored_ctx_entry
                     authored_by_integration = (
-                        state_obj.context.id == ctx_id
-                        or getattr(state_obj.context, "parent_id", None) == ctx_id
+                        state_obj.context.id == ctx_id or getattr(state_obj.context, "parent_id", None) == ctx_id
                     )
 
                 # Fallback: short grace window covers slow/bridged entities where
@@ -69,9 +68,7 @@ class ZoneManager:
                 is_panic = self.coordinator.last_action == "panic"
 
                 if not authored_by_integration and not within_grace and not is_panic:
-                    self.coordinator.zone_manual_lock_until[zone] = (
-                        now_ts + self.coordinator.manual_lock_seconds
-                    )
+                    self.coordinator.zone_manual_lock_until[zone] = now_ts + self.coordinator.manual_lock_seconds
                     self.coordinator._record_zone_action(
                         zone,
                         f"manual_{state}",
@@ -113,9 +110,7 @@ class ZoneManager:
         # Log expiration outside the lock to avoid I/O under lock
         if should_log:
             # Schedule expiration log on HA loop using coordinator helper
-            self.coordinator.create_background_task(
-                self._log_zone_lock_expired(zone_id)
-            )
+            self.coordinator.create_background_task(self._log_zone_lock_expired(zone_id))
 
         return False
 
@@ -126,9 +121,7 @@ class ZoneManager:
             "info",
         )
 
-    async def select_next_and_last_zone(
-        self, active_zones: list[str]
-    ) -> tuple[str | None, str | None]:
+    async def select_next_and_last_zone(self, active_zones: list[str]) -> tuple[str | None, str | None]:
         """
         Return (next_zone, last_zone) based on active and locked zones.
 
@@ -143,11 +136,7 @@ class ZoneManager:
         # Next zone always uses config order (simplest, most predictable)
         next_zone = None
         for z in all_zones:
-            if (
-                z not in active_zones
-                and not await self.is_locked(z)
-                and self._is_zone_available(z)
-            ):
+            if z not in active_zones and not await self.is_locked(z) and self._is_zone_available(z):
                 next_zone = z
                 break
 
@@ -205,18 +194,14 @@ class ZoneManager:
         if zones_at_target:
             candidate_zones = zones_at_target
             # Among removal candidates, sort by comfort margin
-            zones_with_temps = [
-                (z, self.coordinator.zone_current_temps.get(z)) for z in candidate_zones
-            ]
+            zones_with_temps = [(z, self.coordinator.zone_current_temps.get(z)) for z in candidate_zones]
             valid_temp_zones = [(z, t) for z, t in zones_with_temps if t is not None]
             if not valid_temp_zones:
                 # No valid temps among at-target zones, pick the oldest activated one
                 return candidate_zones[-1] if candidate_zones else None
             if self.coordinator.season_mode == "heat":
                 # Heat: remove warmest first (highest temp = most above target)
-                sorted_zones = sorted(
-                    valid_temp_zones, key=lambda x: x[1], reverse=True
-                )
+                sorted_zones = sorted(valid_temp_zones, key=lambda x: x[1], reverse=True)
             else:  # cool
                 # Cool: remove coolest first (lowest temp = most below target)
                 sorted_zones = sorted(valid_temp_zones, key=lambda x: x[1])
@@ -229,9 +214,7 @@ class ZoneManager:
             # For now, return the oldest unlocked zone (last in list)
             return unlocked[-1] if unlocked else None
 
-    def is_short_cycling(
-        self, zone: str | None, bypass_short_cycle: bool = False
-    ) -> bool:
+    def is_short_cycling(self, zone: str | None, bypass_short_cycle: bool = False) -> bool:
         """Return True if a zone is in short-cycle protection.
         If bypass_short_cycle is True, always return False (for panic/critical situations).
         """
@@ -319,10 +302,7 @@ class ZoneManager:
         if current_temp is None:
             return False
 
-        return (
-            current_temp
-            < self.coordinator.max_temp_winter - DECISION_ZONE_NEEDS_HEATING_DIFF
-        )
+        return current_temp < self.coordinator.max_temp_winter - DECISION_ZONE_NEEDS_HEATING_DIFF
 
     def _is_zone_available(self, zone: str) -> bool:
         """Check if a zone entity is available (not unavailable state)."""

@@ -158,10 +158,7 @@ class SolarACLockedBinarySensor(_BaseSolarACBinary):
         # LOCK device class: is_on=True → "Unlocked", is_on=False → "Locked".
         # Return True (unlocked) when no zones are locked; False (locked) when any are.
         now = dt_util.utcnow().timestamp()
-        return not any(
-            until and until > now
-            for until in self.coordinator.zone_manual_lock_until.values()
-        )
+        return not any(until and until > now for until in self.coordinator.zone_manual_lock_until.values())
 
 
 class SolarACExportingBinarySensor(_BaseSolarACBinary):
