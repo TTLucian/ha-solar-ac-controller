@@ -69,10 +69,10 @@ def test_init_learned_data_survives_missing_mode_keys() -> None:
     coord._init_learned_data({"learned_power": {"zone1": {"heat": 1200.0}}})
 
     entry = coord.learned_power["zone1"]
-    assert entry["heat"] == 1200.0
+    assert entry.get("heat") == 1200.0
     # Missing modes are backfilled from initial_learned_power, not zeroed.
-    assert entry["default"] == 1000.0
-    assert entry["cool"] == 1000.0
+    assert entry.get("default") == 1000.0
+    assert entry.get("cool") == 1000.0
 
 
 def test_init_learned_data_survives_malformed_entries() -> None:
@@ -84,9 +84,9 @@ def test_init_learned_data_survives_malformed_entries() -> None:
 
     for zone in ("bad", "worse", "empty"):
         entry = coord.learned_power[zone]
-        assert entry["default"] == 1000.0
-        assert entry["heat"] == 1000.0
-        assert entry["cool"] == 1000.0
+        assert entry.get("default") == 1000.0
+        assert entry.get("heat") == 1000.0
+        assert entry.get("cool") == 1000.0
 
 
 def test_runtime_state_does_not_clobber_persisted_values() -> None:
@@ -117,7 +117,7 @@ def test_runtime_state_does_not_clobber_persisted_values() -> None:
     assert coord.zone_action_history == {"zone1": [{"action": "on"}]}
     # learned_power / samples were never affected, but assert for completeness
     assert coord.samples == 7
-    assert coord.learned_power["zone1"]["cool"] == 900.0
+    assert coord.learned_power["zone1"].get("cool") == 900.0
 
 
 def test_config_entry_version_matches_migration_target() -> None:

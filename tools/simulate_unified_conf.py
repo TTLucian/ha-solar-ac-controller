@@ -129,7 +129,9 @@ with open("log.txt", "r") as f:
 records.sort(key=lambda r: r["ts"])
 
 coordinator = FakeCoordinator()
-engine = DecisionEngine(coordinator)
+# DecisionEngine only reads a handful of attributes, which FakeCoordinator
+# provides; the annotation is stricter than the duck typing this script uses.
+engine = DecisionEngine(coordinator)  # type: ignore[arg-type]  # pyright: ignore[reportArgumentType]
 threshold = 80.0 - (60.0 * coordinator.aggressiveness)
 
 first_add = None

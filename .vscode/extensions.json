@@ -1,0 +1,9 @@
+{
+  "recommendations": [
+    "ms-python.python",
+    "ms-python.vscode-pylance",
+    "github.copilot",
+    "redhat.vscode-yaml",
+    "charliermarsh.ruff"
+  ]
+}
