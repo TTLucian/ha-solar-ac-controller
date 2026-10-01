@@ -19,7 +19,7 @@ _LOGGER = logging.getLogger(__name__)
 class PanicManager:
     """Manages emergency zone shedding when grid import exceeds panic threshold."""
 
-    def __init__(self, coordinator: "SolarACCoordinator") -> None:
+    def __init__(self, coordinator: SolarACCoordinator) -> None:
         self.coordinator = coordinator
         self._cancel_requested = False
 

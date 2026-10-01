@@ -1,7 +1,7 @@
 # custom_components/solar_ac_controller/config_manager.py
 """Configuration management utilities for Solar AC Controller."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 
@@ -40,7 +40,7 @@ class ConfigManager:
         except (TypeError, ValueError):
             return default
 
-    def get_list(self, key: str, default: Optional[List] = None) -> List:
+    def get_list(self, key: str, default: list | None = None) -> list:
         """Get configuration value as list."""
         if default is None:
             default = []
@@ -52,7 +52,7 @@ class ConfigManager:
             return [item.strip() for item in value.split(",") if item.strip()]
         return default
 
-    def get_dict(self, key: str, default: Optional[Dict] = None) -> Dict:
+    def get_dict(self, key: str, default: dict | None = None) -> dict:
         """Get configuration value as dict."""
         if default is None:
             default = {}
@@ -60,6 +60,6 @@ class ConfigManager:
         return value if isinstance(value, dict) else default
 
     @property
-    def config(self) -> Dict[str, Any]:
+    def config(self) -> dict[str, Any]:
         """Get the combined config dict."""
         return self._config.copy()

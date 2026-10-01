@@ -31,7 +31,7 @@ async def async_setup_entry(
 class SeasonModeSelect(  # pyright: ignore[reportIncompatibleVariableOverride]
     CoordinatorEntity, SelectEntity
 ):
-    coordinator: "SolarACCoordinator"
+    coordinator: SolarACCoordinator
     _attr_entity_category = EntityCategory.CONFIG
     _attr_should_poll: bool = False
     _attr_has_entity_name: bool = True
@@ -46,7 +46,7 @@ class SeasonModeSelect(  # pyright: ignore[reportIncompatibleVariableOverride]
             name="Solar AC Controller",
         )
 
-    def __init__(self, coordinator: "SolarACCoordinator", entry: ConfigEntry) -> None:
+    def __init__(self, coordinator: SolarACCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
         self.coordinator = coordinator
         self.entry = entry

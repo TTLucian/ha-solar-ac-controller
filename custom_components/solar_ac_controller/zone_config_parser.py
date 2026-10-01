@@ -1,7 +1,6 @@
 # custom_components/solar_ac_controller/zone_config_parser.py
 """Zone configuration parsing utilities."""
 
-from typing import Dict, List
 
 from homeassistant.config_entries import ConfigEntry
 
@@ -11,8 +10,8 @@ class ZoneConfigParser:
 
     @staticmethod
     def parse_temp_sensors(
-        config_entry: ConfigEntry, zones: List[str]
-    ) -> Dict[str, str]:
+        config_entry: ConfigEntry, zones: list[str]
+    ) -> dict[str, str]:
         """Parse zone temperature sensor mappings."""
         if not isinstance(zones, list) or not all(isinstance(z, str) for z in zones):
             return {}
@@ -38,8 +37,8 @@ class ZoneConfigParser:
 
     @staticmethod
     def parse_manual_power(
-        config_entry: ConfigEntry, zones: List[str]
-    ) -> Dict[str, float]:
+        config_entry: ConfigEntry, zones: list[str]
+    ) -> dict[str, float]:
         """Parse zone manual power mappings."""
         if not isinstance(zones, list) or not all(isinstance(z, str) for z in zones):
             return {}

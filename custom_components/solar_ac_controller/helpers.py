@@ -1,7 +1,7 @@
 # custom_components/solar_ac_controller/helpers.py
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 
 from homeassistant.util import dt as dt_util
 
@@ -297,7 +297,7 @@ def _iso_ts(ts: float | None) -> str | None:
         return None
 
 
-def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
+def build_diagnostics(coordinator: Any) -> dict[str, Any]:
     """
     Build diagnostics payload for Solar AC Controller.
 
@@ -381,9 +381,9 @@ def build_diagnostics(coordinator: Any) -> Dict[str, Any]:
         except (AttributeError, TypeError, KeyError):
             req_src = "learned_power"
 
-    zones_config: List[str] = list(config.get("zones", []) or [])
-    active_zones: List[str] = []
-    zone_modes: Dict[str, str] = {}
+    zones_config: list[str] = list(config.get("zones", []) or [])
+    active_zones: list[str] = []
+    zone_modes: dict[str, str] = {}
     # Use limited dicts to prevent memory bloat
     zone_last_changed = zone_last_changed
     zone_last_state = zone_last_state

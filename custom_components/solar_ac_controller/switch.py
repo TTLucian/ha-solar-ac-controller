@@ -32,7 +32,7 @@ async def async_setup_entry(hass: Any, entry: Any, async_add_entities: Any) -> N
 class IntegrationEnableSwitch(  # pyright: ignore[reportIncompatibleVariableOverride]
     CoordinatorEntity, SwitchEntity
 ):
-    coordinator: "SolarACCoordinator"
+    coordinator: SolarACCoordinator
 
     @cached_property
     def device_info(self) -> DeviceInfo:
@@ -66,7 +66,7 @@ class IntegrationEnableSwitch(  # pyright: ignore[reportIncompatibleVariableOver
 class ActivityLoggingSwitch(  # pyright: ignore[reportIncompatibleVariableOverride]
     CoordinatorEntity, SwitchEntity
 ):
-    coordinator: "SolarACCoordinator"
+    coordinator: SolarACCoordinator
     _attr_entity_category = EntityCategory.CONFIG
 
     @cached_property

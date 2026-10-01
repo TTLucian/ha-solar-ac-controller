@@ -5,7 +5,8 @@ import asyncio
 import copy
 import logging
 from datetime import datetime, timedelta
-from typing import Any, Coroutine, Dict, Literal, Optional, TypedDict, TypeVar, cast
+from typing import Any, Literal, TypedDict, TypeVar, cast
+from collections.abc import Coroutine
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
@@ -97,11 +98,11 @@ T = TypeVar("T")
 LogLevel = Literal["debug", "info", "warning", "error"]
 
 # Type aliases for better readability
-LearnedPowerData = Dict[str, ZonePowerData]
-ZoneMapping = Dict[str, str]
-ZoneStates = Dict[str, str]
-ZoneLocks = Dict[str, Optional[float]]
-SensorStates = Dict[str, Any]
+LearnedPowerData = dict[str, ZonePowerData]
+ZoneMapping = dict[str, str]
+ZoneStates = dict[str, str]
+ZoneLocks = dict[str, float | None]
+SensorStates = dict[str, Any]
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -222,7 +223,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         self._debounce_task: asyncio.TimerHandle | None = None
 
         # State lookup cache for performance
-        self._state_cache: Dict[str, Any] = {}
+        self._state_cache: dict[str, Any] = {}
         self._cache_timestamp = 0.0
 
         # Initialize runtime season_mode from stored data (with config fallback)
@@ -398,7 +399,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         self.confidence = 0.0
         self.last_action_start_ts: float | None = None
         self.last_action_duration: float | None = None
-        self._panic_task: Optional[asyncio.Task[None]] = None
+        self._panic_task: asyncio.Task[None] | None = None
         self._panic_active = False
         self.last_panic_ts: float | None = None
 
@@ -457,11 +458,11 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
 
         # Defensive initialization
         self.required_export_source = "initializing"
-        self.last_relearn_at: Optional[datetime] = None
+        self.last_relearn_at: datetime | None = None
         self.last_relearn_target: str = ""
 
         # Sensor recovery tracking
-        self._sensor_unavailable_since: Dict[str, float] = (
+        self._sensor_unavailable_since: dict[str, float] = (
             {}
         )  # sensor_id -> timestamp when it became unavailable
 
@@ -631,7 +632,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             zone_name = zone.split(".")[-1]
             self.zone_priorities[zone_name] = i
 
-    def _init_learned_data(self, stored: Optional[Dict[str, Any]]) -> None:
+    def _init_learned_data(self, stored: dict[str, Any] | None) -> None:
         """Initialize learned power data from storage."""
         stored = stored or {}
         raw_learned = stored.get("learned_power", {}) or {}
@@ -705,8 +706,8 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
     def get_learned_power(
         self,
         zone_name: str,
-        mode: Optional[str] = None,
-        band: Optional[str] = None,
+        mode: str | None = None,
+        band: str | None = None,
     ) -> float:
         """Return learned power for a zone and mode/band, or default if missing."""
         entry = self.learned_power.get(zone_name)
@@ -729,7 +730,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
     def get_peak_delta(
         self,
         zone_name: str,
-        mode: Optional[str] = None,
+        mode: str | None = None,
     ) -> float | None:
         """Return peak delta for a zone and mode, or None if not available."""
         entry = self.learned_power.get(zone_name)
@@ -748,7 +749,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
     def get_stabilized_delta(
         self,
         zone_name: str,
-        mode: Optional[str] = None,
+        mode: str | None = None,
     ) -> float | None:
         """Return stabilized delta for a zone and mode, or None if not available."""
         entry = self.learned_power.get(zone_name)
@@ -767,7 +768,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
     def get_time_to_peak(
         self,
         zone_name: str,
-        mode: Optional[str] = None,
+        mode: str | None = None,
     ) -> float | None:
         """Return time_to_peak for a zone and mode, or None if not available."""
         entry = self.learned_power.get(zone_name)
@@ -786,7 +787,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
     def get_lead_learned_power(
         self,
         zone_name: str,
-        mode: Optional[str] = None,
+        mode: str | None = None,
     ) -> float | None:
         """Return lead-specific learned power for a zone, or None if unavailable.
 
@@ -806,7 +807,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
     def get_lead_peak_delta(
         self,
         zone_name: str,
-        mode: Optional[str] = None,
+        mode: str | None = None,
     ) -> float | None:
         """Return lead-specific peak delta, or None if unavailable.
 
@@ -1108,7 +1109,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                     # Save immediately if enough time has passed
                     await self._perform_storage_save()
                     self._last_storage_save = now
-        except asyncio.TimeoutError:
+        except TimeoutError:
             _LOGGER.error("Storage lock acquisition timed out - possible deadlock!")
 
     async def _delayed_save(self, delay: float) -> None:
@@ -1248,7 +1249,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
 
     def create_background_task(
         self, coro: Coroutine[Any, Any, Any]
-    ) -> Optional[asyncio.Task[Any]]:
+    ) -> asyncio.Task[Any] | None:
         """Create a fire-and-forget task that does NOT block HA bootstrap/shutdown.
 
         Uses the raw asyncio event loop (not hass.async_create_task) so that HA's
@@ -1996,7 +1997,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                             "Unexpected error in _async_update_data: %s", e
                         )
                         self.metrics.record_cycle_end(cycle_start, success=False)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             self.note = "Update lock acquisition timed out - possible deadlock!"
             _LOGGER.error("Update lock acquisition timed out - possible deadlock!")
             # Don't record cycle metrics since we never started

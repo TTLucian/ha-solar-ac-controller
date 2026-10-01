@@ -3,7 +3,7 @@
 
 import time
 from collections import deque
-from typing import Any, Deque, Dict
+from typing import Any
 
 
 class MetricsCollector:
@@ -16,8 +16,8 @@ class MetricsCollector:
         self.last_cycle_duration = 0.0
         self.total_cycle_duration = 0.0
         self.start_time = time.time()
-        self.last_sensor_values: Dict[str, Any] = {}
-        self._history: Deque[str] = deque(maxlen=500)
+        self.last_sensor_values: dict[str, Any] = {}
+        self._history: deque[str] = deque(maxlen=500)
 
     def record_cycle_start(self) -> float:
         """Record start of a cycle."""
@@ -46,7 +46,7 @@ class MetricsCollector:
         """Record an event in history."""
         self._history.append(event)
 
-    def get_summary(self) -> Dict[str, Any]:
+    def get_summary(self) -> dict[str, Any]:
         """Get metrics summary."""
         uptime = time.time() - self.start_time
         return {

@@ -5,7 +5,8 @@ import asyncio
 import logging
 from collections import deque
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Deque, List, Optional, Tuple, cast
+from typing import Any, cast
+from collections.abc import Awaitable, Callable
 
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
@@ -18,8 +19,8 @@ _LOGGER = logging.getLogger(__name__)
 @dataclass
 class LearningResult:
     success: bool
-    learned_power: Optional[float] = None
-    error_message: Optional[str] = None
+    learned_power: float | None = None
+    error_message: str | None = None
 
 
 class LearningSession:
@@ -29,13 +30,13 @@ class LearningSession:
         self.coordinator = coordinator
         self._lock = asyncio.Lock()
         self._active = False
-        self._zone: Optional[str] = None
-        self._start_time: Optional[float] = None
+        self._zone: str | None = None
+        self._start_time: float | None = None
         self._samples = 0
 
         # Smart phase detection
         # Use a bounded deque so old readings are dropped automatically (O(1) trim).
-        self._power_readings: Deque[Tuple[float, float]] = deque(
+        self._power_readings: deque[tuple[float, float]] = deque(
             maxlen=POWER_READINGS_MAX_ENTRIES
         )  # [(timestamp, power), ...]
         self._peak_power = 0.0
@@ -45,11 +46,11 @@ class LearningSession:
 
         # Learning contamination protection
         self._learning_contaminated = False
-        self._contamination_timestamp: Optional[float] = None
-        self._zones_changed_during_learning: List[Tuple[str, str]] = []
-        self._peak_detection_timestamp: Optional[float] = None
-        self._stabilization_timestamp: Optional[float] = None
-        self._time_to_peak: Optional[float] = None
+        self._contamination_timestamp: float | None = None
+        self._zones_changed_during_learning: list[tuple[str, str]] = []
+        self._peak_detection_timestamp: float | None = None
+        self._stabilization_timestamp: float | None = None
+        self._time_to_peak: float | None = None
 
     async def is_active(self) -> bool:
         async with self._lock:
@@ -95,11 +96,11 @@ class LearningSession:
             self._contamination_timestamp = None
             self._zones_changed_during_learning = []
 
-    async def get_zone(self) -> Optional[str]:
+    async def get_zone(self) -> str | None:
         async with self._lock:
             return self._zone
 
-    async def get_start_time(self) -> Optional[float]:
+    async def get_start_time(self) -> float | None:
         async with self._lock:
             return self._start_time
 
@@ -253,7 +254,7 @@ class LearningSession:
         async with self._lock:
             return self._peak_detected and self._stabilized_detected
 
-    async def get_time_to_peak(self) -> Optional[float]:
+    async def get_time_to_peak(self) -> float | None:
         """Get the time to peak in seconds."""
         async with self._lock:
             return self._time_to_peak
