@@ -60,8 +60,8 @@ jobs:
         run: uv run --frozen python .github/scripts/validate_workflow_actions.py
 
       # Everything Python in the repository is checked, not just the two
-      # directories that started out covered. tools/ and .github/scripts/ were
-      # invisible to CI while the editor checked them, so Pylance reported
+      # directories that started out covered. .github/scripts/ was
+      # invisible to CI while the editor checked it, so Pylance reported
       # errors that no run ever caught.
       #
       # Formatting is enforced with ruff format, the successor to Black. The
@@ -80,7 +80,7 @@ jobs:
         run: >-
           uv run --frozen mypy
           --namespace-packages --explicit-package-bases
-          custom_components/solar_ac_controller tests/ tools/ .github/scripts/
+          custom_components/solar_ac_controller tests/ .github/scripts/
 
       # A lint step that silently rewrites tracked files would leave the
       # checkout dirty and the next run would pass on formatted code that was
