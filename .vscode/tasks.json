@@ -25,7 +25,7 @@
     },
     {
       "label": "format",
-      "detail": "ruff format in place (NOT black: current black releases corrupt except (A, B):)",
+      "detail": "ruff format in place (NOT black: ruff format is the configured formatter, and one formatter is easier to keep consistent than two)",
       "type": "shell",
       "command": "uv run ruff format custom_components/solar_ac_controller tests",
       "problemMatcher": []

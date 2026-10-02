@@ -64,9 +64,9 @@ jobs:
       # invisible to CI while the editor checked it, so Pylance reported
       # errors that no run ever caught.
       #
-      # Formatting is enforced with ruff format, the successor to Black. The
-      # Black step was removed earlier: the version CI would have installed
-      # reformats `except (A, B):` into the invalid `except A, B:`.
+      # Formatting is enforced with ruff format, the successor to Black. Black
+      # is not used: ruff format is faster, already the configured formatter,
+      # and one tool is easier to keep consistent than two.
       - name: Ruff - whole repository
         run: uv run --frozen ruff check .
 
