@@ -124,26 +124,33 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                 coordinator = entry_dict.get("coordinator")
                 if not coordinator:
                     continue
-                async with coordinator._storage_lock:
-                    if zone:
-                        # Reset learned power and samples for the specified zone only
-                        if zone in coordinator.learned_power:
-                            del coordinator.learned_power[zone]
-                        if hasattr(coordinator, "samples"):
-                            coordinator.samples = 0
-                        persist_fn = getattr(coordinator, "async_persist_learned_values", None)
-                        if persist_fn:
-                            await persist_fn()
-                        _LOGGER.info(f"Force relearn: reset learned power and samples for zone {zone}")
-                    else:
-                        # Reset all learned power and samples
-                        coordinator.learned_power = {}
-                        if hasattr(coordinator, "samples"):
-                            coordinator.samples = 0
-                        persist_fn = getattr(coordinator, "async_persist_learned_values", None)
-                        if persist_fn:
-                            await persist_fn()
-                        _LOGGER.info("Force relearn: reset all learned power and samples")
+                # Do NOT wrap this in coordinator._storage_lock.
+                # async_persist_learned_values() acquires that same lock
+                # itself, and asyncio.Lock is not reentrant: holding it here
+                # while awaiting the persist call deadlocked the service
+                # forever and left the lock held, wedging every later save.
+                # The mutations below are synchronous dict/attr assignments
+                # with no await between them, and the persist call re-reads
+                # state under its own lock, so the reset stays atomic.
+                if zone:
+                    # Reset learned power and samples for the specified zone only
+                    if zone in coordinator.learned_power:
+                        del coordinator.learned_power[zone]
+                    if hasattr(coordinator, "samples"):
+                        coordinator.samples = 0
+                    persist_fn = getattr(coordinator, "async_persist_learned_values", None)
+                    if persist_fn:
+                        await persist_fn()
+                    _LOGGER.info(f"Force relearn: reset learned power and samples for zone {zone}")
+                else:
+                    # Reset all learned power and samples
+                    coordinator.learned_power = {}
+                    if hasattr(coordinator, "samples"):
+                        coordinator.samples = 0
+                    persist_fn = getattr(coordinator, "async_persist_learned_values", None)
+                    if persist_fn:
+                        await persist_fn()
+                    _LOGGER.info("Force relearn: reset all learned power and samples")
             # Feedback: expose timestamp and target for the Last Relearn sensor
             assert coordinator is not None  # narrowed above by `if not coordinator: continue`
             coordinator.last_relearn_at = dt_util.utcnow()

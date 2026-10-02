@@ -883,7 +883,12 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                 self.stored_data["zone_action_history"] = dict(self.zone_action_history)
                 self._storage_dirty = True
             await self._debounced_save()
-        except (asyncio.CancelledError, OSError, ValueError) as exc:
+        except asyncio.CancelledError:
+            # Never swallow cancellation: it must reach the event loop so an
+            # in-flight save can be torn down on shutdown. Catching it here
+            # also broke force_relearn, whose call was never able to unwind.
+            raise
+        except (OSError, ValueError) as exc:
             _LOGGER.exception("Error scheduling learned values save: %s", exc)
 
     def _rounded_power(self, value: Any) -> Any:
