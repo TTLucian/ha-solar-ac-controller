@@ -1,6 +1,6 @@
 import asyncio
-from typing import Any, cast
 import logging
+from typing import Any, cast
 
 import pytest
 from homeassistant.util import dt as dt_util

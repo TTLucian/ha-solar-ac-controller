@@ -4,9 +4,9 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import deque
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, cast
-from collections.abc import Awaitable, Callable
 
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
