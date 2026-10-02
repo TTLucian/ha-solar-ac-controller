@@ -8,9 +8,9 @@ from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.storage import Store
-from homeassistant.util import dt as dt_util
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.loader import async_get_integration
+from homeassistant.util import dt as dt_util
 
 from .const import (
     CONF_INITIAL_LEARNED_POWER,

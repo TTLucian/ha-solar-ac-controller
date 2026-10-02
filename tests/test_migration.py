@@ -1,7 +1,6 @@
-import pytest
-
 from typing import Any, cast
 
+import pytest
 from homeassistant.core import HomeAssistant
 
 from custom_components.solar_ac_controller import (

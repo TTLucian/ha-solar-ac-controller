@@ -4,9 +4,9 @@ from __future__ import annotations
 import asyncio
 import copy
 import logging
+from collections.abc import Coroutine
 from datetime import datetime, timedelta
 from typing import Any, Literal, TypedDict, TypeVar, cast
-from collections.abc import Coroutine
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
