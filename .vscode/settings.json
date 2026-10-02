@@ -66,10 +66,12 @@
   // mypy individual file paths, so it needs them too.
   // --ignore-missing-imports was removed on purpose: CI does not pass it, and
   // passing it here hid real import errors from the editor alone.
-  // "run": "onType" re-checks as you type. The default misses edits made from
-  // outside the editor (a formatter, sed, or a tool), which leave stale
-  // diagnostics sitting in the Problems panel.
-  "mypy-type-checker.run": "onType",
+  //
+  // There is no "run" setting in this extension (checked against
+  // ms-python.mypy-type-checker 2026.6.0's package.json). It re-checks on
+  // open and save. Edits made from outside the editor -- a formatter, sed, or
+  // an agent tool -- can leave stale diagnostics in the Problems panel; run
+  // "Mypy: Restart Server" from the Command Palette to force a re-check.
   "mypy-type-checker.importStrategy": "fromEnvironment",
   "mypy-type-checker.preferDaemon": false,
   "mypy-type-checker.path": [
