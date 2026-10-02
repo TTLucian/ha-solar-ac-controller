@@ -40,10 +40,13 @@ uv run pytest
 - Never pass `--follow-imports=skip` to mypy. It reports false
   `untyped-decorator` errors on `@pytest.mark.asyncio` because it cannot see
   pytest's own types. The flags above are the ones that work.
-- **Never install or run `black`.** Current black releases rewrite
-  `except (TypeError, ValueError):` into `except TypeError, ValueError:`, which
-  is a `SyntaxError`. It was removed from CI for this reason and must not come
-  back.
+- Do not use **black**. `ruff format` is the configured formatter, and one
+  formatter is easier to keep consistent than two.
+  - An earlier version of this file claimed black "corrupts
+    `except (A, B):` into `except A, B:`, which is a `SyntaxError`". That is
+    **wrong** on Python 3.14. `except A, B:` parses as a tuple and produces an
+    AST identical to `except (A, B):`; verified, not assumed. It was removed
+    from CI before this was written down, and the stated reason never held.
 
 ## Testing
 
@@ -133,14 +136,38 @@ proportional - check the stat *before* committing, not after.
 
 ## Home Assistant version pinning
 
-`uv.lock` pins Home Assistant to a **pre-release** (`2026.10.0b0`), because
-`pytest-homeassistant-custom-component` depends on that exact version. Latest
-stable is behind it. This is deliberate - CI stays forward-compatible - but it
-means CI does not test what most users actually run.
+`uv.lock` pins Home Assistant to a **pre-release** (`2026.10.0b0`) so CI stays
+forward-compatible. The sibling `ha-climate-react` repository pins stable
+instead. Both are deliberate; neither is an accident.
 
-The weekly `Dependency freshness` job compares the locked version against the
-newest stable release on PyPI and fails when one is available. It runs on
-schedule and manual dispatch only, not on every push.
+You do not choose the Home Assistant version directly. The test harness pins it
+with `==`, and there is one harness release per Home Assistant release:
+
+```
+0.13.354 -> 2026.8.0     0.13.363 -> 2026.9.0    0.13.367 -> 2026.9.4
+0.13.358 -> 2026.9.0b0   0.13.365 -> 2026.9.2    0.13.368 -> 2026.10.0b0
+```
+
+So to move Home Assistant you move the harness, and the newest harness is not
+always what you want - `0.13.368` pins a **pre-release**. To land on a specific
+Home Assistant version, pin the harness that ships it:
+
+```bash
+uv lock --upgrade-package 'pytest-homeassistant-custom-component==0.13.367'
+```
+
+`requires-python` must stay `>=3.14.2,<3.15`. Recent Home Assistant requires
+`>=3.14.2`; a looser bound makes uv keep a second, much older homeassistant
+entry in the lockfile for 3.14.0/3.14.1 markers, which silently pins CI to a
+version nobody runs.
+
+CI tests what the lockfile says, not what most users run, so the lock is
+refreshed deliberately rather than on every release. The weekly `Dependency
+freshness` job (`.github/scripts/check_dependency_freshness.py`) compares the
+locked `homeassistant` against the newest stable, and only calls the harness
+stale when upgrading it would stay on a stable Home Assistant - because taking
+the newest harness here would pull CI onto `2026.10.0b0`. It runs on schedule
+and manual dispatch only, not on every push.
 
 ## Files to never commit
 
