@@ -21,8 +21,7 @@ repos:
         args:
           # Without these the hook dies with "Source file found twice under
           # different module names", because it hands mypy individual file
-          # paths. CI avoids that by using two separate invocations; the flags
-          # get the same result in a single pass.
+          # paths. CI passes the same two flags for the same reason.
           - --namespace-packages
           - --explicit-package-bases
         files: ^(custom_components/solar_ac_controller/|tests/|\.github/scripts/)

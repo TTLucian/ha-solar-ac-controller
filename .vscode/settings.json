@@ -59,7 +59,20 @@
   },
 
   // 6. TYPE CHECKER — Mypy Extension Settings
- "mypy-type-checker.importStrategy": "fromEnvironment",
+  // Args must mirror the CI and pre-commit invocations, or the editor is not a
+  // proxy for CI. Both of those run mypy with the two package-bases flags
+  // because tests/ is a namespace package; without them mypy aborts with
+  // "Source file found twice under different module names". The editor hands
+  // mypy individual file paths, so it needs them too.
+  // --ignore-missing-imports was removed on purpose: CI does not pass it, and
+  // passing it here hid real import errors from the editor alone.
+  //
+  // There is no "run" setting in this extension (checked against
+  // ms-python.mypy-type-checker 2026.6.0's package.json). It re-checks on
+  // open and save. Edits made from outside the editor -- a formatter, sed, or
+  // an agent tool -- can leave stale diagnostics in the Problems panel; run
+  // "Mypy: Restart Server" from the Command Palette to force a re-check.
+  "mypy-type-checker.importStrategy": "fromEnvironment",
   "mypy-type-checker.preferDaemon": false,
   "mypy-type-checker.path": [
     "${workspaceFolder}/.venv/bin/mypy"
@@ -68,7 +81,8 @@
     "${workspaceFolder}/.venv/bin/python"
   ],
   "mypy-type-checker.args": [
-    "--ignore-missing-imports"
+    "--namespace-packages",
+    "--explicit-package-bases"
   ],
 
   // 7. HOUSEKEEPING
