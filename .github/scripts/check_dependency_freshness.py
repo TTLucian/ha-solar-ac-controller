@@ -8,12 +8,11 @@ This script is run on a schedule. It compares the locked versions against the
 latest *stable* releases on PyPI and exits non-zero when an update is worth
 considering, so the drift is visible instead of hidden.
 
-Note this repository pins a *pre-release* of Home Assistant on purpose, so the
-"lock is on a pre-release" branch below is the normal case and is reported as a
-note rather than a failure. The sibling ha-climate-react repository pins stable
-instead, and the comparison logic is shared between them. uv.lock may
-legitimately contain more than one homeassistant entry for different resolution
-markers; the highest is used.
+Note this repository pins a *stable* Home Assistant, so the "lock is on a
+pre-release" branch below normally does not trigger. It is kept because the
+sibling ha-solar-ac-controller repository does pin a pre-release, and the
+comparison logic is shared. uv.lock may legitimately contain more than one
+homeassistant entry for different resolution markers; the highest is used.
 """
 
 from __future__ import annotations
