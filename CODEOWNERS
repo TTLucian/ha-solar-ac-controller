@@ -2,7 +2,7 @@
 # See https://help.github.com/articles/about-codeowners/ for syntax.
 
 # Integration owner
-/custom_components/ha-solar_ac_controller/ @TTLucian
+/custom_components/solar_ac_controller/ @TTLucian
 
 # Default owner for everything else - tests, workflows, docs, release notes.
 # Without this, a change to tests/ or .github/ has no reviewer assigned.
