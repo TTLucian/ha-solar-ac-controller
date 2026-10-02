@@ -94,21 +94,30 @@ names", because it hands mypy individual file paths.
 uv sync --locked && uv run pre-commit install
 ```
 
-## Line endings - the tests are CRLF
+## Line endings - everything is LF
 
-Every file under `tests/` uses CRLF, and `manifest.json`, `strings.json` and
-`translations/en.json` do too. A bulk edit that rewrites them as LF turns a
-one-line change into a whole-file diff - roughly 1,600 insertions and 1,400
-deletions instead of a handful of lines. When scripting an edit across these
-files, preserve the line endings, and check `git diff --stat` before committing.
+Every tracked file uses LF, enforced by `.gitattributes`:
+
+```
+* text=auto eol=lf
+```
+
+`text=auto` lets git detect binaries, so images and archives are left alone.
+**Do not add exceptions.** A single CRLF file makes line endings depend on the
+machine doing the checkout, and flipping one turns a one-line change into a
+whole-file diff.
+
+If you inherit a file with CRLF, `git add --renormalize .` fixes it. That is
+the correct use of the command - it is only wrong when applied to files that
+are already correct, which rewrites them for no reason. Never override
+`core.autocrlf` for a single `git add` to force the opposite.
 
 ## JSON files - edit, never re-serialize
 
 Do not read a repo JSON file with `json.load` and write it back with `json.dump`.
 `manifest.json`, `strings.json` and `translations/en.json` all use hand-set
-2-space indentation and CRLF endings; a serializer round-trip rewrites every
-line and normalises the line endings, producing an enormous diff for a one-key
-change.
+2-space indentation; a serializer round-trip rewrites every line, producing
+an enormous diff for a one-key change.
 
 Edit the specific line with the editor tool or a targeted `sed`. If a bulk edit
 is genuinely needed, verify with `git diff --stat` that the change is
