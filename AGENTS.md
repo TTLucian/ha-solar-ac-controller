@@ -137,8 +137,9 @@ proportional - check the stat *before* committing, not after.
 ## Home Assistant version pinning
 
 `uv.lock` pins Home Assistant to a **pre-release** (`2026.10.0b0`) so CI stays
-forward-compatible. The sibling `ha-climate-react` repository pins stable
-instead. Both are deliberate; neither is an accident.
+forward-compatible rather than trailing the stable release. That is a
+deliberate, per-repository choice: repositories sharing this tooling lock
+different versions, so read `uv.lock` rather than assuming a shared value.
 
 You do not choose the Home Assistant version directly. The test harness pins it
 with `==`, and there is one harness release per Home Assistant release:
