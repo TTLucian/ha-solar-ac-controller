@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from homeassistant.core import Context
 from homeassistant.exceptions import HomeAssistantError
@@ -16,6 +16,27 @@ if TYPE_CHECKING:
     from .coordinator import SolarACCoordinator
 
 _LOGGER = logging.getLogger(__name__)
+
+
+async def _log_quietly(
+    coordinator: SolarACCoordinator,
+    message: str,
+    level: Literal["debug", "info", "warning", "error"] = "info",
+) -> None:
+    """Log via the coordinator, never letting a logging failure fail the caller.
+
+    These calls sit at the END of a completed action: the zone has already been
+    switched and short-cycle tracking already updated. An exception from
+    `_log` there propagates into `_async_update_data`, which marks the cycle as
+    failed and reports an operation that actually worked as broken. Logging is
+    cosmetic at that point, so failures are logged and swallowed.
+    """
+    try:
+        await coordinator._log(message, level)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        _LOGGER.debug("Failed to write activity log entry %r: %s", message, exc)
 
 
 class ActionExecutor:
@@ -114,10 +135,11 @@ class ActionExecutor:
 
         await asyncio.sleep(self.coordinator.action_delay_seconds)
 
-        await self.coordinator._log(
+        await _log_quietly(
+            self.coordinator,
             f"[ADD_ZONE_MEASURING] zone='{zone.split('.')[-1]}' "
             f"ac_before={round(ac_power_before)}W - "
-            f"measuring power increase to determine zone requirements"
+            f"measuring power increase to determine zone requirements",
         )
 
     async def add_zone_without_learning(self, zone: str, ac_power_before: float) -> None:
@@ -146,8 +168,9 @@ class ActionExecutor:
 
         await asyncio.sleep(self.coordinator.action_delay_seconds)
 
-        await self.coordinator._log(
-            f"Activating zone '{zone.split('.')[-1]}' using previously learned power consumption data"
+        await _log_quietly(
+            self.coordinator,
+            f"Activating zone '{zone.split('.')[-1]}' using previously learned power consumption data",
         )
 
     async def remove_zone(self, zone: str) -> None:
@@ -176,19 +199,34 @@ class ActionExecutor:
         # Notify learning session of zone removal (for contamination detection)
         await self.coordinator.controller.session.notify_zone_changed_during_learning(zone, "remove")
 
-        # Set compressor recovery window to avoid rapid re-adds until hardware ramps
+        # Set compressor recovery window to avoid rapid re-adds until hardware ramps.
+        #
+        # The state write is deliberately NOT inside the logging guard below. It
+        # used to be, so any failure here - a bad ramp value, a float overflow,
+        # an AttributeError - was discarded identically to a log failure and left
+        # no trace. This window is what stops a zone being re-added while the
+        # compressor is still ramping; silently not setting it means short
+        # cycling, which is exactly what it exists to prevent.
+        recovery_until: int | None = None
         try:
-            now_ts = dt_util.utcnow().timestamp()
-            ramp = getattr(self.coordinator, "compressor_ramp_seconds", 0) or 0
-            if ramp and hasattr(self.coordinator, "compressor_recover_until"):
-                self.coordinator.compressor_recover_until = now_ts + float(ramp)
-                await self.coordinator._log(
-                    f"[COMPRESSOR] set recovery until {int(self.coordinator.compressor_recover_until)} (ramp={int(ramp)}s)",
-                    "debug",
-                )
-        except Exception:
-            # Defensive: do not break zone removal on logging failures
-            pass
+            ramp = float(getattr(self.coordinator, "compressor_ramp_seconds", 0) or 0)
+            if ramp > 0:
+                self.coordinator.compressor_recover_until = dt_util.utcnow().timestamp() + ramp
+                recovery_until = int(self.coordinator.compressor_recover_until)
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.exception(
+                "Failed to set the compressor recovery window; a zone may be "
+                "re-added while the compressor is still ramping (%s)",
+                exc,
+            )
+
+        if recovery_until is not None:
+            # Cosmetic: never let a logging failure fail the removal.
+            await _log_quietly(
+                self.coordinator,
+                f"[COMPRESSOR] set recovery until {recovery_until} (ramp={int(ramp)}s)",
+                "debug",
+            )
 
         # Check for cancellation before delay
         if self.coordinator.hass.is_stopping:
@@ -196,8 +234,12 @@ class ActionExecutor:
 
         await asyncio.sleep(self.coordinator.action_delay_seconds)
 
-        await self.coordinator._log(
-            f"Zone '{zone.split('.')[-1]}' deactivated successfully - grid import now {round(self.coordinator.ema_5m)}W"
+        # Cosmetic. The zone is already off and short-cycle tracking is already
+        # updated, so letting a log failure escape here reports a fully
+        # successful removal as a failed cycle.
+        await _log_quietly(
+            self.coordinator,
+            f"Zone '{zone.split('.')[-1]}' deactivated successfully - grid import now {round(self.coordinator.ema_5m)}W",
         )
 
     async def call_entity_service(
