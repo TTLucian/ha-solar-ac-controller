@@ -150,7 +150,9 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
 
         try:
             await self._debounced_save()
-        except (asyncio.CancelledError, OSError, ValueError) as exc:
+        except asyncio.CancelledError:
+            raise
+        except (OSError, ValueError) as exc:
             _LOGGER.exception("Error scheduling integration enabled state save: %s", exc)
         self._debounce_recalc()
 
@@ -164,7 +166,9 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
 
         try:
             await self._debounced_save()
-        except (asyncio.CancelledError, OSError, ValueError) as exc:
+        except asyncio.CancelledError:
+            raise
+        except (OSError, ValueError) as exc:
             _LOGGER.exception("Error scheduling activity logging state save: %s", exc)
         self._debounce_recalc()
 
@@ -322,7 +326,9 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
 
         try:
             await self._debounced_save()
-        except (asyncio.CancelledError, OSError, ValueError) as exc:
+        except asyncio.CancelledError:
+            raise
+        except (OSError, ValueError) as exc:
             _LOGGER.exception("Error scheduling season mode save: %s", exc)
         self._debounce_recalc()
 
@@ -339,7 +345,9 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
 
         try:
             await self._debounced_save()
-        except (asyncio.CancelledError, OSError, ValueError) as exc:
+        except asyncio.CancelledError:
+            raise
+        except (OSError, ValueError) as exc:
             _LOGGER.exception("Failed to persist aggressiveness: %s", exc)
 
         # Notify listeners so entity states refresh
@@ -2151,14 +2159,18 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         # Flush any pending storage saves before cleanup
         try:
             await self._flush_pending_storage_save()
-        except (asyncio.CancelledError, OSError) as exc:
+        except asyncio.CancelledError:
+            raise
+        except OSError as exc:
             _LOGGER.debug("Error flushing pending storage save during freeze cleanup: %s", exc)
 
         # Cancel panic task via PanicManager to avoid race conditions
         try:
             if getattr(self, "panic_manager", None) is not None:
                 await self.panic_manager.cancel_panic()
-        except (asyncio.CancelledError, AttributeError) as exc:
+        except asyncio.CancelledError:
+            raise
+        except AttributeError as exc:
             _LOGGER.debug("Error while cancelling panic during freeze cleanup: %s", exc)
 
         # Turn off all active zones – this is the primary safety action of a freeze
@@ -2183,7 +2195,9 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         try:
             if getattr(self, "controller", None) is not None:
                 await self.controller._reset_learning_state_async()
-        except asyncio.CancelledError, AttributeError:
+        except asyncio.CancelledError:
+            raise
+        except AttributeError:
             _LOGGER.debug("Controller reset learning method failed or controller not set")
 
         # Track master_off_since for EMA reset
