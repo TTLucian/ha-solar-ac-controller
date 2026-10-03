@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Callable
 from functools import cached_property
 from typing import Any, cast
@@ -25,6 +26,8 @@ from .const import (
     SolarACData,
 )
 from .helpers import build_diagnostics
+
+_LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(
@@ -137,26 +140,71 @@ class _BaseSolarACSensor(SensorEntity):
                 self.async_write_ha_state()
 
     def _sync_write_ha_state(self) -> None:
-        """Synchronous wrapper to schedule async state update."""
-        # Prefer Home Assistant's task creation when available
-        if getattr(self, "hass", None):
-            # Use coordinator's safe task creator when available
-            if getattr(self, "coordinator", None) and hasattr(self.coordinator, "create_background_task"):
-                self.coordinator.create_background_task(self._smart_write_ha_state())
-            else:
-                # Fallback: use coordinator's create_task or hass.async_create_task
-                try:
-                    if getattr(self, "coordinator", None) and hasattr(self.coordinator, "create_task"):
-                        self.coordinator.create_task(self._smart_write_ha_state())
-                    else:
-                        self.hass.async_create_task(self._smart_write_ha_state())
-                except Exception:
-                    try:
-                        self.hass.async_create_task(self._smart_write_ha_state())
-                    except Exception:
-                        pass
-        else:
+        """Synchronous wrapper to schedule async state update.
+
+        Every path that can drop the write logs when it does. This used to end
+        in `except Exception: pass`, so a sensor could silently stop updating
+        with nothing in the log to say why. The coordinator's
+        `create_background_task` also returns None when it cannot create the
+        task, and that return value was being discarded - the coroutine was
+        created, then dropped un-awaited, so the write was lost *and* the
+        interpreter warned about a coroutine that was never awaited.
+        """
+        if not getattr(self, "hass", None):
             asyncio.create_task(self._smart_write_ha_state())
+            return
+
+        coordinator = getattr(self, "coordinator", None)
+
+        if coordinator is not None and hasattr(coordinator, "create_background_task"):
+            coro = self._smart_write_ha_state()
+            try:
+                task = coordinator.create_background_task(coro)
+            except Exception as exc:
+                # The coordinator swallows its own failures and returns None,
+                # but a future implementation might not; handle both.
+                coro.close()
+                _LOGGER.warning(
+                    "Background task creator refused the state write for %s (%s)",
+                    getattr(self, "entity_id", "<unknown>"),
+                    exc,
+                )
+                return
+            if task is None:
+                # The coordinator swallows the underlying cause, so report the
+                # consequence here: this sensor will not refresh this cycle.
+                coro.close()
+                _LOGGER.warning(
+                    "Could not schedule state write for %s: the background task was not created",
+                    getattr(self, "entity_id", "<unknown>"),
+                )
+            return
+
+        coro = self._smart_write_ha_state()
+        try:
+            if coordinator is not None and hasattr(coordinator, "create_task"):
+                coordinator.create_task(coro)
+            else:
+                self.hass.async_create_task(coro)
+        except Exception as exc:
+            # The coroutine was built but never handed to a loop. Close it,
+            # otherwise Python warns that it was never awaited, and fall back.
+            coro.close()
+            _LOGGER.warning(
+                "Could not schedule state write for %s via the coordinator (%s); "
+                "falling back to hass.async_create_task",
+                getattr(self, "entity_id", "<unknown>"),
+                exc,
+            )
+            try:
+                self.hass.async_create_task(self._smart_write_ha_state())
+            except Exception as fallback_exc:
+                _LOGGER.warning(
+                    "Dropped state write for %s: no task creator would accept it (%s)",
+                    getattr(self, "entity_id", "<unknown>"),
+                    fallback_exc,
+                    exc_info=True,
+                )
 
     async def async_added_to_hass(self) -> None:
         """Register listener for coordinator updates."""
