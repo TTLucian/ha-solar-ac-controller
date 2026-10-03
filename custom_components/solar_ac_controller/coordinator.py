@@ -925,6 +925,33 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         pattern = " ".join(words).strip()[:50]
         return f"{level}:{pattern}"
 
+    async def _refresh_learning_active(self) -> None:
+        """Refresh the cached live-learning flag without ever failing open.
+
+        `learning_active_cached` gates a -100 point add penalty and the
+        zone-swap guard, so a False value is the permissive one: clearing it
+        on a transient error would let a second zone be added during a live
+        learning session, which contaminates the measurement and discards the
+        whole session. On failure the previous value is kept - the worst case
+        is a stale True that suppresses adds for one cycle - and the failure
+        is logged instead of vanishing.
+        """
+        try:
+            self.learning_active_cached = bool(await self.controller.session.get_zone())
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            await self._log(
+                f"Could not read the live-learning zone; keeping "
+                f"learning_active_cached={self.learning_active_cached} for this cycle",
+                "warning",
+            )
+            _LOGGER.warning(
+                "Learning-state lookup failed, keeping the previous value: %s",
+                exc,
+                exc_info=True,
+            )
+
     async def _log(self, message: str, level: LogLevel | None = "info") -> None:
         """Async logging hook used by coordinator and controller.
 
@@ -1567,10 +1594,8 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                         # starts.  Previously this update only happened in step 7 (after
                         # confidence was already computed), allowing a second zone to be
                         # added in the same or next cycle despite living learning being active.
-                        try:
-                            self.learning_active_cached = bool(await self.controller.session.get_zone())
-                        except Exception:
-                            self.learning_active_cached = False
+                        # Failures preserve the previous value; see _refresh_learning_active.
+                        await self._refresh_learning_active()
 
                         self.last_add_conf = self.decision_engine.compute_add_conf(
                             export=export,
@@ -1644,11 +1669,12 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                         # 7. Learning timeout
                         learning_zone = await self.controller.session.get_zone()
                         learning_start_time = await self.controller.session.get_start_time()
-                        # Update cached learning flag for synchronous checks in DecisionEngine
-                        try:
-                            self.learning_active_cached = bool(learning_zone)
-                        except Exception:
-                            self.learning_active_cached = False
+                        # Update cached learning flag for synchronous checks in DecisionEngine.
+                        # No try/except needed: learning_zone is already resolved above, so
+                        # bool() cannot raise. If the get_zone() call itself fails, the
+                        # exception propagates and the flag keeps its previous value,
+                        # which is the fail-closed behaviour we want here.
+                        self.learning_active_cached = bool(learning_zone)
 
                         # Feed current ac_power into the learning session every cycle
                         # so phase detection (peak tracking, stabilization) works correctly.
