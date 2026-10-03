@@ -1201,6 +1201,43 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         for sensor in stale_sensors:
             del self._sensor_unavailable_since[sensor]
 
+    async def _run_master_switch_safety(self, solar: float, cycle_start: float) -> bool:
+        """Run the compressor relay safety control, reporting rather than swallowing.
+
+        Called on the disabled and frozen paths, where the relay is what winds
+        the compressor down after any previous freeze. Both call sites used to
+        end in `except Exception: pass`, which left the relay unattended with
+        nothing in the log - and then recorded the cycle as a success, so the
+        telemetry asserted everything was fine.
+
+        Returns True when the relay was commanded, False when it failed. The
+        AC power reading is optional and deliberately not fatal: an
+        unreadable sensor leaves ``ac_power`` as None and the switch logic
+        decides on that.
+        """
+        try:
+            ac_power: float | None = None
+            try:
+                ac_power = self._validate_sensor_state(
+                    await self._get_cached_state(self.config_manager.get(CONF_AC_POWER_SENSOR)),
+                    "AC power sensor",
+                )
+            except SensorUnavailableError, SensorInvalidError:
+                pass
+            await self.master_controller.handle_master_switch(
+                solar,
+                cycle_start,
+                ac_power=ac_power,
+            )
+        except Exception:  # noqa: BLE001
+            # CancelledError is a BaseException and is not caught here, so a
+            # cancelled shutdown still propagates.
+            _LOGGER.exception(
+                "Master switch safety control failed - the compressor relay may not have been switched off"
+            )
+            return False
+        return True
+
     def create_task(self, coro: Coroutine[None, None, T]) -> asyncio.Task[T]:
         """Create a background task and ensure exceptions are logged.
 
@@ -1326,27 +1363,15 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                                     # Even while disabled, still run master switch safety
                                     # control so the physical relay is turned off once the
                                     # compressor winds down after any previous freeze.
-                                    try:
-                                        _ac_pw_dis: float | None = None
-                                        try:
-                                            _ac_pw_dis = self._validate_sensor_state(
-                                                await self._get_cached_state(
-                                                    self.config_manager.get(CONF_AC_POWER_SENSOR)
-                                                ),
-                                                "AC power sensor",
-                                            )
-                                        except (
-                                            SensorUnavailableError,
-                                            SensorInvalidError,
-                                        ):
-                                            pass
-                                        await self.master_controller.handle_master_switch(
-                                            _solar_check,
-                                            cycle_start,
-                                            ac_power=_ac_pw_dis,
+                                    if not await self._run_master_switch_safety(_solar_check, cycle_start):
+                                        async with self._state_lock:
+                                            self.last_action = "master_switch_error"
+                                        self.note = (
+                                            "Master switch safety control failed while "
+                                            "integration is disabled; check the compressor relay."
                                         )
-                                    except Exception:  # noqa: BLE001
-                                        pass
+                                        self.metrics.record_cycle_end(cycle_start, success=False)
+                                        return
                                     self.metrics.record_cycle_end(cycle_start, success=True)
                                     return
                             except SensorUnavailableError, SensorInvalidError:
@@ -1400,20 +1425,14 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                                 # Even while frozen, still run master switch safety
                                 # control so the physical relay is turned off once the
                                 # compressor winds down after zones are off.
-                                try:
-                                    _ac_pw_frz: float | None = None
-                                    try:
-                                        _ac_pw_frz = self._validate_sensor_state(
-                                            await self._get_cached_state(self.config_manager.get(CONF_AC_POWER_SENSOR)),
-                                            "AC power sensor",
-                                        )
-                                    except SensorUnavailableError, SensorInvalidError:
-                                        pass
-                                    await self.master_controller.handle_master_switch(
-                                        solar, cycle_start, ac_power=_ac_pw_frz
+                                if not await self._run_master_switch_safety(solar, cycle_start):
+                                    async with self._state_lock:
+                                        self.last_action = "master_switch_error"
+                                    self.note = (
+                                        "Master switch safety control failed while frozen; check the compressor relay."
                                     )
-                                except Exception:  # noqa: BLE001
-                                    pass
+                                    self.metrics.record_cycle_end(cycle_start, success=False)
+                                    return
                                 self.metrics.record_cycle_end(cycle_start, success=True)
                                 return
                         else:
