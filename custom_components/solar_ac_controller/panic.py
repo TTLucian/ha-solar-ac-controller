@@ -167,7 +167,9 @@ class PanicManager:
                 try:
                     if getattr(self.coordinator, "controller", None) is not None:
                         await self.coordinator.controller._reset_learning_state_async()
-                except AttributeError, asyncio.CancelledError:
+                except asyncio.CancelledError:
+                    raise
+                except AttributeError:
                     _LOGGER.debug("Controller reset learning method failed or controller not set")
 
                 now_ts = dt_util.utcnow().timestamp()
