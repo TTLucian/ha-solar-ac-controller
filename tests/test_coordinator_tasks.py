@@ -59,6 +59,7 @@ async def test_async_set_integration_suspended_updates_stored_data() -> None:
     coord.integration_active = True
     coord.last_action = None
     coord._state_lock = asyncio.Lock()
+    coord._user_freeze_lock = asyncio.Lock()
     coord.stored_data = {}
     coord._storage_lock = asyncio.Lock()
     coord._storage_dirty = False
@@ -94,6 +95,7 @@ async def test_async_set_integration_disabled_updates_stored_data() -> None:
     coord.integration_active = True
     coord.last_action = None
     coord._state_lock = asyncio.Lock()
+    coord._user_freeze_lock = asyncio.Lock()
     coord.stored_data = {}
     coord._storage_lock = asyncio.Lock()
     coord._storage_dirty = False
