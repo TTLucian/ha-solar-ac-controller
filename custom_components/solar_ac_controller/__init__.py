@@ -221,9 +221,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     stored_data["learned_power"] = _round_map(stored_data.get("learned_power", {}))
 
-    # 3. Integration enabled state (persisted)
-    # Use stored_data directly (store.data does not exist)
-    stored_data["integration_enabled"] = stored_data.get("integration_enabled", True)
+    # 3. User switch state (persisted).
+    #
+    # Migration from the single `integration_enabled` flag: it served both the
+    # automatic dusk freeze and the user's switch, so a False most often meant
+    # "it got dark" rather than "the user asked". Mapping it to suspended keeps
+    # the auto-recovery the user already relies on, and is the safe reading.
+    if "integration_enabled" in stored_data:
+        _legacy_enabled = bool(stored_data.pop("integration_enabled"))
+        stored_data.setdefault("integration_suspended", not _legacy_enabled)
+    stored_data["integration_suspended"] = stored_data.get("integration_suspended", False)
+    stored_data["integration_disabled"] = stored_data.get("integration_disabled", False)
+    stored_data["suspend_armed"] = stored_data.get("suspend_armed", False)
     # 3b. Activity logging enabled state (persisted)
     stored_data["activity_logging_enabled"] = stored_data.get("activity_logging_enabled", False)
     # 3c. Season mode state (persisted)
@@ -257,8 +266,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         version=version,
     )
 
-    # Integration enable/disable state (persisted)
-    coordinator.integration_enabled = stored_data.get("integration_enabled", True)
+    # User switch state. __init__ already loaded these from storage; re-applying
+    # here would clobber any transition made during the first refresh.
     coordinator.activity_logging_enabled = stored_data.get("activity_logging_enabled", False)
 
     hass.data[DOMAIN][entry.entry_id] = {"coordinator": coordinator}
@@ -298,6 +307,14 @@ async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) ->
             config_entry.version,
             config_entry.minor_version,
         )
+        return True
+
+    if config_entry.version == 2:
+        # Version 3 split the single integration_enabled flag into the suspend and
+        # disable switches. No config keys change - only stored_data, which
+        # _async_load_coordinator_state migrates - so bumping the version is enough.
+        hass.config_entries.async_update_entry(config_entry, version=3)
+        _LOGGER.debug("Migration to configuration version 3 successful")
         return True
 
     return False

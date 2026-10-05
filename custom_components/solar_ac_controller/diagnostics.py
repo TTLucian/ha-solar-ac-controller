@@ -22,6 +22,11 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
     diag_data = {
         "entry": async_redact_data(entry.as_dict(), TO_REDACT),
         "integration_enabled": coordinator.integration_enabled,
+        # The two user switches are reported separately: "held off" could mean
+        # either, and they are released by very different rules.
+        "integration_suspended": getattr(coordinator, "integration_suspended", False),
+        "integration_disabled": getattr(coordinator, "integration_disabled", False),
+        "suspend_armed": getattr(coordinator, "suspend_armed", False),
         "version": getattr(coordinator, "version", "unknown"),
     }
 
