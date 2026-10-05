@@ -117,6 +117,11 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
     """Coordinator for Solar AC Controller integration."""
 
     note: str = ""  # Breadcrumb for diagnostics
+    # Declared here as well as initialised in _init_runtime_state, so the type is
+    # known before any method assigns to it. Without this, mypy only sees the
+    # first assignment in _apply_user_freeze_state and infers a bare `str`,
+    # which then conflicts with the `str | None` initialisation.
+    last_action: str | None = None
 
     # Define all zone tracking dicts in one place for automatic cleanup
     ZONE_TRACKING_DICTS = [
@@ -134,27 +139,6 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         # zone_action_history is intentionally excluded: it is persisted and
         # retained for removed zones so history is not silently discarded.
     ]
-
-    async def async_set_integration_enabled(self, enabled: bool) -> None:
-        """Update and persist integration state."""
-        self.integration_enabled = enabled
-        await self._log(f"Integration {'enabled' if enabled else 'disabled'} by user.", "info")
-        # When disabling: cancel any running panic task immediately so nothing
-        # keeps running in the background after the switch is turned off.
-        if not enabled:
-            if getattr(self, "panic_manager", None) is not None:
-                await self.panic_manager.cancel_panic()
-        async with self._storage_lock:
-            self.stored_data["integration_enabled"] = enabled
-            self._storage_dirty = True  # Mark as dirty
-
-        try:
-            await self._debounced_save()
-        except asyncio.CancelledError:
-            raise
-        except (OSError, ValueError) as exc:
-            _LOGGER.exception("Error scheduling integration enabled state save: %s", exc)
-        self._debounce_recalc()
 
     async def async_set_activity_logging_enabled(self, enabled: bool) -> None:
         """Toggle activity logging and persist state."""
@@ -226,8 +210,23 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             self.config_manager.get(CONF_SEASON_MODE, DEFAULT_SEASON_MODE),
         )
 
-        # Initialize integration state
-        self.integration_enabled = self.stored_data.get("integration_enabled", True)
+        # Three independent states, deliberately NOT one flag.
+        #
+        # integration_active    - the machine's own state. Solar too low freezes
+        #                        it; sun returns thaws it. Nothing else writes it.
+        # integration_suspended - the user's choice, released automatically at the
+        #                        next real sunrise (see _maybe_release_suspend).
+        # integration_disabled - the user's choice, released only by the user.
+        #
+        # These were one `integration_enabled` flag, which is why a user
+        # switch-off could be undone by the sunset auto-recovery: dusk wrote
+        # False into it and dawn wrote True back into the same key.
+        self.integration_suspended = self.stored_data.get("integration_suspended", False)
+        self.integration_disabled = self.stored_data.get("integration_disabled", False)
+        # Arm the auto-release only once solar has genuinely dropped to the
+        # off-threshold since suspending. Persisted, so a restart cannot skip
+        # the dark half and release on the same day's sunlight.
+        self.suspend_armed = self.stored_data.get("suspend_armed", False)
         self.activity_logging_enabled = self.stored_data.get("activity_logging_enabled", False)
 
         # Initialize configuration values BEFORE learned data.
@@ -257,6 +256,167 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
 
         # Flag to log configuration validation on first update
         self._config_validation_logged = False
+
+    @property
+    def integration_enabled(self) -> bool:
+        """True when neither user switch is holding the integration off."""
+        return not (self.integration_suspended or self.integration_disabled)
+
+    async def async_set_integration_suspended(self, suspended: bool) -> None:
+        """Suspend (auto-releasing at next sunrise) or resume the integration.
+
+        Turning this off must actually stop the plant: zones off, and the master
+        relay left to follow the existing compressor ramp. Previously the switch
+        only set a flag, so zones kept running until solar happened to dip
+        below the freeze threshold all by itself.
+        """
+        if not self.integration_disabled:
+            self.integration_suspended = suspended
+            if suspended:
+                # Arm only after a genuine drop to the off-threshold; see
+                # _maybe_release_suspend. Persisted so a restart cannot skip it.
+                self.suspend_armed = False
+        await self._apply_user_freeze_state(
+            action="integration_suspended" if suspended else "integration_resumed",
+            message=(
+                "Integration suspended by user; will resume automatically when solar returns."
+                if suspended
+                else "Integration resumed by user."
+            ),
+            persist_keys=("integration_suspended", "suspend_armed"),
+            persist_values=(suspended, self.suspend_armed),
+        )
+
+    async def async_set_integration_disabled(self, disabled: bool) -> None:
+        """Disable indefinitely, or re-enable. Only the user releases this."""
+        self.integration_disabled = disabled
+        if disabled:
+            # Freeze now. integration_suspended is deliberately left untouched so
+            # that turning disable back off returns the user to whatever they
+            # had chosen, instead of silently resuming.
+            self.suspend_armed = False
+        await self._apply_user_freeze_state(
+            action="integration_disabled" if disabled else "integration_resumed",
+            message=(
+                "Integration disabled by user; it will stay off until re-enabled."
+                if disabled
+                else "Integration re-enabled by user."
+            ),
+            persist_keys=("integration_disabled", "suspend_armed"),
+            persist_values=(disabled, self.suspend_armed),
+        )
+
+    async def _apply_user_freeze_state(
+        self,
+        *,
+        action: str,
+        message: str,
+        persist_keys: tuple[str, ...],
+        persist_values: tuple[Any, ...],
+    ) -> None:
+        """Shared suspend/disable path: log, persist, then stop or resume."""
+        await self._log(message, "info")
+
+        # Cancel panic first so nothing re-energises the relay behind our back.
+        if not self.integration_enabled and getattr(self, "panic_manager", None) is not None:
+            await self.panic_manager.cancel_panic()
+
+        async with self._storage_lock:
+            for key, value in zip(persist_keys, persist_values, strict=True):
+                self.stored_data[key] = value
+            self._storage_dirty = True
+
+        if not self.integration_enabled:
+            # Actually stop the plant: zones off, and integration_active False so
+            # the existing frozen path drops the master relay on the normal
+            # compressor ramp rather than on some new timing invented here.
+            try:
+                await self._perform_freeze_cleanup()
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001
+                _LOGGER.exception("Cleanup failed while applying %s", action)
+            self.integration_active = False
+        else:
+            self.integration_active = True
+            object.__setattr__(
+                self,
+                "update_interval",
+                timedelta(seconds=self.config_manager.get_int(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)),
+            )
+
+        async with self._state_lock:
+            self.last_action = action
+
+        try:
+            await self._debounced_save()
+        except asyncio.CancelledError:
+            raise
+        except (OSError, ValueError) as exc:
+            _LOGGER.exception("Error scheduling integration state save: %s", exc)
+        self._debounce_recalc()
+
+    async def _maybe_release_suspend(self, solar: float) -> bool:
+        """Release a user suspend when real solar returns. True if released.
+
+        The release is an EDGE, not a level, and that is the whole point.
+        Checking only `solar >= on_threshold` would mean suspending at noon, when
+        solar is already 3000W, silently un-suspends on the very next cycle - the
+        user flips a switch and watches it ignore them.
+
+        So there are two conditions, and they must happen in this order:
+
+        1. solar has dropped to or below the off-threshold since the suspend,
+           which is the same condition that freezes the plant at dusk. A passing
+           cloud therefore cannot arm it. The flag is persisted, so a restart
+           cannot skip the dark half.
+        2. then solar climbs back above the on-threshold.
+
+        Together: "the next day, when production starts from zero and climbs past
+        the threshold".
+
+        Disable is absolute and is re-checked here rather than trusted to the
+        caller: it is the one state nothing may ever release, so the method that
+        releases things must refuse independently.
+        """
+        if self.integration_disabled:
+            return False
+
+        off_threshold = self.config_manager.get_float(CONF_SOLAR_THRESHOLD_OFF, DEFAULT_SOLAR_THRESHOLD_OFF)
+        on_threshold = self.config_manager.get_float(CONF_SOLAR_THRESHOLD_ON, DEFAULT_SOLAR_THRESHOLD_ON)
+
+        if not self.suspend_armed:
+            if solar > off_threshold:
+                return False
+            self.suspend_armed = True
+            async with self._storage_lock:
+                self.stored_data["suspend_armed"] = True
+                self._storage_dirty = True
+            await self._log(
+                f"[SUSPEND_ARMED] solar={round(solar)}W <= off_threshold={off_threshold}W; "
+                f"suspend will release once solar climbs past on_threshold={on_threshold}W",
+                "debug",
+            )
+            return False
+
+        if solar < on_threshold:
+            return False
+
+        await self._log(
+            f"[SUSPEND_RELEASED] solar={round(solar)}W >= on_threshold={on_threshold}W "
+            "after a full night; resuming integration",
+            "info",
+        )
+        self.integration_suspended = False
+        self.suspend_armed = False
+        async with self._storage_lock:
+            self.stored_data["integration_suspended"] = False
+            self.stored_data["suspend_armed"] = False
+            self._storage_dirty = True
+        async with self._state_lock:
+            self.last_action = "integration_resumed"
+        self._debounce_recalc()
+        return True
 
         # Season mode (manual selection: heat or cool)
 
@@ -1331,55 +1491,54 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                         self._config_validation_logged = True
 
                     try:
-                        # Integration enable/disable logic
-                        # When disabled we still read the solar sensor so we can
-                        # auto-re-enable once solar reaches SOLAR_THRESHOLD_ON.
-                        if hasattr(self, "integration_enabled") and not self.integration_enabled:
+                        # User switch handling. Disabled is absolute: nothing
+                        # below can release it. Suspended auto-releases, but only
+                        # on a genuine sunrise edge - see _maybe_release_suspend.
+                        if not self.integration_enabled:
                             try:
                                 _solar_check = self._validate_sensor_state(
                                     await self._get_cached_state(self.config_manager.get(CONF_SOLAR_SENSOR)),
                                     "Solar sensor",
                                 )
-                                _on_thr = self.config_manager.get_float(
-                                    CONF_SOLAR_THRESHOLD_ON, DEFAULT_SOLAR_THRESHOLD_ON
-                                )
-                                if _solar_check >= _on_thr:
-                                    await self._log(
-                                        f"[AUTO_ENABLE] solar={round(_solar_check)}W >= "
-                                        f"threshold_on={_on_thr}W, re-enabling integration",
-                                        "info",
-                                    )
-                                    self.integration_enabled = True
-                                    async with self._storage_lock:
-                                        self.stored_data["integration_enabled"] = True
-                                        self._storage_dirty = True
-                                    self._debounce_recalc()
-                                    # Fall through to run the normal cycle
-                                else:
-                                    async with self._state_lock:
-                                        self.last_action = "integration_disabled"
-                                    self.note = "Integration disabled by user."
-                                    _LOGGER.debug("Integration disabled, skipping all logic.")
-                                    # Even while disabled, still run master switch safety
-                                    # control so the physical relay is turned off once the
-                                    # compressor winds down after any previous freeze.
-                                    if not await self._run_master_switch_safety(_solar_check, cycle_start):
-                                        async with self._state_lock:
-                                            self.last_action = "master_switch_error"
-                                        self.note = (
-                                            "Master switch safety control failed while "
-                                            "integration is disabled; check the compressor relay."
-                                        )
-                                        self.metrics.record_cycle_end(cycle_start, success=False)
-                                        return
-                                    self.metrics.record_cycle_end(cycle_start, success=True)
-                                    return
                             except SensorUnavailableError, SensorInvalidError:
-                                # Solar unreadable while disabled – stay disabled
+                                # Solar unreadable while held off - stay held off.
                                 async with self._state_lock:
-                                    self.last_action = "integration_disabled"
+                                    self.last_action = (
+                                        "integration_disabled" if self.integration_disabled else "integration_suspended"
+                                    )
                                 self.metrics.record_cycle_end(cycle_start, success=True)
                                 return
+
+                            released = False
+                            if not self.integration_disabled:
+                                released = await self._maybe_release_suspend(_solar_check)
+
+                            if not released:
+                                async with self._state_lock:
+                                    self.last_action = (
+                                        "integration_disabled" if self.integration_disabled else "integration_suspended"
+                                    )
+                                self.note = (
+                                    "Integration disabled by user."
+                                    if self.integration_disabled
+                                    else "Integration suspended by user."
+                                )
+                                _LOGGER.debug("Integration held off, skipping all logic.")
+                                # Even while held off, still run master switch safety
+                                # control so the physical relay is turned off once the
+                                # compressor winds down after any previous freeze.
+                                if not await self._run_master_switch_safety(_solar_check, cycle_start):
+                                    async with self._state_lock:
+                                        self.last_action = "master_switch_error"
+                                    self.note = (
+                                        "Master switch safety control failed while the "
+                                        "integration is held off; check the compressor relay."
+                                    )
+                                    self.metrics.record_cycle_end(cycle_start, success=False)
+                                    return
+                                self.metrics.record_cycle_end(cycle_start, success=True)
+                                return
+                            # Suspend released this cycle: fall through to normal logic.
 
                         # 1. Read sensors (grid, solar, ac_power)
                         grid_raw = self._validate_sensor_state(
@@ -1443,15 +1602,13 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
                                 )
                                 await self._perform_freeze_cleanup()
                                 self.integration_active = False
-                                # Also turn off the integration_enabled switch so the
-                                # user can see the integration is inactive, and so it
-                                # can be auto-re-enabled when solar rises again.
-                                if self.integration_enabled:
-                                    self.integration_enabled = False
-                                    async with self._storage_lock:
-                                        self.stored_data["integration_enabled"] = False
-                                        self._storage_dirty = True
-                                    self._debounce_recalc()
+                                # Deliberately NOT touching integration_suspended or
+                                # integration_disabled here. integration_active was
+                                # already set False above; that is the machine's own
+                                # state and it thaws on its own. Writing a user flag
+                                # from this path is what previously made dusk look
+                                # identical to a user switch-off, and allowed the
+                                # auto-recovery to undo the user's choice.
                                 object.__setattr__(self, "update_interval", timedelta(seconds=300))  # check every 5 min
                                 async with self._state_lock:
                                     self.last_action = "integration_frozen"

@@ -34,7 +34,8 @@ def _coordinator(*, save_raises: BaseException | None = None) -> SolarACCoordina
     coord._storage_lock = asyncio.Lock()
     coord.stored_data = {}
     coord._storage_dirty = False
-    coord.integration_enabled = True
+    coord.integration_suspended = False
+    coord.integration_disabled = False
     coord.activity_logging_enabled = False
     coord.season_mode = "summer"
     coord.aggressiveness = 50.0
@@ -67,7 +68,8 @@ def _coordinator(*, save_raises: BaseException | None = None) -> SolarACCoordina
 
 
 SETTERS = (
-    ("integration_enabled", lambda c: c.async_set_integration_enabled(False)),
+    ("integration_suspended", lambda c: c.async_set_integration_suspended(True)),
+    ("integration_disabled", lambda c: c.async_set_integration_disabled(True)),
     ("activity_logging_enabled", lambda c: c.async_set_activity_logging_enabled(True)),
     ("season_mode", lambda c: c.async_set_season_mode("winter")),
     ("aggressiveness", lambda c: c.async_set_aggressiveness(75)),
