@@ -54,7 +54,13 @@ class ActionExecutor:
         export: float,
         required_export: float,
     ) -> None:
-        """Log and execute add zone action."""
+        """Log and execute add zone action.
+
+        ``export`` and ``required_export`` are accepted but unused: they were part of an
+        earlier signature and are retained so the call sites in coordinator.py do not
+        have to change. Do not read them as inputs to the decision - that already
+        happened upstream in DecisionEngine.
+        """
         # Validate zone exists in configuration
         configured_zones = self.coordinator.config.get(CONF_ZONES, [])
         if next_zone not in configured_zones:
@@ -143,7 +149,12 @@ class ActionExecutor:
         )
 
     async def add_zone_without_learning(self, zone: str, ac_power_before: float) -> None:
-        """Turn on zone without starting learning (for multi-zone additions)."""
+        """Turn on zone without starting learning (for multi-zone additions).
+
+        ``ac_power_before`` is accepted but unused here. Its sibling ``add_zone`` does
+        use it; this path deliberately does not, because a multi-zone add is part of an
+        already-running learning session and must not seed a new baseline.
+        """
         # Validate zone exists in configuration
         configured_zones = self.coordinator.config.get(CONF_ZONES, [])
         if zone not in configured_zones:

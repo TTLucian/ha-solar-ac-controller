@@ -1,4 +1,3 @@
-# custom_components/solar_ac_controller/zone_config_parser.py
 """Zone configuration parsing utilities."""
 
 from homeassistant.config_entries import ConfigEntry

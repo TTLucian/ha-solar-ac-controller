@@ -1,3 +1,9 @@
+"""Binary sensors: master switch state and the integration-wide health flags.
+
+Each entity writes HA state only when its value actually changes, to avoid
+recorder churn on the frequently-refreshed flags.
+"""
+
 from __future__ import annotations
 
 import logging

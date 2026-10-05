@@ -1,3 +1,9 @@
+"""Sensor entities exposing controller state, metrics and diagnostics.
+
+The coordinator's EMA, confidence, export and per-zone lock values are surfaced
+here as individual sensors so they can be graphed and used in dashboard cards.
+"""
+
 from __future__ import annotations
 
 import asyncio

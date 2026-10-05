@@ -1,4 +1,5 @@
-# custom_components/solar_ac_controller/coordinator.py
+"""Main coordinator for Solar AC Controller."""
+
 from __future__ import annotations
 
 import asyncio
@@ -275,9 +276,14 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         """Suspend (auto-releasing at next sunrise) or resume the integration.
 
         Turning this off must actually stop the plant: zones off, and the master
-        relay left to follow the existing compressor ramp. Previously the switch
+        relay driven off once the compressor reads idle. Previously the switch
         only set a flag, so zones kept running until solar happened to dip
         below the freeze threshold all by itself.
+
+        The relay is handled by ``handle_master_switch``, not here, because that
+        is where the safety gates live - see ``_master_off_ready``. There is no
+        "compressor ramp" for the relay; ``compressor_ramp_seconds`` governs
+        zone re-adds after a removal and has nothing to do with it.
         """
         if not self.integration_disabled:
             self.integration_suspended = suspended
@@ -883,9 +889,18 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         self,
         zone_name: str,
         mode: str | None = None,
-        band: str | None = None,
+        band: str | None = None,  # reserved, unused - see docstring
     ) -> float:
-        """Return learned power for a zone and mode/band, or default if missing."""
+        """Return learned power for a zone and mode, or the default if missing.
+
+        Resolution order: the requested ``mode`` if present, then ``default``,
+        then ``heat``, then ``cool``, and finally ``initial_learned_power``.
+
+        ``band`` is accepted and ignored - it is reserved for a banded
+        (e.g. load-range) lookup that is not implemented. Callers pass it
+        because the signature was designed for it; do not read it as evidence
+        that banding works.
+        """
         entry = self.learned_power.get(zone_name)
         if entry is None:
             return float(self.initial_learned_power)
@@ -1415,16 +1430,20 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
     async def _run_master_switch_safety(self, solar: float, cycle_start: float) -> bool:
         """Run the compressor relay safety control, reporting rather than swallowing.
 
-        Called on the disabled and frozen paths, where the relay is what winds
-        the compressor down after any previous freeze. Both call sites used to
-        end in `except Exception: pass`, which left the relay unattended with
-        nothing in the log - and then recorded the cycle as a success, so the
-        telemetry asserted everything was fine.
+                Called on the disabled and frozen paths, where the relay is what winds
+                the compressor down after any previous freeze. Both call sites used to
+                end in `except Exception: pass`, which left the relay unattended with
+                nothing in the log - and then recorded the cycle as a success, so the
+                telemetry asserted everything was fine.
 
-        Returns True when the relay was commanded, False when it failed. The
-        AC power reading is optional and deliberately not fatal: an
-        unreadable sensor leaves ``ac_power`` as None and the switch logic
-        decides on that.
+                Returns True when the relay was commanded, False when it failed.
+
+        The AC power reading is optional and never fatal here - an unreadable sensor
+        leaves ``ac_power`` as None and is passed on that way. What None *means* is
+        decided downstream by ``_master_off_ready``: the solar path treats it as
+        proceed-anyway (it has just concluded from solar that power should go), while a
+        user freeze treats it as not-ready and defers. This function deliberately does
+        not decide, so both regimes keep one source of truth for the gates.
         """
         try:
             ac_power: float | None = None
@@ -1525,7 +1544,17 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
     # -------------------------------------------------------------------------
 
     async def _async_update_data(self) -> None:  # type: ignore[override]
-        """Main loop executed every 5 seconds."""
+        """Main update cycle.
+
+        The cadence is adaptive. ``_update_adaptive_interval`` shortens the configured
+        base (``update_interval``, default 10 s) to as little as 5 s while panicking or
+        8 s while learning.
+
+        A *solar* freeze stretches it to 300 s, so a dark plant costs almost nothing. A
+        *user* freeze deliberately does not: it keeps polling at the adaptive rate
+        because each cycle is what re-checks the master relay, and the cut may be
+        waiting on the compressor winding down.
+        """
         try:
             # Timeout must cover a full zone swap: remove sleep + add sleep + HA service
             # call overhead.  A swap holds the lock for ~2 * action_delay_seconds, so
@@ -2154,7 +2183,12 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         old_ema_30s: float,
         old_ema_5m: float,
     ) -> None:
-        """Log EMA validation failure."""
+        """Log EMA validation failure.
+
+        ``old_ema_30s`` and ``old_ema_5m`` are passed by the caller for context but are
+        not used in the message, which reports only the offending input. They are kept
+        so a future message can show the prior values without changing the call site.
+        """
         if failure_type == "non_numeric":
             message = (
                 f"Power calculation error: received invalid data ({round(input_value, 2)}) - resetting calculations"
@@ -2382,7 +2416,14 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             _LOGGER.exception(f"Failed to perform zone swap: {e}")
 
     async def _perform_freeze_cleanup(self) -> None:
-        """Cancel tasks and reset learning state when master is off or solar is too low."""
+        """Cancel tasks, turn off zones, and reset learning state on a freeze.
+
+        Runs for all three freezes - the solar dusk freeze, a user suspend, and a user
+        disable. It does NOT touch the master relay: that is ``handle_master_switch``'s
+        job, because only there do the safety gates live (see ``_master_off_ready``).
+        A freeze therefore completes in two stages, and the relay cut may happen on a
+        later cycle than this call once the compressor has wound down.
+        """
         # Flush any pending storage saves before cleanup
         try:
             await self._flush_pending_storage_save()

@@ -1,4 +1,5 @@
-# custom_components/solar_ac_controller/controller.py
+"""Learning session and controller-level state for Solar AC Controller."""
+
 from __future__ import annotations
 
 import asyncio

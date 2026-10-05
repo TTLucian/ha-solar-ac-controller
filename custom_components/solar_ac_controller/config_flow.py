@@ -1,3 +1,9 @@
+"""Config and options flows for Solar AC Controller.
+
+The options flow validates on submit - notably the zone/temperature-sensor
+mapping, which must stay consistent when temperature modulation is enabled.
+"""
+
 from __future__ import annotations
 
 import logging
