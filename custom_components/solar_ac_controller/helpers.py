@@ -114,6 +114,15 @@ class MasterSwitchController:
                     f"[MASTER_MANUAL_LOCK] detected manual change to {switch_state}, locking until natural cycle aligns"
                 )
 
+        # A user freeze (Suspend or Disable) outranks everything below. It has to
+        # be handled HERE, after effective_state is resolved but before the
+        # manual lock, because the lock is the one thing that can otherwise keep
+        # the relay energised indefinitely: a lock set to "on" only releases when
+        # solar climbs back above threshold_on, so at night it never releases.
+        if not getattr(self.coordinator, "integration_enabled", True):
+            await self._hold_off_due_to_user_freeze(ac_switch, effective_state, ac_power)
+            return
+
         # Check if lock should be released
         if self.coordinator.master_manual_lock_state is not None:
             # Release lock if locked ON and solar would naturally turn it ON
@@ -162,52 +171,12 @@ class MasterSwitchController:
 
         # Turn OFF when solar is below or equal to OFF threshold
         if solar <= off_threshold and effective_state == "on":
-            # Safety check 1: ALL zones must be at rest before cutting compressor power.
-            # Cutting mains power while a zone is active will damage the compressor.
-            zones: list[str] = self.coordinator.config_manager.get_list("zones", [])
-            active_zone_states = [
-                z
-                for z in zones
-                if (
-                    (z_st := self.coordinator.hass.states.get(z)) is not None
-                    and z_st.state not in ("off", "idle", "unavailable", "unknown")
-                )
-            ]
-            if active_zone_states:
-                await self.coordinator._log(
-                    f"[MASTER_OFF_DEFERRED] {len(active_zone_states)} zone(s) still active "
-                    f"({', '.join(z.split('.')[-1] for z in active_zone_states)}) – "
-                    f"waiting for all zones to stop before cutting compressor power",
-                    "info",
-                )
+            # Both safety gates live in _master_off_ready so that a user freeze
+            # and the solar freeze cannot drift apart on what "safe to cut" means.
+            ready, reason = await self._master_off_ready(ac_power, require_readable=False)
+            if not ready:
+                await self.coordinator._log(reason, "info")
                 return
-
-            # Safety check 2: Spindown guard – compressor must be near idle before cutting
-            # mains power. Defer until ac_power settles near baseline.
-            if ac_power is not None:
-                _idle = getattr(self.coordinator, "learned_idle_power", 0.0)
-                _n = getattr(self.coordinator, "idle_power_samples", 0)
-                if _n >= IDLE_POWER_MIN_SAMPLES and _idle > 0.0:
-                    # Learned baseline available
-                    if ac_power > _idle + SPINDOWN_THRESHOLD_W:
-                        await self.coordinator._log(
-                            f"[SPINDOWN_GUARD] Deferring master OFF: "
-                            f"ac_power={round(ac_power)}W is "
-                            f"{round(ac_power - _idle)}W above idle baseline "
-                            f"({round(_idle, 1)}W) – compressor still spinning down",
-                            "info",
-                        )
-                        return
-                elif ac_power > IDLE_POWER_MAX_W:
-                    # No learned baseline yet – conservative raw threshold.
-                    # IDLE_POWER_MAX_W is the upper bound of what qualifies as idle draw.
-                    await self.coordinator._log(
-                        f"[SPINDOWN_GUARD] Deferring master OFF (no baseline yet): "
-                        f"ac_power={round(ac_power)}W > {IDLE_POWER_MAX_W}W – "
-                        f"compressor may still be active",
-                        "info",
-                    )
-                    return
 
             await self.coordinator._log(
                 f"[MASTER_OFF_TRIGGER] solar={round(solar)}W <= threshold_off={off_threshold}W, "
@@ -228,6 +197,127 @@ class MasterSwitchController:
             # mark master_off_since for EMA reset logic
             self.coordinator.master_off_since = dt_util.utcnow().timestamp()
             return
+
+    async def _master_off_ready(self, ac_power: float | None, *, require_readable: bool) -> tuple[bool, str]:
+        """The two gates that must pass before cutting compressor mains.
+
+        Returns ``(ready, reason)``. ``reason`` is a ready-to-log explanation and
+        is only meaningful when ``ready`` is False.
+
+        Both the solar-driven freeze and a user freeze go through here, so there
+        is exactly one definition of "safe to cut power" in this file. They
+        differ in one respect: ``require_readable`` decides what an unreadable
+        AC power sensor means. The solar path treats it as unknown-and-proceed,
+        because it has only just decided solar is low anyway. A user freeze must
+        not - the user asked for the plant to stop, and cutting mains while the
+        compressor may still be spinning is exactly what the spindown guard
+        exists to prevent. There it means "not ready", and the next cycle
+        retries.
+        """
+        # Gate 1: ALL zones at rest. Cutting mains power while a zone is active
+        # damages the compressor.
+        zones: list[str] = self.coordinator.config_manager.get_list("zones", [])
+        active_zone_states = [
+            z
+            for z in zones
+            if (
+                (z_st := self.coordinator.hass.states.get(z)) is not None
+                and z_st.state not in ("off", "idle", "unavailable", "unknown")
+            )
+        ]
+        if active_zone_states:
+            return False, (
+                f"[MASTER_OFF_DEFERRED] {len(active_zone_states)} zone(s) still active "
+                f"({', '.join(z.split('.')[-1] for z in active_zone_states)}) – "
+                f"waiting for all zones to stop before cutting compressor power"
+            )
+
+        # Gate 2: spindown - the compressor must be near idle before cutting.
+        if ac_power is None:
+            if require_readable:
+                return False, (
+                    "[SPINDOWN_GUARD] Deferring master OFF: the AC power sensor is "
+                    "unavailable, so there is no reading to confirm the compressor "
+                    "is idle. Will re-check on the next cycle."
+                )
+            return True, ""
+
+        _idle = getattr(self.coordinator, "learned_idle_power", 0.0)
+        _n = getattr(self.coordinator, "idle_power_samples", 0)
+        if _n >= IDLE_POWER_MIN_SAMPLES and _idle > 0.0:
+            # Learned baseline available.
+            if ac_power > _idle + SPINDOWN_THRESHOLD_W:
+                return False, (
+                    f"[SPINDOWN_GUARD] Deferring master OFF: "
+                    f"ac_power={round(ac_power)}W is "
+                    f"{round(ac_power - _idle)}W above idle baseline "
+                    f"({round(_idle, 1)}W) – compressor still spinning down"
+                )
+        elif ac_power > IDLE_POWER_MAX_W:
+            # No learned baseline yet - conservative raw threshold.
+            # IDLE_POWER_MAX_W is the upper bound of what qualifies as idle draw.
+            return False, (
+                f"[SPINDOWN_GUARD] Deferring master OFF (no baseline yet): "
+                f"ac_power={round(ac_power)}W > {IDLE_POWER_MAX_W}W – "
+                f"compressor may still be active"
+            )
+
+        return True, ""
+
+    async def _hold_off_due_to_user_freeze(self, ac_switch: str, effective_state: str, ac_power: float | None) -> None:
+        """Suspend or Disable: drive the relay OFF, and never ON.
+
+        This is the whole point of the switch. The freeze path used to turn off
+        zones only and then let the ordinary solar-driven auto-control keep
+        running, which meant a daytime freeze left the compressor energised - and
+        a freeze taken while the relay happened to be OFF would actively switch
+        it back ON, because solar was still above threshold_on.
+
+        The relay is cut only once ``_master_off_ready`` agrees the compressor is
+        idle. Until then this is a no-op that logs why and is retried on the next
+        cycle, so a freeze taken during a long spindown converges on its own.
+
+        ``last_action`` is deliberately left alone: it is the user-facing answer
+        to "is this suspended or disabled", and the freeze path owns it.
+        """
+        # A freeze outranks a manual lock. Without this an "on" lock - which only
+        # releases when solar climbs back above threshold_on - would hold the
+        # relay on all night, through a freeze, indefinitely.
+        if self.coordinator.master_manual_lock_state is not None:
+            await self.coordinator._log(
+                f"[MASTER_FREEZE_OVERRIDE_LOCK] user freeze overrides the manual "
+                f"lock (was {self.coordinator.master_manual_lock_state!r}); "
+                f"auto-control resumes when the integration is released"
+            )
+            self.coordinator.master_manual_lock_state = None
+
+        if effective_state == "off":
+            self.coordinator.master_last_state = effective_state
+            return
+
+        ready, reason = await self._master_off_ready(ac_power, require_readable=True)
+        if not ready:
+            await self.coordinator._log(reason, "info")
+            self.coordinator.master_last_state = effective_state
+            return
+
+        await self.coordinator._log(
+            f"[MASTER_OFF_USER_FREEZE] all zones off, ac_power={round(ac_power or 0.0)}W "
+            f"at idle – turning AC master switch OFF for a user freeze"
+        )
+        await self.coordinator.hass.services.async_call(
+            "switch",
+            "turn_off",
+            {"entity_id": ac_switch},
+            blocking=True,
+        )
+        # master_last_action_time is set so the OFF just commanded is not mistaken
+        # for a manual change by the detection block on the next call.
+        self.coordinator.master_last_action_time = dt_util.utcnow().timestamp()
+        self.coordinator.master_commanded_state = "off"
+        self.coordinator.master_last_command_time = dt_util.utcnow().timestamp()
+        self.coordinator.master_last_state = "off"
+        self.coordinator.master_off_since = dt_util.utcnow().timestamp()
 
 
 def _safe_float(val: Any, default: float | None = None) -> float | None:

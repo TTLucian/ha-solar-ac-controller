@@ -122,6 +122,11 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
     # first assignment in _apply_user_freeze_state and infers a bare `str`,
     # which then conflicts with the `str | None` initialisation.
     last_action: str | None = None
+    # Same reasoning for integration_active: the other assignments live in
+    # _apply_user_freeze_state and __init__, and without a declaration here mypy
+    # infers from whichever it happens to see first, then reports [has-type] on
+    # every remaining read.
+    integration_active: bool = False
 
     # Define all zone tracking dicts in one place for automatic cleanup
     ZONE_TRACKING_DICTS = [
@@ -192,6 +197,10 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         self._storage_debounce_seconds = 5.0  # Minimum 5 seconds between saves (increased)
         self._storage_lock = asyncio.Lock()
         self._update_lock = asyncio.Lock()
+        # Serialises the user suspend/disable path so a quick off-then-on flip
+        # cannot interleave two overlapping _apply_user_freeze_state calls.
+        # Separate from _update_lock, which the update cycle holds.
+        self._user_freeze_lock = asyncio.Lock()
         self._state_lock = asyncio.Lock()
         self._cache_lock = asyncio.Lock()
         self._storage_dirty = False  # Track if data has actually changed
@@ -329,47 +338,75 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         persist_keys: tuple[str, ...],
         persist_values: tuple[Any, ...],
     ) -> None:
-        """Shared suspend/disable path: log, persist, then stop or resume."""
-        await self._log(message, "info")
+        """Shared suspend/disable path: log, persist, then stop or resume.
 
-        # Cancel panic first so nothing re-energises the relay behind our back.
-        if not self.integration_enabled and getattr(self, "panic_manager", None) is not None:
-            await self.panic_manager.cancel_panic()
+        Serialised on ``_user_freeze_lock``. Turning a switch is not instantaneous
+        - the freeze branch awaits a blocking service call per zone, and with four
+        zones and a 2 s action delay that is several seconds of real awaiting.
 
-        async with self._storage_lock:
-            for key, value in zip(persist_keys, persist_values, strict=True):
-                self.stored_data[key] = value
-            self._storage_dirty = True
+        Without the lock a quick off-then-on flip interleaves: the resume returns
+        first and sets ``integration_active = True``, then the stale freeze call
+        finally returns and sets it back to False. The plant then sits frozen
+        while both switches read "running", with nothing to release it. The lock
+        makes the second call wait, so the last write is the correct one.
+        """
+        async with self._user_freeze_lock:
+            await self._log(message, "info")
 
-        if not self.integration_enabled:
-            # Actually stop the plant: zones off, and integration_active False so
-            # the existing frozen path drops the master relay on the normal
-            # compressor ramp rather than on some new timing invented here.
+            # Cancel panic first so nothing re-energises the relay behind our back.
+            if not self.integration_enabled and getattr(self, "panic_manager", None) is not None:
+                await self.panic_manager.cancel_panic()
+
+            async with self._storage_lock:
+                for key, value in zip(persist_keys, persist_values, strict=True):
+                    self.stored_data[key] = value
+                self._storage_dirty = True
+
+            if not self.integration_enabled:
+                # Actually stop the plant: zones off, and the master relay is
+                # driven off by handle_master_switch once the compressor reads
+                # idle. That handler owns the relay because it is the only place
+                # that knows the safety gates - there is no "compressor ramp" for
+                # the relay, contrary to what this comment used to claim.
+                try:
+                    await self._perform_freeze_cleanup()
+                except asyncio.CancelledError:
+                    raise
+                except Exception:  # noqa: BLE001
+                    _LOGGER.exception("Cleanup failed while applying %s", action)
+                # Re-read after the await. The zone service calls above take real
+                # time, and the user - or _maybe_release_suspend releasing an
+                # armed suspend - can have changed the flags meanwhile. Acting on
+                # the value from before the await would freeze a plant the user
+                # has already resumed.
+                #
+                # Annotated because mypy narrows `integration_enabled` to False
+                # inside this branch and would otherwise call the re-read
+                # unreachable, which is precisely the check that matters.
+                still_frozen = not self.integration_enabled
+            else:
+                still_frozen = False
+
+            if still_frozen:
+                self.integration_active = False
+            else:
+                self.integration_active = True
+                object.__setattr__(
+                    self,
+                    "update_interval",
+                    timedelta(seconds=self.config_manager.get_int(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)),
+                )
+
+            async with self._state_lock:
+                self.last_action = action
+
             try:
-                await self._perform_freeze_cleanup()
+                await self._debounced_save()
             except asyncio.CancelledError:
                 raise
-            except Exception:  # noqa: BLE001
-                _LOGGER.exception("Cleanup failed while applying %s", action)
-            self.integration_active = False
-        else:
-            self.integration_active = True
-            object.__setattr__(
-                self,
-                "update_interval",
-                timedelta(seconds=self.config_manager.get_int(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)),
-            )
-
-        async with self._state_lock:
-            self.last_action = action
-
-        try:
-            await self._debounced_save()
-        except asyncio.CancelledError:
-            raise
-        except (OSError, ValueError) as exc:
-            _LOGGER.exception("Error scheduling integration state save: %s", exc)
-        self._debounce_recalc()
+            except (OSError, ValueError) as exc:
+                _LOGGER.exception("Error scheduling integration state save: %s", exc)
+            self._debounce_recalc()
 
     async def _maybe_release_suspend(self, solar: float) -> bool:
         """Release a user suspend when real solar returns. True if released.
@@ -571,7 +608,6 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
 
         # Learning state
         self.last_action: str | None = None
-        self.was_in_freeze = False  # Track previous freeze state for logging
         # Last decision state for transition logging (STABLE / ADD_READY / REMOVE_READY)
         self._last_decision_state: str | None = None
         self.learning_start_time: float | None = None

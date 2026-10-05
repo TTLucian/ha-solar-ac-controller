@@ -45,6 +45,7 @@ def _coordinator(*, suspended: bool = False, disabled: bool = False, armed: bool
     c = object.__new__(SolarACCoordinator)
     c._storage_lock = asyncio.Lock()
     c._state_lock = asyncio.Lock()
+    c._user_freeze_lock = asyncio.Lock()
     c.config_manager = _CM()  # type: ignore[assignment]
     # Seed storage the way a real load would: the flag is present because a
     # previous suspend wrote it. Without this the helper starts with an empty
@@ -428,3 +429,36 @@ async def test_disabling_does_not_touch_arming_either_way() -> None:
 
     await c.async_set_integration_disabled(False)
     assert c.suspend_armed is True
+
+
+@pytest.mark.asyncio
+async def test_quick_off_then_on_flip_is_not_clobbered_by_the_stale_freeze() -> None:
+    """A fast flip must land on 'running', not on a silently frozen plant.
+
+    Turning the switch off is not instantaneous: the freeze branch awaits a
+    blocking service call per zone. With four zones and a 2 s action delay that
+    is several seconds of real awaiting, during which the user can flip back on.
+
+    Unserialised, the resume returned first and the stale freeze call then set
+    integration_active back to False - leaving enabled=True, active=False, so
+    the plant sat frozen while both switches read "running", with nothing to
+    release it.
+    """
+    c = _coordinator()
+    cleanup_started = asyncio.Event()
+
+    async def slow_cleanup() -> None:
+        cleanup_started.set()
+        await asyncio.sleep(0.2)  # stands in for the real per-zone service calls
+
+    c._perform_freeze_cleanup = slow_cleanup
+
+    freeze = asyncio.create_task(c.async_set_integration_suspended(True))
+    await cleanup_started.wait()
+    # The user flips back on while the freeze is still awaiting.
+    await c.async_set_integration_suspended(False)
+    await freeze
+
+    assert c.integration_enabled is True
+    assert c.integration_active is True, "stale freeze clobbered the resume"
+    assert c.last_action == "integration_resumed"

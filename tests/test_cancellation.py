@@ -32,6 +32,7 @@ def _coordinator(*, save_raises: BaseException | None = None) -> SolarACCoordina
     """Minimal coordinator wired for the setter and freeze-cleanup paths."""
     coord = object.__new__(SolarACCoordinator)
     coord._storage_lock = asyncio.Lock()
+    coord._user_freeze_lock = asyncio.Lock()
     coord.stored_data = {}
     coord._storage_dirty = False
     coord.integration_suspended = False
