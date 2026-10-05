@@ -290,20 +290,35 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
     async def async_set_integration_disabled(self, disabled: bool) -> None:
         """Disable indefinitely, or re-enable. Only the user releases this."""
         self.integration_disabled = disabled
-        if disabled:
-            # Freeze now. integration_suspended is deliberately left untouched so
-            # that turning disable back off returns the user to whatever they
-            # had chosen, instead of silently resuming.
-            self.suspend_armed = False
+        # NOTE: neither integration_suspended nor suspend_armed is touched here.
+        #
+        # Disable freezes the plant and preserves the suspend decision intact,
+        # so turning it back off returns the user to exactly what they had -
+        # including a suspend that is already armed and waiting for sunrise.
+        #
+        # Clearing suspend_armed on the way IN was tried and reverted: the flag
+        # was cleared in memory but not persisted, so a restart resurrected a
+        # stale True from storage and the two disagreed. The suspend switch is
+        # the only thing that owns this flag, which keeps it in one place.
         await self._apply_user_freeze_state(
-            action="integration_disabled" if disabled else "integration_resumed",
+            # Not "integration_resumed": that name belongs to un-suspending.
+            # Turning Disable off does not resume anything - if the user is also
+            # suspended, the integration stays off and "resumed" would be a lie
+            # on the dashboard as well as in the log.
+            action="integration_disabled" if disabled else "integration_enabled",
             message=(
                 "Integration disabled by user; it will stay off until re-enabled."
                 if disabled
                 else "Integration re-enabled by user."
             ),
-            persist_keys=("integration_disabled", "suspend_armed"),
-            persist_values=(disabled, self.suspend_armed),
+            # suspend_armed is only meaningful to the suspend switch, and is only
+            # cleared here when disabling. Persisting it when RE-enabling wiped
+            # the arming flag of a suspend that was still held, so a suspend set
+            # at night - already armed and waiting for sunrise - silently lost
+            # its auto-release and needed a manual resume instead. Re-enabling
+            # must leave the suspend decision and its arming exactly as they were.
+            persist_keys=("integration_disabled",),
+            persist_values=(disabled,),
         )
 
     async def _apply_user_freeze_state(
