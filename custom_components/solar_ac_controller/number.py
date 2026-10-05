@@ -1,3 +1,5 @@
+"""Number entities for the runtime-tunable controller parameters."""
+
 from __future__ import annotations
 
 from functools import cached_property

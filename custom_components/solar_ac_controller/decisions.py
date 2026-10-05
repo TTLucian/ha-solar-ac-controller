@@ -396,7 +396,12 @@ class DecisionEngine:
         return max(0.0, min(100.0, raw))
 
     async def should_add_zone(self, next_zone: str, required_export: float | None) -> bool:
-        """Return True if add zone conditions are met using unified confidence only."""
+        """Return True if add zone conditions are met using unified confidence only.
+
+        Both parameters are retained from an earlier signature and are not read: the
+        decision is made entirely from ``coordinator.unified_add_threshold``, which the
+        coordinator computes before calling this.
+        """
         # Decision is driven by unified confidence computed in coordinator loop.
         # This method simply returns whether the unified confidence meets the add threshold.
         return getattr(self.coordinator, "confidence", 0.0) >= getattr(self.coordinator, "unified_add_threshold", 0.0)
@@ -409,6 +414,10 @@ class DecisionEngine:
 
         Only checks remove confidence - comfort targets are ignored to allow
         aggressive zone removal based on power conditions alone.
+
+        All three parameters are retained from an earlier signature and are not
+        read. The decision is made entirely from ``coordinator.confidence``
+        against ``coordinator.unified_remove_threshold``.
         """
         if self.coordinator.confidence > self.coordinator.unified_remove_threshold:
             return False
@@ -461,6 +470,9 @@ class DecisionEngine:
            while a lower-priority zone is running. Swap them regardless of whether the
            active zone has reached comfort — ensures high-priority zones are not
            permanently locked out when solar surplus is insufficient for a full add.
+
+        ``import_power`` is retained from an earlier signature and is not read;
+        the swap is driven entirely by the two triggers above.
         """
         # Only swap when comfort-based control is enabled
         if not self.coordinator.enable_temp_modulation:

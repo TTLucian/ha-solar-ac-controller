@@ -1,4 +1,5 @@
-# custom_components/solar_ac_controller/diagnostics.py
+"""Config-entry diagnostics download for Solar AC Controller."""
+
 from __future__ import annotations
 
 from typing import Any

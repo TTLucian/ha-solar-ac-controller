@@ -1,3 +1,10 @@
+"""Constants, defaults and configuration keys for Solar AC Controller.
+
+Every tunable the integration exposes has its CONF_ key, DEFAULT_ and any
+documented bounds here, so config_flow, the coordinator and the UI selectors all
+read from one place.
+"""
+
 from __future__ import annotations
 
 from typing import Any

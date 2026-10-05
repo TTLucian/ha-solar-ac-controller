@@ -1,3 +1,10 @@
+"""Solar AC Controller integration.
+
+Sets up the config entry, owns the coordinator lifecycle (including storage
+migration and the force_relearn service), and drives the sensor, binary_sensor,
+switch, number and select platforms.
+"""
+
 from __future__ import annotations
 
 import logging

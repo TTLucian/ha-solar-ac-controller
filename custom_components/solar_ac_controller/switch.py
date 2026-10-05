@@ -62,7 +62,13 @@ async def _async_migrate_enable_switch(hass: Any, entry: Any) -> None:
 class IntegrationSuspendSwitch(  # pyright: ignore[reportIncompatibleVariableOverride]
     CoordinatorEntity, SwitchEntity
 ):
-    """Freeze the plant until the next real sunrise, then resume automatically."""
+    """Freeze the plant until the next real sunrise, then resume automatically.
+
+    Switch OFF means suspended. Suspension turns off the zones and drives the
+    master relay off once the compressor reads idle; it auto-releases only on a
+    genuine sunrise edge (see ``_maybe_release_suspend``), so suspending at noon
+    does not undo itself on the next cycle.
+    """
 
     coordinator: SolarACCoordinator
 
@@ -135,7 +141,14 @@ class IntegrationSuspendSwitch(  # pyright: ignore[reportIncompatibleVariableOve
 class IntegrationDisableSwitch(  # pyright: ignore[reportIncompatibleVariableOverride]
     CoordinatorEntity, SwitchEntity
 ):
-    """Freeze the plant indefinitely. Only the user releases it."""
+    """Freeze the plant indefinitely. Only the user releases it.
+
+    Switch OFF means disabled. Like suspension it turns off the zones and drives
+    the master relay off once the compressor reads idle, but nothing releases it -
+    not the sun, and not turning it back off again. Turning it ON resumes; it does
+    not "resume" anything if the suspend switch is still off, in which case the
+    plant stays frozen. Disabling also hides the suspend switch.
+    """
 
     coordinator: SolarACCoordinator
 

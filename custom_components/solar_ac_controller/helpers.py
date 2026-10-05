@@ -1,4 +1,5 @@
-# custom_components/solar_ac_controller/helpers.py
+"""Shared helpers for Solar AC Controller."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -62,7 +63,26 @@ class MasterSwitchController:
         self.coordinator = coordinator
 
     async def handle_master_switch(self, solar: float, cycle_start: Any, ac_power: float | None = None) -> None:
-        """Master relay control with sticky manual lock until natural solar cycle aligns."""
+        """Master relay control: solar-driven, with a sticky manual lock.
+
+        Three regimes, in priority order:
+
+        1. A user freeze (Suspend or Disable). The relay is driven OFF and never
+           ON, subject to the same safety gates as the solar path. Handled before
+           the manual lock, because a lock set to "on" only releases when solar
+           climbs back above ``threshold_on`` - so at night it would hold the
+           relay on indefinitely, through a freeze included.
+        2. A manual override, which is honoured until the natural solar cycle
+           would agree with it.
+        3. Otherwise, plain solar-threshold auto-control.
+
+        Cutting the relay always goes through ``_master_off_ready``, which
+        requires every zone at rest and the compressor at idle.
+
+        ``cycle_start`` is unused; it is kept in the signature so the call sites
+        read consistently with the rest of the cycle, and so a future timing
+        budget can use it without changing them.
+        """
         ac_switch = self.coordinator.config_manager.get("ac_switch")
         if not ac_switch:
             return
