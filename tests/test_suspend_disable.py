@@ -46,7 +46,13 @@ def _coordinator(*, suspended: bool = False, disabled: bool = False, armed: bool
     c._storage_lock = asyncio.Lock()
     c._state_lock = asyncio.Lock()
     c.config_manager = _CM()  # type: ignore[assignment]
-    c.stored_data = {}
+    # Seed storage the way a real load would: the flag is present because a
+    # previous suspend wrote it. Without this the helper starts with an empty
+    # dict, so `stored_data["suspend_armed"]` raises KeyError and a test that
+    # should catch the re-enable wipe passes instead.
+    c.stored_data = {"integration_suspended": suspended, "integration_disabled": disabled}
+    if armed:
+        c.stored_data["suspend_armed"] = True
     c._storage_dirty = False
     c.integration_suspended = suspended
     c.integration_disabled = disabled
@@ -286,7 +292,13 @@ async def test_cycle_reports_suspended_versus_disabled(
 
 @pytest.mark.asyncio
 async def test_state_survives_persistence_round_trip() -> None:
-    """All three flags must be written to stored_data."""
+    """Each switch persists its own key, and only its own.
+
+    suspend_armed belongs to the suspend switch alone. An earlier version of
+    this test asserted that disabling also wrote `suspend_armed`, which is the
+    defect fixed in this branch: writing it on re-enable wiped the arming flag
+    of a suspend that was still held.
+    """
     c = _coordinator()
     await c.async_set_integration_suspended(True)
     assert c.stored_data["integration_suspended"] is True
@@ -295,7 +307,9 @@ async def test_state_survives_persistence_round_trip() -> None:
     c2 = _coordinator()
     await c2.async_set_integration_disabled(True)
     assert c2.stored_data["integration_disabled"] is True
-    assert c2.stored_data["suspend_armed"] is False
+    # Disabling clears arming in memory; the persist call deliberately does not
+    # carry it, so it is re-derived from the coordinator's own flag on load.
+    assert c2.suspend_armed is False
 
 
 @pytest.mark.asyncio
@@ -334,3 +348,83 @@ async def test_log_failure_does_not_prevent_the_freeze() -> None:
 
     assert cleaned["n"] == 0, "cleanup ran despite the log failure"
     assert logging.getLogger("custom_components.solar_ac_controller").level < 60
+
+
+# --- defects found in live operation on 2026-10-05 ---------------------------
+
+
+@pytest.mark.asyncio
+async def test_turning_disable_off_does_not_claim_resumed() -> None:
+    """Turning Disable off must not report itself as "resumed".
+
+    Found live: the logbook showed
+        04:07:50 Integration disabled by user...
+        04:07:52 Integration resumed by user...
+    from a single Disable toggle. Re-enabling Disable resumes nothing - if the
+    user is also suspended the plant stays off, so "resumed" was wrong twice
+    over: wrong verb, and wrong about the resulting state.
+    """
+    c = _coordinator(disabled=True, suspended=True)
+    await c.async_set_integration_disabled(False)
+
+    assert c.last_action == "integration_enabled", (
+        f"turning Disable off reported {c.last_action!r} instead of integration_enabled"
+    )
+    assert c.last_action != "integration_resumed"
+
+
+@pytest.mark.asyncio
+async def test_turning_disable_off_keeps_the_suspend_armed() -> None:
+    """Re-enabling Disable must not destroy an armed suspend's auto-release.
+
+    Found live: `async_set_integration_disabled` persisted `suspend_armed` on
+    BOTH directions. The bug path is suspend-at-night (armed, waiting for
+    sunrise) -> disable -> re-enable. The re-enable wrote False, so the
+    auto-release could never fire and the user had to resume by hand - the
+    exact failure the suspend switch exists to avoid.
+    """
+    c = _coordinator(suspended=True, armed=True, disabled=True)
+    assert c.suspend_armed is True
+
+    await c.async_set_integration_disabled(False)
+
+    assert c.suspend_armed is True, (
+        "re-enabling Disable wiped suspend_armed, so an armed suspend can never auto-release"
+    )
+    assert "suspend_armed" not in c.stored_data or c.stored_data.get("suspend_armed") is not False
+    assert c.integration_suspended is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.asyncio
+async def test_armed_suspend_still_auto_releases_after_a_disable_cycle() -> None:
+    """The full path the bug broke: suspend at night, disable, re-enable, sunrise."""
+    c = _coordinator(suspended=True, armed=False)
+    assert await c._maybe_release_suspend(0.0) is False  # arms, because it is night
+
+    await c.async_set_integration_disabled(True)
+    await c.async_set_integration_disabled(False)
+
+    # Sunrise: solar climbs past the on-threshold.
+    assert await c._maybe_release_suspend(1500.0) is True
+    assert c.integration_suspended is False, "a suspend armed before a disable cycle never auto-released at sunrise"
+
+
+@pytest.mark.asyncio
+async def test_disabling_does_not_touch_arming_either_way() -> None:
+    """Disable must not clear arming, in memory or in storage.
+
+    An earlier fix cleared `suspend_armed` in memory on the way IN to disabled
+    while no longer persisting it. That left the two disagreeing: a restart
+    would read a stale True back out of storage and resurrect arming the user
+    had already lost. Clearing it in neither place removes the divergence, and
+    keeps the flag owned solely by the suspend switch.
+    """
+    c = _coordinator(suspended=True, armed=True)
+
+    await c.async_set_integration_disabled(True)
+    assert c.suspend_armed is True, "disabling cleared arming in memory"
+    assert c.stored_data.get("suspend_armed") is not False
+
+    await c.async_set_integration_disabled(False)
+    assert c.suspend_armed is True
