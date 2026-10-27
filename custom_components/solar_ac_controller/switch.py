@@ -64,7 +64,7 @@ class IntegrationSuspendSwitch(  # pyright: ignore[reportIncompatibleVariableOve
 ):
     """Freeze the plant until the next real sunrise, then resume automatically.
 
-    Switch OFF means suspended. Suspension turns off the zones and drives the
+    Switch ON means suspended. Suspension turns off the zones and drives the
     master relay off once the compressor reads idle; it auto-releases only on a
     genuine sunrise edge (see ``_maybe_release_suspend``), so suspending at noon
     does not undo itself on the next cycle.
@@ -81,7 +81,7 @@ class IntegrationSuspendSwitch(  # pyright: ignore[reportIncompatibleVariableOve
 
     _attr_should_poll = False
     _attr_has_entity_name = True
-    _attr_name = "Integration Suspend"
+    _attr_name = "Suspended"
     _attr_icon = "mdi:pause"
 
     def __init__(self, coordinator: Any, entry: Any) -> None:
@@ -92,7 +92,7 @@ class IntegrationSuspendSwitch(  # pyright: ignore[reportIncompatibleVariableOve
 
     @property
     def is_on(self) -> bool:  # pyright: ignore[reportIncompatibleVariableOverride]
-        return not getattr(self.coordinator, "integration_suspended", False)
+        return getattr(self.coordinator, "integration_suspended", False)
 
     async def async_added_to_hass(self) -> None:
         """Hide this switch while the integration is disabled.
@@ -132,10 +132,10 @@ class IntegrationSuspendSwitch(  # pyright: ignore[reportIncompatibleVariableOve
             )
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        await self.coordinator.async_set_integration_suspended(False)
+        await self.coordinator.async_set_integration_suspended(True)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        await self.coordinator.async_set_integration_suspended(True)
+        await self.coordinator.async_set_integration_suspended(False)
 
 
 class IntegrationDisableSwitch(  # pyright: ignore[reportIncompatibleVariableOverride]
@@ -143,7 +143,7 @@ class IntegrationDisableSwitch(  # pyright: ignore[reportIncompatibleVariableOve
 ):
     """Freeze the plant indefinitely. Only the user releases it.
 
-    Switch OFF means disabled. Like suspension it turns off the zones and drives
+    Switch ON means disabled. Like suspension it turns off the zones and drives
     the master relay off once the compressor reads idle, but nothing releases it -
     not the sun, and not turning it back off again. Turning it ON resumes; it does
     not "resume" anything if the suspend switch is still off, in which case the
@@ -161,7 +161,7 @@ class IntegrationDisableSwitch(  # pyright: ignore[reportIncompatibleVariableOve
 
     _attr_should_poll = False
     _attr_has_entity_name = True
-    _attr_name = "Integration Disable"
+    _attr_name = "Disabled"
     _attr_icon = "mdi:power-plug-off"
 
     def __init__(self, coordinator: Any, entry: Any) -> None:
@@ -172,13 +172,13 @@ class IntegrationDisableSwitch(  # pyright: ignore[reportIncompatibleVariableOve
 
     @property
     def is_on(self) -> bool:  # pyright: ignore[reportIncompatibleVariableOverride]
-        return not getattr(self.coordinator, "integration_disabled", False)
+        return getattr(self.coordinator, "integration_disabled", False)
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        await self.coordinator.async_set_integration_disabled(False)
+        await self.coordinator.async_set_integration_disabled(True)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        await self.coordinator.async_set_integration_disabled(True)
+        await self.coordinator.async_set_integration_disabled(False)
 
 
 class ActivityLoggingSwitch(  # pyright: ignore[reportIncompatibleVariableOverride]
