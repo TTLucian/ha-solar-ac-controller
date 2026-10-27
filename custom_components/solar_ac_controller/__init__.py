@@ -241,6 +241,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     stored_data["integration_disabled"] = stored_data.get("integration_disabled", False)
     stored_data["suspend_armed"] = stored_data.get("suspend_armed", False)
     # 3b. Activity logging enabled state (persisted)
+    stored_data["master_manual_override"] = stored_data.get("master_manual_override", False)
     stored_data["activity_logging_enabled"] = stored_data.get("activity_logging_enabled", False)
     # 3c. Season mode state (persisted)
     stored_data["season_mode"] = stored_data.get(

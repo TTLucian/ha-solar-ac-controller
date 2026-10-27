@@ -191,6 +191,13 @@ class MasterSwitchController:
 
         # Turn OFF when solar is below or equal to OFF threshold
         if solar <= off_threshold and effective_state == "on":
+            if getattr(self.coordinator, "master_manual_override", False):
+                await self.coordinator._log(
+                    "[MASTER_MANUAL_OVERRIDE] auto-off suppressed (manual override active)",
+                    "info",
+                )
+                self.coordinator.master_last_state = effective_state
+                return
             # Both safety gates live in _master_off_ready so that a user freeze
             # and the solar freeze cannot drift apart on what "safe to cut" means.
             ready, reason = await self._master_off_ready(ac_power, require_readable=False)

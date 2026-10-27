@@ -38,6 +38,7 @@ async def async_setup_entry(hass: Any, entry: Any, async_add_entities: Any) -> N
             IntegrationSuspendSwitch(coordinator, entry),
             IntegrationDisableSwitch(coordinator, entry),
             ActivityLoggingSwitch(coordinator, entry),
+            MasterManualOverrideSwitch(coordinator, entry),
         ]
     )
 
@@ -214,3 +215,43 @@ class ActivityLoggingSwitch(  # pyright: ignore[reportIncompatibleVariableOverri
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         await self.coordinator.async_set_activity_logging_enabled(False)
+
+
+class MasterManualOverrideSwitch(  # pyright: ignore[reportIncompatibleVariableOverride]
+    CoordinatorEntity, SwitchEntity
+):
+    """Keep the master relay under manual control.
+
+    When ON, the solar auto-off is suppressed so the plant can run on grid
+    or be operated manually even with no solar production.
+    """
+
+    coordinator: SolarACCoordinator
+
+    @cached_property
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(
+            identifiers={(DOMAIN, self.entry.entry_id)},
+            name="Solar AC Controller",
+        )
+
+    _attr_should_poll = False
+    _attr_has_entity_name = True
+    _attr_name = "Manual Override"
+    _attr_icon = "mdi:hand"
+
+    def __init__(self, coordinator: Any, entry: Any) -> None:
+        super().__init__(coordinator)
+        self.coordinator = coordinator
+        self.entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_master_manual_override"
+
+    @property
+    def is_on(self) -> bool:  # pyright: ignore[reportIncompatibleVariableOverride]
+        return getattr(self.coordinator, "master_manual_override", False)
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        await self.coordinator.async_set_master_manual_override(True)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        await self.coordinator.async_set_master_manual_override(False)

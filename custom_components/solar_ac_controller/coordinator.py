@@ -238,6 +238,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         # the dark half and release on the same day's sunlight.
         self.suspend_armed = self.stored_data.get("suspend_armed", False)
         self.activity_logging_enabled = self.stored_data.get("activity_logging_enabled", False)
+        self.master_manual_override = bool(self.stored_data.get("master_manual_override", False))
 
         # Initialize configuration values BEFORE learned data.
         # _init_learned_data() falls back to self.initial_learned_power when a
@@ -335,6 +336,25 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             persist_keys=("integration_disabled",),
             persist_values=(disabled,),
         )
+
+    async def async_set_master_manual_override(self, enabled: bool) -> None:
+        """Keep the master relay under manual control (no solar auto-off)."""
+        self.master_manual_override = bool(enabled)
+        async with self._storage_lock:
+            self.stored_data["master_manual_override"] = self.master_manual_override
+            self._storage_dirty = True
+        try:
+            await self._debounced_save()
+        except asyncio.CancelledError:
+            raise
+        except (OSError, ValueError) as exc:
+            _LOGGER.exception("Failed to persist master manual override: %s", exc)
+        self.async_update_listeners()
+        await self._log(
+            "[MASTER_MANUAL_OVERRIDE] " + ("enabled" if enabled else "disabled"),
+            "info",
+        )
+
 
     async def _apply_user_freeze_state(
         self,
@@ -590,6 +610,7 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
         self.master_last_state: str | None = None
         self.master_last_action_time: float | None = None
         self.master_manual_lock_state: str | None = None
+        self.master_manual_override = getattr(self, "master_manual_override", False)
         self.required_export: float | None = None
         self.export_margin: float | None = None
         self.master_off_since: float | None = None
