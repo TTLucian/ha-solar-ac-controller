@@ -355,7 +355,6 @@ class SolarACCoordinator(DataUpdateCoordinator[SensorStates]):
             "info",
         )
 
-
     async def _apply_user_freeze_state(
         self,
         *,
